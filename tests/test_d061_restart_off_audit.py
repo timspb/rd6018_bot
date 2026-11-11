@@ -5,11 +5,11 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
-import runtime_safety
+import runtime.safety.runtime_guard as runtime_safety
 from manual_mode import ManualSessionState
 from rd_control_mode import RdControlMode
 from rd_managed_adoption import ManagedAdoptionState, ManagedLiveAdoptionCoordinator
-from managed_runtime_safety import ManagedRuntimeSafetyGuard
+from runtime.safety.managed_guard import ManagedRuntimeSafetyGuard
 
 
 def _stamp(offset_s: float) -> str:

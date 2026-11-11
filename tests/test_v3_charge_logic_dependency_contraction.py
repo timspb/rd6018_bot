@@ -34,8 +34,26 @@ class ChargeLogicDependencyContractionTests(unittest.TestCase):
         self.assertEqual(0.1, PROTECTION_OVP_MARGIN_V.default)
         self.assertEqual(0.1, PROTECTION_OCP_MARGIN_A.default)
         self.assertEqual(300.0, WATCHDOG_TIMEOUT_S.default)
-        self.assertEqual(60.0, HIGH_V_FAST_TIMEOUT_S.default)
+        self.assertEqual(300.0, HIGH_V_FAST_TIMEOUT_S.default)
+        self.assertEqual(HIGH_V_FAST_TIMEOUT_S.default, WATCHDOG_TIMEOUT_S.default)
         self.assertEqual(15.0, HIGH_V_THRESHOLD_V.default)
+
+    def test_high_voltage_communication_watchdog_has_no_early_off_path(self) -> None:
+        """A stale heartbeat above 15 V waits 300s, not a separate 60s."""
+        tree = ast.parse((ROOT / "runtime/safety/communication_watchdog.py").read_text(encoding="utf-8"))
+        watchdog = next(
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "communication_shutdown_due"
+        )
+        names = {
+            node.id for node in ast.walk(watchdog) if isinstance(node, ast.Name)
+        }
+        self.assertIn("timeout_s", names)
+        self.assertNotIn("HIGH_V_FAST_TIMEOUT", names)
+        self.assertNotIn("HIGH_V_THRESHOLD", names)
+        observer = (ROOT / "runtime/safety/watchdog_runtime.py").read_text(encoding="utf-8")
+        self.assertEqual(observer.count("await app._hard_stop_charge()"), 1)
+        self.assertIn("communication_shutdown_due(", observer)
 
     @staticmethod
     def _charge_logic_imports(relative_path: str) -> set[str]:
@@ -60,8 +78,8 @@ class ChargeLogicDependencyContractionTests(unittest.TestCase):
             "production_controller.py",
             "runtime/charge/profiles/manual.py",
             "runtime/production_runtime.py",
-            "runtime_safety.py",
-            "managed_runtime_safety.py",
+            "runtime/safety/runtime_guard.py",
+            "runtime/safety/managed_guard.py",
         )
         violations = {
             path: sorted(self._charge_logic_imports(path))

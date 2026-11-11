@@ -42,6 +42,11 @@ class SignalAnalyzerConfig:
     plateau_abs_span_a: float = 0.03
     plateau_rel_span: float = 0.05
     current_min_update_hysteresis_a: float = 0.005
+    # MAIN-only: one RD6018 display step is 0.01 A. A rise must be
+    # corroborated by two consecutive valid samples; never reuse MIX delta.
+    main_imin_band_a: float = 0.005
+    main_imin_exit_confirmations: int = 2
+    main_imin_max_gap_s: float = 120.0
 
     # CV: finish evidence is a rise of current from a real Imin.
     # The absolute term only prevents sub-resolution current noise from looking like
@@ -89,6 +94,9 @@ class SignalMetrics:
     delta_voltage_from_max_v: Optional[float] = None
     voltage_reversal_threshold_v: Optional[float] = None
     voltage_reversal_confirmations: int = 0
+    main_stable_hold_s: Optional[float] = None
+    main_stable_since_s: Optional[float] = None
+    main_stability_status: str = "not_applicable"
 
 
 @dataclass(frozen=True)
@@ -129,6 +137,9 @@ class SignalAnalyzer:
 
         self._current_min_a: Optional[float] = None
         self._current_min_time_s: Optional[float] = None
+        self._main_hold_since_s: Optional[float] = None
+        self._main_last_sample_s: Optional[float] = None
+        self._main_high_count: int = 0
         self._reversal_confirmations = 0
         self._last_reversal_confirmation_s: Optional[float] = None
         self._reversal_emitted = False
@@ -151,6 +162,9 @@ class SignalAnalyzer:
 
         self._current_min_a = None
         self._current_min_time_s = None
+        self._main_hold_since_s = None
+        self._main_last_sample_s = None
+        self._main_high_count = 0
         self._reversal_confirmations = 0
         self._last_reversal_confirmation_s = None
         self._reversal_emitted = False
@@ -264,10 +278,34 @@ class SignalAnalyzer:
         if self._current_min_a is None or sample.current_a < self._current_min_a - hysteresis:
             self._current_min_a = sample.current_a
             self._current_min_time_s = sample.timestamp_s
+            if (self.stage_name or "").strip().casefold() == "main charge":
+                self._main_hold_since_s = sample.timestamp_s
+                self._main_high_count = 0
             self._reversal_confirmations = 0
             self._last_reversal_confirmation_s = None
             self._reversal_emitted = False
             events.add(SignalEvent.CURRENT_MINIMUM_UPDATED)
+
+    def _update_main_stable_hold(self, sample: SignalSample) -> None:
+        if (self.stage_name or "").strip().casefold() != "main charge":
+            return
+        previous = self._main_last_sample_s
+        self._main_last_sample_s = sample.timestamp_s
+        if not sample.is_cv or self._current_min_a is None:
+            self._main_hold_since_s = None
+            self._main_high_count = 0
+            return
+        if previous is not None and sample.timestamp_s - previous > self.config.main_imin_max_gap_s:
+            self._main_hold_since_s = None
+            self._main_high_count = 0
+        if sample.current_a > self._current_min_a + self.config.main_imin_band_a:
+            self._main_high_count += 1
+            if self._main_high_count >= max(1, self.config.main_imin_exit_confirmations):
+                self._main_hold_since_s = None
+            return
+        self._main_high_count = 0
+        if self._main_hold_since_s is None:
+            self._main_hold_since_s = sample.timestamp_s
 
     def _update_voltage_maximum(self, sample: SignalSample, events: set[SignalEvent]) -> None:
         if not sample.is_cc:
@@ -376,6 +414,7 @@ class SignalAnalyzer:
         self._samples.append(sample)
         events: set[SignalEvent] = set()
         self._update_minimum(sample, events)
+        self._update_main_stable_hold(sample)
         self._update_voltage_maximum(sample, events)
 
         rate_window = self._window(sample.timestamp_s, self.config.rate_window_s)
@@ -399,6 +438,19 @@ class SignalAnalyzer:
             sample.current_a - self._current_min_a
             if self._current_min_a is not None
             else None
+        )
+        main_stage = (self.stage_name or "").strip().casefold() == "main charge"
+        main_hold_s = (
+            max(0.0, sample.timestamp_s - self._main_hold_since_s)
+            if main_stage and sample.is_cv and self._main_hold_since_s is not None
+            and self._main_high_count == 0 else 0.0 if main_stage else None
+        )
+        main_status = (
+            ("holding" if main_hold_s and main_hold_s > 0 else
+             "candidate" if self._main_hold_since_s is not None and self._main_high_count == 0 else
+             "rise_pending" if self._main_high_count > 0 and self._main_hold_since_s is not None else
+             "away_from_minimum" if self._current_min_a is not None else "searching")
+            if main_stage else "not_applicable"
         )
         seconds_since_vmax = (
             sample.timestamp_s - self._voltage_max_time_s
@@ -492,6 +544,9 @@ class SignalAnalyzer:
                 delta_voltage_from_max_v=delta_from_vmax,
                 voltage_reversal_threshold_v=self._voltage_reversal_threshold_v(),
                 voltage_reversal_confirmations=self._voltage_reversal_confirmations,
+                main_stable_hold_s=main_hold_s,
+                main_stable_since_s=(self._main_hold_since_s if main_status in {"holding", "candidate"} else None),
+                main_stability_status=main_status,
             ),
             events=frozenset(events),
         )

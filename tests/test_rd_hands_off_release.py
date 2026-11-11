@@ -8,7 +8,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from manual_mode import ManualSessionState
 from rd_control_mode import RdControlMode, RdControlModeManager
 from rd_hands_off_release import _active_session_token, install_rd_hands_off_release
-from runtime_safety import RuntimeSafetyError
+from runtime.safety.runtime_guard import RuntimeSafetyError
 
 
 class FakeGuard:

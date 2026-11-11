@@ -10,7 +10,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from manual_mode import ManualSessionState
 from operator_confirmation import ConfirmationStore
 from rd_control_mode import RdControlMode, RdControlModeManager
-from runtime_safety import RuntimeSafetyError
+from runtime.safety.runtime_guard import RuntimeSafetyError
 
 
 logger = logging.getLogger(__name__)

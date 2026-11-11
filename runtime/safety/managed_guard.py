@@ -6,18 +6,25 @@ import math
 import time
 from typing import Any, Optional
 
-from runtime.safety.variables import MAX_STAGE_CURRENT_A
+from runtime.safety.variables import MAX_STAGE_CURRENT_A, WATCHDOG_TIMEOUT_S
+from runtime.safety.telemetry_recovery import (
+    isolated_callback_recovery_eligible, known_unsafe_observation,
+)
+from runtime.safety.live_freshness import runtime_freshness_error
+from runtime.safety.critical_telemetry import managed_critical_telemetry_error
+from runtime.safety.electrical_envelope import managed_envelope_error
+from runtime.safety.foreign_output import foreign_output_safety_error
 
 MAX_STAGE_CURRENT = float(MAX_STAGE_CURRENT_A.default)
-from external_temp_integrity import ExternalTempIntegrityMonitor, ExternalTempIntegrityPolicy
+from runtime.safety.temperature_integrity import ExternalTempIntegrityMonitor, ExternalTempIntegrityPolicy
 from rd6018_telemetry import (
     ProtectionStatus,
     canonical_programmed_readback,
     resolve_protection,
     telemetry_freshness,
 )
-from runtime_safety import OutputOffNotConfirmed, RuntimeSafetyError, _binary, _finite
-from runtime_safety_strict import StrictRuntimeSafetyGuard
+from runtime.safety.runtime_guard import OutputOffNotConfirmed, RuntimeSafetyError, _binary, _finite
+from runtime.safety.strict_guard import StrictRuntimeSafetyGuard
 
 logger = logging.getLogger("rd6018")
 
@@ -38,7 +45,7 @@ class ManagedRuntimeSafetyGuard(StrictRuntimeSafetyGuard):
     OFF_UNCONFIRMED_RETRY_S = 60.0
     # Owner-authorized Native communication-loss budget. The independent
     # 900-second ESP safety lease remains unchanged.
-    TELEMETRY_UNAVAILABLE_GRACE_S = 300.0
+    TELEMETRY_UNAVAILABLE_GRACE_S = float(WATCHDOG_TIMEOUT_S.default)
 
     @staticmethod
     def _current_evidence(live: dict[str, Any]) -> Optional[float]:
@@ -107,6 +114,14 @@ class ManagedRuntimeSafetyGuard(StrictRuntimeSafetyGuard):
         if not self._is_transient_telemetry_error(reason):
             self._telemetry_unavailable_since = None
             return False
+        if known_unsafe_observation(
+            live, max_voltage_v=self.policy.absolute_voltage_ceiling_v,
+            max_current_a=self.policy.absolute_current_ceiling_a,
+            critical_battery_temp_c=self.policy.critical_temp_c,
+            max_psu_temp_c=self.policy.max_internal_temp_c,
+        ):
+            self._telemetry_unavailable_since = None
+            return False
         # A known Native TCP interruption can restore only part of its
         # callback batch. Keep ONE 300s budget, anchored to the original
         # disconnect, even if measured U/I or Output R18 arrive before the
@@ -118,14 +133,21 @@ class ManagedRuntimeSafetyGuard(StrictRuntimeSafetyGuard):
             and math.isfinite(native_since)
             and native_since >= 0
         )
-        if not native_outage:
-            # Without evidence of a Native link outage, only a complete
-            # blackout receives communication-loss grace. Isolated stale
-            # channels still fail closed immediately.
-            if any(
+        # A live Native connection can lose an independent callback stream.
+        # Permit this wait only with fresh physical Output/protection evidence.
+        if not native_outage and not isolated_callback_recovery_eligible(
+            live, reason, output_known=_binary(live.get("switch")) is not None,
+            max_voltage_v=self.policy.absolute_voltage_ceiling_v,
+            max_current_a=self.policy.absolute_current_ceiling_a,
+            critical_battery_temp_c=self.policy.critical_temp_c,
+            max_psu_temp_c=self.policy.max_internal_temp_c,
+        ):
+            # Retain the established complete-blackout recovery allowance.
+            blackout = not any(
                 _finite(live.get(key)) is not None
                 for key in ("battery_voltage", "current", "temp_ext", "temp_int")
-            ) or _binary(live.get("switch")) is not None:
+            ) and _binary(live.get("switch")) is None
+            if not blackout:
                 self._telemetry_unavailable_since = None
                 return False
         now = time.monotonic()
@@ -133,7 +155,7 @@ class ManagedRuntimeSafetyGuard(StrictRuntimeSafetyGuard):
         if self._telemetry_unavailable_since is None:
             self._telemetry_unavailable_since = started
             logger.warning(
-                "Native/telemetry communication lost; withholding software STOP "
+                "Managed telemetry recovery pending; withholding software STOP "
                 "for up to %.0fs: %s",
                 self.TELEMETRY_UNAVAILABLE_GRACE_S,
                 reason,
@@ -145,11 +167,20 @@ class ManagedRuntimeSafetyGuard(StrictRuntimeSafetyGuard):
         if now - self._telemetry_unavailable_since < self.TELEMETRY_UNAVAILABLE_GRACE_S:
             return True
         logger.error(
-            "Native/telemetry communication outage exceeded %.0fs: %s",
+            "Managed telemetry recovery window exceeded %.0fs: %s",
             self.TELEMETRY_UNAVAILABLE_GRACE_S,
             reason,
         )
         return False
+
+    @property
+    def telemetry_recovery_active(self) -> bool:
+        """Bounded hold owned by this guard; never authorizes a physical write."""
+        since = self._telemetry_unavailable_since
+        return bool(
+            since is not None
+            and 0 <= time.monotonic() - since < self.TELEMETRY_UNAVAILABLE_GRACE_S
+        )
 
     def _clear_telemetry_grace(self) -> None:
         self._telemetry_unavailable_since = None
@@ -222,7 +253,15 @@ class ManagedRuntimeSafetyGuard(StrictRuntimeSafetyGuard):
 
     @property
     def controller_active(self) -> bool:
-        return super().controller_active or self.manual_active
+        if super().controller_active or self.manual_active:
+            return True
+        # Terminal Storage may intentionally own an ON output even though
+        # Done is no longer a ticking charge stage. RAM intent alone is never
+        # sufficient: require the exact fsynced canonical session and guard.
+        from runtime.charge.persistence import managed_storage_ownership_proven
+        return managed_storage_ownership_proven(
+            getattr(self.app, "charge_controller", None)
+        )
 
     def _recipe_voltage_ceiling(self) -> float:
         if self.manual_active:
@@ -230,62 +269,15 @@ class ManagedRuntimeSafetyGuard(StrictRuntimeSafetyGuard):
         return super()._recipe_voltage_ceiling()
 
     def _critical_telemetry_error(
-        self,
-        live: dict[str, Any],
-        *,
-        require_programming: bool,
+        self, live: dict[str, Any], *, require_programming: bool,
     ) -> Optional[str]:
-        numeric_keys = ["battery_voltage", "current", "temp_ext", "temp_int"]
-        if require_programming:
-            numeric_keys.append("voltage")
-        for key in numeric_keys:
-            if _finite(live.get(key)) is None:
-                return f"required telemetry {key} is missing/unavailable"
-
-        if _binary(live.get("switch")) is None:
-            return "required telemetry switch is missing/unavailable"
-
-        raw_protection_available = live.get("protection_code") not in (
-            None,
-            "",
-            "unknown",
-            "unavailable",
+        return managed_critical_telemetry_error(
+            live, require_programming=require_programming,
+            min_battery_voltage_v=self.policy.min_battery_voltage_v,
+            max_battery_voltage_v=self.policy.max_battery_voltage_v,
+            critical_temp_c=self.policy.critical_temp_c,
+            max_internal_temp_c=self.policy.max_internal_temp_c,
         )
-        if not raw_protection_available:
-            for key in ("ovp_triggered", "ocp_triggered"):
-                if _binary(live.get(key)) is None:
-                    return f"required telemetry {key} is missing/unavailable"
-
-        protection = resolve_protection(live)
-        if protection.status is ProtectionStatus.UNKNOWN:
-            return "RD6018 protection status is unknown"
-        if protection.status is ProtectionStatus.OPP:
-            return "RD6018 OPP protection is tripped"
-
-        battery_v = _finite(live.get("battery_voltage"))
-        assert battery_v is not None
-        if not (
-            self.policy.min_battery_voltage_v
-            <= battery_v
-            <= self.policy.max_battery_voltage_v
-        ):
-            return f"battery voltage is implausible: {battery_v:.3f}V"
-
-        temp_ext = _finite(live.get("temp_ext"))
-        temp_int = _finite(live.get("temp_int"))
-        assert temp_ext is not None and temp_int is not None
-        if temp_ext >= self.policy.critical_temp_c:
-            return f"battery temperature {temp_ext:.1f}C is critical"
-        if temp_int >= self.policy.max_internal_temp_c:
-            return f"power-supply temperature {temp_int:.1f}C is critical"
-
-        if require_programming:
-            for key in ("set_voltage", "set_current", "ovp", "ocp"):
-                if self._programmed_evidence(live, key) is None:
-                    if key == "set_current":
-                        return "authoritative current readback V2 is missing/stale"
-                    return f"authoritative {key} readback V2 is missing/stale"
-        return None
 
     @staticmethod
     def _available(value: Any) -> bool:
@@ -297,125 +289,29 @@ class ManagedRuntimeSafetyGuard(StrictRuntimeSafetyGuard):
         *,
         output_state: Optional[bool],
     ) -> Optional[str]:
-        if not isinstance(live.get("_meta"), dict):
-            return "critical runtime telemetry freshness metadata is missing"
-
-        keys = list(self.RUNTIME_FRESHNESS_KEYS)
-        if output_state is True:
-            keys.append("voltage")
-
-        if self._available(live.get("protection_code")):
-            keys.append("protection_code")
-        else:
-            keys.extend(("ovp_triggered", "ocp_triggered"))
-
-        if output_state is True:
-            if self._available(live.get("regulation_code")):
-                keys.append("regulation_code")
-            else:
-                for key in ("is_cv", "is_cc"):
-                    if self._available(live.get(key)):
-                        keys.append(key)
-
-        freshness = telemetry_freshness(live, keys)
-        if freshness.valid:
-            return None
-        return f"critical runtime telemetry is stale/incoherent: {freshness.detail}"
-
-    def _foreign_output_safety_error(self, live: dict[str, Any]) -> Optional[str]:
-        """Validate only ownership-neutral evidence during the orphan decision window.
-
-        A freshly observed Output ON with no software charge session is not yet a Pb
-        program. Requiring battery temperature, battery-voltage plausibility, recipe
-        setpoints or regulation mode before the operator can choose Adopt/HANDS_OFF/OFF
-        would let Pb policy seize an externally programmed PSU before ownership is
-        resolved. The short D068 window therefore keeps only physical Output truth and
-        RD protection status as mandatory host evidence. A positively observed internal
-        PSU over-temperature remains immediate OFF authority; missing temp_int alone is
-        left to D064's edge-local intrinsic guard during this bounded window.
-        """
-        if not isinstance(live.get("_meta"), dict):
-            return "unmanaged Output ON lacks freshness metadata for ownership recovery"
-
-        protection_keys: tuple[str, ...]
-        if self._available(live.get("protection_code")):
-            protection_keys = ("protection_code",)
-        else:
-            protection_keys = ("ovp_triggered", "ocp_triggered")
-
-        freshness = telemetry_freshness(live, ("switch",) + protection_keys)
-        if not freshness.valid:
-            return (
-                "unmanaged Output ON has stale/incoherent ownership-neutral telemetry: "
-                f"{freshness.detail}"
-            )
-
-        protection = resolve_protection(live)
-        if protection.status is ProtectionStatus.UNKNOWN:
-            return "RD6018 protection status is unknown during ownership recovery"
-        if protection.tripped:
-            return f"RD6018 {protection.status.value.upper()} protection is tripped"
-
-        temp_int = _finite(live.get("temp_int"))
-        if (
-            temp_int is not None
-            and temp_int >= float(self.policy.max_internal_temp_c)
-        ):
-            return (
-                f"RD6018 temperature {temp_int:.1f}C >= "
-                f"{self.policy.max_internal_temp_c:.1f}C"
-            )
-        return None
-
-    def _runtime_envelope_error(self, live: dict[str, Any]) -> Optional[str]:
-        protection = resolve_protection(live)
-        if protection.status in {ProtectionStatus.OVP, ProtectionStatus.OCP}:
-            return None
-
-        set_v = self._programmed_evidence(live, "set_voltage")
-        set_i = self._programmed_evidence(live, "set_current")
-        ovp = self._programmed_evidence(live, "ovp")
-        ocp = self._programmed_evidence(live, "ocp")
-        actual_v = _finite(live.get("voltage"))
-        actual_i = _finite(live.get("current"))
-        if None in (set_v, set_i, ovp, ocp, actual_v, actual_i):
-            return "programming/readback/measured output became invalid while output was ON"
-        assert (
-            set_v is not None
-            and set_i is not None
-            and ovp is not None
-            and ocp is not None
-            and actual_v is not None
-            and actual_i is not None
+        # Retain the original entrypoint used by managed adoption. This guard
+        # alone decides whether a freshness error triggers grace or fail-closed.
+        return runtime_freshness_error(
+            live, output_state=output_state, required_keys=self.RUNTIME_FRESHNESS_KEYS,
         )
 
-        recipe_ceiling = self._recipe_voltage_ceiling()
-        if set_v > recipe_ceiling + self.READBACK_TOLERANCE:
-            return f"set voltage {set_v:.3f}V exceeds recipe ceiling {recipe_ceiling:.3f}V"
-        if set_v > self.policy.absolute_voltage_ceiling_v + self.READBACK_TOLERANCE:
-            return f"set voltage {set_v:.3f}V exceeds absolute ceiling"
-        if actual_v > recipe_ceiling + self.READBACK_TOLERANCE:
-            return f"measured output voltage {actual_v:.3f}V exceeds recipe ceiling {recipe_ceiling:.3f}V"
-        if actual_v > self.policy.absolute_voltage_ceiling_v + self.READBACK_TOLERANCE:
-            return f"measured output voltage {actual_v:.3f}V exceeds absolute ceiling"
-        # Zero disables OVP in RD60xx; it is not a zero-volt limit.
-        if ovp > 0 and actual_v > ovp + self.READBACK_TOLERANCE:
-            return f"measured output voltage {actual_v:.3f}V exceeds configured OVP {ovp:.3f}V"
-        if set_i <= 0 or set_i > float(MAX_STAGE_CURRENT) + self.READBACK_TOLERANCE:
-            return f"set current {set_i:.3f}A exceeds runtime envelope"
-        if actual_i > self.policy.absolute_current_ceiling_a + self.READBACK_TOLERANCE:
-            return f"measured current {actual_i:.3f}A exceeds absolute working-current envelope"
-        if ocp > 0 and actual_i > ocp + self.READBACK_TOLERANCE:
-            return f"measured current {actual_i:.3f}A exceeds configured OCP {ocp:.3f}A"
-        if ovp > self.policy.absolute_ovp_ceiling_v + self.READBACK_TOLERANCE:
-            return f"OVP {ovp:.3f}V exceeds absolute protection ceiling"
-        if ocp > self.policy.absolute_ocp_ceiling_a + self.READBACK_TOLERANCE:
-            return f"OCP {ocp:.3f}A exceeds absolute protection ceiling"
-        if ovp > 0 and ovp + self.READBACK_TOLERANCE < set_v + self.PROTECTION_MARGIN:
-            return f"OVP {ovp:.3f}V does not protect set voltage {set_v:.3f}V"
-        if ocp > 0 and ocp + self.READBACK_TOLERANCE < set_i + self.PROTECTION_MARGIN:
-            return f"OCP {ocp:.3f}A does not protect set current {set_i:.3f}A"
-        return None
+    def _foreign_output_safety_error(self, live: dict[str, Any]) -> Optional[str]:
+        return foreign_output_safety_error(
+            live, max_internal_temp_c=self.policy.max_internal_temp_c,
+        )
+
+    def _runtime_envelope_error(self, live: dict[str, Any]) -> Optional[str]:
+        return managed_envelope_error(
+            live,
+            recipe_ceiling_v=self._recipe_voltage_ceiling(),
+            absolute_voltage_ceiling_v=self.policy.absolute_voltage_ceiling_v,
+            absolute_current_ceiling_a=self.policy.absolute_current_ceiling_a,
+            absolute_ovp_ceiling_v=self.policy.absolute_ovp_ceiling_v,
+            absolute_ocp_ceiling_a=self.policy.absolute_ocp_ceiling_a,
+            max_stage_current_a=float(MAX_STAGE_CURRENT),
+            readback_tolerance=self.READBACK_TOLERANCE,
+            protection_margin=self.PROTECTION_MARGIN,
+        )
 
     def _stage_target(self, live: dict[str, Any]) -> tuple[Optional[float], Optional[float]]:
         if self.manual_active:
@@ -590,6 +486,11 @@ class ManagedRuntimeSafetyGuard(StrictRuntimeSafetyGuard):
         safety_relevant = self.controller_active or output_state is True
         if not safety_relevant:
             self._orphan_output_seen_at = None
+            # A retired owner with freshly observed Output OFF ends this
+            # telemetry incident. Never carry its old 300s deadline into a
+            # later charging session; unknown/stale Output cannot reset it.
+            if output_state is False and self._output_evidence_is_fresh(live):
+                self._clear_telemetry_grace()
             return live
 
         # D068: an already-ON Output with no managed software session first gets one
@@ -629,7 +530,7 @@ class ManagedRuntimeSafetyGuard(StrictRuntimeSafetyGuard):
         )
         if error is not None:
             if self._telemetry_grace_active(live, error):
-                return live
+                return {**live, "_managed_telemetry_recovery_pending": True}
             await self._fail_closed("telemetry_invalid", error, output_state=output_state)
 
         freshness_error = self._runtime_freshness_error(
@@ -638,7 +539,7 @@ class ManagedRuntimeSafetyGuard(StrictRuntimeSafetyGuard):
         )
         if freshness_error is not None:
             if self._telemetry_grace_active(live, freshness_error):
-                return live
+                return {**live, "_managed_telemetry_recovery_pending": True}
             await self._fail_closed(
                 "telemetry_stale",
                 freshness_error,

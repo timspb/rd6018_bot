@@ -5,8 +5,8 @@ import os
 from typing import Any, Optional
 
 from config import TEMP_INT_PRECRITICAL
-from edge_safety_lease import EdgeSafetyLease
-from runtime_safety import (
+from runtime.safety.edge_lease import EdgeSafetyLease
+from runtime.safety.runtime_guard import (
     RuntimeSafetyError,
     RuntimeSafetyGuard,
     _binary,

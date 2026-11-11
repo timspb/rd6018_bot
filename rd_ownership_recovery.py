@@ -8,7 +8,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 import operator_hmi as hmi
 from rd6018_telemetry import telemetry_freshness
 from rd_control_mode import RdControlMode, RdControlModeManager
-from runtime_safety import OutputOffNotConfirmed, RuntimeSafetyError
+from runtime.safety.runtime_guard import OutputOffNotConfirmed, RuntimeSafetyError
 
 
 def _managed_active(app: Any) -> bool:
@@ -202,6 +202,9 @@ def install_rd_ownership_recovery(
             if actions is not None
             else original_keyboard(app_arg, state)
         )
+        # One installed manager may only decorate its own app keyboard.
+        if app_arg is not app:
+            return markup
         if actions is not None:
             # The production snapshot path supplies the capability view explicitly.
             # Keep ownership controls on that path as well; otherwise the final

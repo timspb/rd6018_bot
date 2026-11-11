@@ -91,6 +91,7 @@ def inspect_candidate(*, root: Path, stage: Path, pid: int,
         "source_files": len(expected), "venv": venv_record,
         "preserved_guarded_main": actual_preimage.get("preserved_guarded_main") is not None,
         "preserved_guard": actual_preimage.get("preserved_guarded_main"),
+        "preserved_quarantine": actual_preimage.get("preserved_quarantine"),
         "legacy_d090_untouched": True, "admitted_for_activation": False
     }
     # Bind the stable guarded-session identity into the release identity, but

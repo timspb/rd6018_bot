@@ -34,6 +34,7 @@ class MainGuardAdmissionTests(unittest.TestCase):
         self.live = {
             "output_state_code_v2": 1, "current": 4.0,
             "set_current_readback_v2": 7.0, "ocp_readback_v2": 7.1,
+            "protection_code": 0,
         }
         self.live["_meta"] = {
             key: {"status": "ok", "age_s": 0.2,
@@ -79,10 +80,16 @@ class MainGuardAdmissionTests(unittest.TestCase):
                     "ah_limit":70,"target_current":7.0,"output_intent":"off",
                 }
 
+    def test_live_iset_admission_accepts_physical_register_tolerance(self):
+        self.live["set_current_readback_v2"] = 7.04
+        self.assertIsNotNone(self.admit())
+        self.live["set_current_readback_v2"] = 7.051
+        self.assertIsNone(self.admit())
+
     def test_live_programming_must_match_durable_recipe(self):
         for key,value in [
             ("set_current_readback_v2",7.3), ("set_current_readback_v2",None),
-            ("ocp_readback_v2",6.5), ("output_state_code_v2",0),
+            ("protection_code",1), ("output_state_code_v2",0),
         ]:
             with self.subTest(field=key):
                 saved=self.live[key]
@@ -92,8 +99,17 @@ class MainGuardAdmissionTests(unittest.TestCase):
         self.controller.ah_capacity=100
         self.assertIsNone(self.admit())
 
+    def test_ocp_numeric_readback_is_not_main_guard_authority(self):
+        original = self.live["_meta"]["ocp_readback_v2"]
+        self.live["_meta"]["ocp_readback_v2"] = {"status": "stale", "age_s": 60}
+        self.live["ocp_readback_v2"] = None
+        self.assertIsNotNone(self.admit())
+        self.live["_meta"]["ocp_readback_v2"] = original
+        self.live["protection_code"] = 2
+        self.assertIsNone(self.admit())
+
     def test_native_freshness_must_cover_all_required_registers(self):
-        for key in ("output_state_code_v2","current","set_current_readback_v2","ocp_readback_v2"):
+        for key in ("output_state_code_v2","current","set_current_readback_v2","protection_code"):
             with self.subTest(key=key):
                 original=self.live["_meta"][key]
                 self.live["_meta"][key]={"status":"ok","age_s":30}
@@ -103,7 +119,7 @@ class MainGuardAdmissionTests(unittest.TestCase):
         self.assertIsNone(self.admit())
 
     def test_fresh_ha_metadata_cannot_authorize_main_guard(self):
-        for key in ("output_state_code_v2", "current", "set_current_readback_v2", "ocp_readback_v2"):
+        for key in ("output_state_code_v2", "current", "set_current_readback_v2", "protection_code"):
             original = self.live["_meta"][key]
             self.live["_meta"][key] = {"status": "ok", "age_s": 0.0}
             self.assertIsNone(self.admit(), key)

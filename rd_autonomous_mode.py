@@ -12,7 +12,7 @@ from runtime.ui.telegram.off_conditions import OFF_CALLBACK_DATA
 from edge_autonomous_mode import EdgeAutonomousAuthority
 from operator_confirmation import ConfirmationStore
 from rd6018_telemetry import telemetry_freshness
-from runtime_safety import RuntimeSafetyError, _binary
+from runtime.safety.runtime_guard import RuntimeSafetyError, _binary
 
 
 class RdAutonomousModeCoordinator:

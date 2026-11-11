@@ -1,6 +1,6 @@
 import unittest
 
-from edge_safety_lease import (
+from runtime.safety.edge_lease import (
     EDGE_ENTITY_PREFIX,
     EdgeSafetyLease,
     EdgeSafetyLeaseConfig,

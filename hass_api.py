@@ -12,14 +12,8 @@ import aiohttp
 
 from config import ENTITY_MAP, HA_INSECURE_LOCAL, HA_URL, HA_TOKEN
 from rd6018_telemetry import canonicalize_live, canonical_programmed_readback, finite_float
-from safe_output import (
-    EnableResult,
-    OutputRequest,
-    SafeOutputCoordinator,
-    SafetyPolicy,
-    SafetySupervisor,
-    snapshot_from_live,
-)
+from runtime.safety.output_policy import EnableResult, OutputRequest, SafetyPolicy, SafetySupervisor, snapshot_from_live
+from application.safe_output_coordinator import SafeOutputCoordinator
 
 logger = logging.getLogger("rd6018")
 
@@ -376,65 +370,87 @@ class HassClient:
     async def _retire_unrequested_protection_limits(
         self, request: OutputRequest, before: Any,
     ) -> bool:
-        """Remove *old* OVP/OCP only while OFF, before a new managed enable.
+        """Reprogram retained OVP/OCP to bounded targets while Output is OFF.
 
-        Riden retains protection registers between charging programs. A prior
-        OCP of 1.32 A tripped a new 6 A Iset (node104, 2026-11-06).
-        No protection programming is performed for a limit explicitly owned
-        by the current recipe (e.g. MIX OCP). Never infer a safe zero from
-        a missing readback, and never retry an Output ON here.
+        Riden keeps MIX protection registers across sessions. Clearing these
+        registers to zero is not a safe replacement for a new MAIN request,
+        and the physical edge may reject it. Use the same owner-defined
+        headroom as the normal managed stage, then prove V2 readback.
         """
-        stale = []
-        for key, target, actual, setter in (
-            ("ovp", request.ovp_v, before.ovp_v, self.set_ovp),
-            ("ocp", request.ocp_a, before.ocp_a, self.set_ocp),
+        from runtime.safety.variables import (
+            PROTECTION_OCP_MARGIN_A, PROTECTION_OVP_MARGIN_V,
+        )
+
+        policy = self._safety_supervisor.policy
+        replacements = []
+        for key, requested, current, margin, actual, setter in (
+            ("ovp", request.ovp_v, request.voltage_v,
+             float(PROTECTION_OVP_MARGIN_V.default), before.ovp_v, self.set_ovp),
+            ("ocp", request.ocp_a, request.current_a,
+             float(PROTECTION_OCP_MARGIN_A.default), before.ocp_a, self.set_ocp),
         ):
-            if target is not None:
+            if requested is not None:
                 continue
             if actual is None:
                 logger.error("START refused: missing old %s register readback", key)
                 return False
-            stale.append((key, setter))
-        if not stale:
+            target = round(current + margin, 2)
+            protection_request = OutputRequest(
+                voltage_v=request.voltage_v,
+                current_a=request.current_a,
+                ovp_v=target if key == "ovp" else None,
+                ocp_a=target if key == "ocp" else None,
+                recipe_voltage_ceiling_v=request.recipe_voltage_ceiling_v,
+            )
+            if target <= 0 or not self._safety_supervisor.preflight(
+                protection_request, before
+            ).allowed:
+                logger.error("START refused: calculated %s protection violates safety envelope", key)
+                return False
+            replacements.append((key, target, setter))
+
+        if not replacements:
             return True
 
-        # A normal preflight has already proven fresh physical OFF and V/I.
-        # Revalidate immediately before touching retained registers.
         live = await self.get_all_live()
         snap = snapshot_from_live(live, require_programming_freshness=True)
         if snap is None or snap.output_on or not self._safety_supervisor.preflight(request, snap).allowed:
-            logger.error("START refused: retained protection clearance lacks fresh OFF preflight")
+            logger.error("START refused: retained protection programming lacks fresh OFF preflight")
             return False
-        for key, setter in stale:
+
+        for key, target, setter in replacements:
             actual = canonical_programmed_readback(live, key)
             if actual is None:
                 logger.error("START refused: %s V2 readback missing", key)
                 return False
-            if abs(actual) > 0.005:
-                try:
-                    if not await setter(0.0):
-                        logger.error("START refused: cannot retire old %s=%.2f", key, actual)
-                        return False
-                except Exception as exc:
-                    logger.error("START refused: %s retirement failed: %s", key, type(exc).__name__)
+            if abs(actual - target) <= policy.protection_readback_tolerance:
+                continue
+            try:
+                if not await setter(target):
+                    logger.error("START refused: cannot reprogram old %s=%.2f to %.2f",
+                                 key, actual, target)
                     return False
-                logger.info("START retired stale %s=%.2f while Output OFF", key, actual)
+            except Exception as exc:
+                logger.error("START refused: %s protection programming failed: %s",
+                             key, type(exc).__name__)
+                return False
+            logger.info("START programmed %s protection=%.2f while Output OFF", key, target)
 
         deadline = time.monotonic() + 10.0
         while True:
             live = await self.get_all_live()
             snap = snapshot_from_live(live, require_programming_freshness=True)
             if snap is None or snap.output_on or not self._safety_supervisor.preflight(request, snap).allowed:
-                logger.error("START refused: physical OFF/preflight lost during protection retirement")
+                logger.error("START refused: physical OFF/preflight lost during protection programming")
                 return False
             if all(
                 (value := canonical_programmed_readback(live, key)) is not None
-                and abs(value) <= 0.005
-                for key, _ in stale
+                and abs(value - target) <= policy.protection_readback_tolerance
+                for key, target, _ in replacements
             ):
                 return True
             if time.monotonic() >= deadline:
-                logger.error("START refused: old OVP/OCP did not clear in readback window")
+                logger.error("START refused: OVP/OCP did not reach bounded targets in readback window")
                 return False
             await asyncio.sleep(0.25)
 

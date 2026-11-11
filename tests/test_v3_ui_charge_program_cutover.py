@@ -159,15 +159,18 @@ class V3ChargeProgramCutoverTests(unittest.TestCase):
         self.assertNotIn("await restore_dashboard_to_bottom", charge_route)
 
     def test_operator_hmi_uses_canonical_charge_and_battery_callbacks(self):
-        source = (ROOT / "operator_hmi.py").read_text(encoding="utf-8")
-        self.assertIn(
-            'OperatorAction.START_CHARGE: ("⚡ Режимы заряда", CHARGE_CALLBACK_DATA)',
-            source,
-        )
-        self.assertIn(
-            'OperatorAction.SELECT_PROFILE: ("🔋 АКБ", BATTERIES_CALLBACK_DATA)',
-            source,
-        )
+        from application.operator_actions import OperatorAction, OperatorActionSpec, OperatorActionsView
+        from operator_hmi import _keyboard_from_actions
+        from runtime.ui.labels.operator_actions import OPERATOR_ACTION_LABELS
+        self.assertEqual(OPERATOR_ACTION_LABELS[OperatorAction.START_CHARGE][1], CHARGE_CALLBACK_DATA)
+        self.assertEqual(OPERATOR_ACTION_LABELS[OperatorAction.SELECT_PROFILE][1], BATTERIES_CALLBACK_DATA)
+        actions = OperatorActionsView(tuple(OperatorActionSpec(action) for action in (
+            OperatorAction.START_CHARGE, OperatorAction.SELECT_PROFILE
+        )))
+        keyboard = _keyboard_from_actions(actions)
+        callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row]
+        self.assertIn(CHARGE_CALLBACK_DATA, callbacks)
+        self.assertIn(BATTERIES_CALLBACK_DATA, callbacks)
 
     def test_canonical_charge_ui_has_no_historical_or_physical_imports(self):
         for rel in (

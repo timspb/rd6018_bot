@@ -1,7 +1,7 @@
 import types
 import unittest
 
-from runtime_safety_strict import install_strict_runtime_safety
+from runtime.safety.strict_guard import install_strict_runtime_safety
 
 
 class FakeHass:

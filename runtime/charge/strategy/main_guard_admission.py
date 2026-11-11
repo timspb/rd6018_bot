@@ -12,13 +12,17 @@ import math
 from pathlib import Path
 from typing import Any, Mapping
 
-from rd6018_telemetry import canonical_programmed_readback, finite_float, telemetry_freshness
+from rd6018_telemetry import (
+    canonical_programmed_readback, decode_protection_code, finite_float,
+    telemetry_freshness, CURRENT_SETPOINT_READBACK_TOLERANCE_A,
+)
 from runtime.charge.strategy.main_targets import select_main_target
 from runtime.charge.strategy.main_guard_session import GUARD_KEY, GuardJournalError, read_guard
 
 MAX_SESSION_AGE_S = 120.0
 MAX_NATIVE_AGE_S = 10.0
-READBACK_MARGIN_A = 0.02
+# Same physical Iset register tolerance used by MAIN Guard execution/resume.
+READBACK_MARGIN_A = CURRENT_SETPOINT_READBACK_TOLERANCE_A
 
 
 @dataclass(frozen=True)
@@ -139,14 +143,19 @@ def admit_main_guard_shadow(
     meta = live.get("_meta")
     if not isinstance(meta, Mapping):
         return None
-    keys = ("output_state_code_v2", "current", "set_current_readback_v2", "ocp_readback_v2")
+    # MAIN Guard ratchets only Iset. Numeric OCP is not its control or
+    # admission authority; preserve the independently reported R16 trip gate.
+    keys = ("output_state_code_v2", "current", "set_current_readback_v2", "protection_code")
     # MAIN Guard is based on direct ESP Native callbacks only. HA's REST
     # adapter can report age=0 at fetch time; that is not a Native receipt.
     for key in keys:
         item = meta.get(key)
         if (not isinstance(item, Mapping)
                 or item.get("source") != "esp_native_api"
-                or item.get("native_type") != "SensorState"
+                or item.get("native_type") not in (
+                    {"SensorState", "BinarySensorState"} if key == "protection_code"
+                    else {"SensorState"}
+                )
                 or isinstance(item.get("subscription_timestamp_monotonic"), bool)
                 or not isinstance(item.get("subscription_timestamp_monotonic"), (int, float))):
             return None
@@ -158,12 +167,13 @@ def admit_main_guard_shadow(
     output = finite_float(live.get("output_state_code_v2"))
     if output != 1:
         return None
+    protection = decode_protection_code(live.get("protection_code"))
+    if protection.code is None or protection.unknown or protection.tripped:
+        return None
     programmed = canonical_programmed_readback(live, "set_current")
-    ocp = canonical_programmed_readback(live, "ocp")
-    if (programmed is None or ocp is None
+    if (programmed is None
             or abs(programmed-target) > READBACK_MARGIN_A
-            or programmed > baseline + READBACK_MARGIN_A
-            or abs(ocp-programmed-0.1) > READBACK_MARGIN_A):
+            or programmed > baseline + READBACK_MARGIN_A):
         return None
     return MainGuardAdmission(session_id, battery_id, capacity, recipe, guard_revision)
 

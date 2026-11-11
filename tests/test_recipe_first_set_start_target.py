@@ -3,7 +3,7 @@ import types
 import unittest
 
 from pb_domain import BatteryCondition, ChargeIntent
-from safe_output import EnableResult
+from runtime.safety.output_policy import EnableResult
 from runtime.charge.programs.recipe_catalog import RecipeCatalog
 from runtime.charge.programs.recipe_library import RecipeLibrary
 from application.start_transaction_service import start_profile_transactional
@@ -39,8 +39,11 @@ class FirstSetAtStartTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result, msg.answers)
         self.assertAlmostEqual(app.hass.enable_kwargs["voltage_v"], 13.8)
         self.assertAlmostEqual(app.hass.enable_kwargs["current_a"], 1.2)
-        self.assertAlmostEqual(app.hass.enable_kwargs["ovp_v"], 13.9)
-        self.assertAlmostEqual(app.hass.enable_kwargs["ocp_a"], 1.3)
+        # First recipe SET programs V/I only: routine OVP/OCP programming
+        # was deliberately removed. The existing Output-ON boundary separately
+        # clears stale nonzero protection registers unless explicitly requested.
+        self.assertIsNone(app.hass.enable_kwargs["ovp_v"])
+        self.assertIsNone(app.hass.enable_kwargs["ocp_a"])
         binding = app.charge_controller._existing_recipe_execution_binding
         self.assertEqual(binding.session.recipe.recipe_id, "chosen")
         self.assertEqual(binding.session.recipe.steps[0]["params"]["voltage_v"], 13.8)

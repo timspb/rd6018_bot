@@ -40,6 +40,8 @@ This repository controls a physical RD6018 power supply and lead-acid batteries.
 
 - One module owns each capability, state transition, clock, renderer, configuration value, and side effect. Separate read models, pure policy/formatting, orchestration, Telegram adapter, hardware execution, and persistence. Composition wires them; it must not reimplement their rules.
 - Every user-tunable duration, threshold, limit, recipe parameter, choice, and policy belongs in the owning module's declared typed `variables.py` / `config.py` (or the canonical existing recipe/spec registry). Define units, default, range, provenance, override policy, and change effect. All consumers read that same definition; no scattered literals, shadow settings, duplicate copies, or hidden environment overrides.
+- All meaningful hard-coded numeric and semantic values must have one declared owner: charge thresholds, intervals, limits, mode/reason enums, switches, and display labels. UI text belongs to focused label catalogs; behavioral values belong to the existing owner typed config or recipe spec. Do not create redundant settings files or turn protocol constants and trivial math into arbitrary knobs.
+- When touching an existing monolith, incrementally extract the affected responsibility into cohesive modules, remove the moved logic from the monolith, and protect interfaces and behavior with tests. No wrappers that leave duplicated ownership.
 - Presentational countdowns **derive** from the existing SignalAnalyzer/MAIN authority timestamps and configured hold duration. They never establish their own timer, storage, charge transition authority, or additional polling process. Different chemistry/intent must not be inferred from ad-hoc UI constants.
 - Preserve exactly one Telegram panel lifecycle owner, one 60-second refresh task, and in-place edits. New UI features belong in focused read-model/presenter/component modules; the Telegram adapter stays transport-only. Do not expand `operator_hmi.py`, `runtime/production_runtime.py`, or `bot.py` with new cross-layer policy.
 - Before each change: identify existing canonical owner and config source, perform the smallest source modification that implements the requirement, and remove superseded code rather than adding shims. Do not construct a parallel abstraction, extra proof/authorization, new service, duplicate observer, or alternative rollback path.
@@ -160,3 +162,6 @@ For ownership/watchdog changes, fake Python lease tests are not sufficient by th
 ## Scope discipline
 
 For narrow operational tasks, make only the requested operational changes. Do not redesign charging thresholds, recipes, Telegram UX or database schema unless the task explicitly asks for it.
+
+## Current autonomous new-chat handoff (2026-11-08)
+For source-only autonomous continuation read docs/assistant/RD6018_AUTONOMOUS_HANDOFF_2026-11-08.md after this AGENTS.md and the latest docs/assistant/RD6018_CURRENT_CHECKPOINT.md. Its ready prompt is docs/assistant/RD6018_NEW_CHAT_PROMPT_2026-11-08.md. It does not authorize production node104 deployment, restart or hardware acts; the receiving chat owner sets wake schedule separately.

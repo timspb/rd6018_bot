@@ -10,6 +10,7 @@ from aiogram.filters import Command
 from runtime.charge.programs.recipe_catalog import RecipeCatalog
 from runtime.charge.programs.native_recipe_draft_library import NativeRecipeDraftLibrary
 from runtime.charge.programs.native_recipe_draft import validate_native_draft
+from runtime.charge.programs.native_recipe_session import require_supported_native_execution
 from runtime.charge.programs.native_recipe_parameters import native_recipe_parameters
 from runtime.charge.programs.native_recipe_catalog import get_native_recipe
 from runtime.charge.programs.recipe_editor import edit_step, insert_step, transform_steps
@@ -31,7 +32,8 @@ def format_catalog(catalog: RecipeCatalog) -> str:
     return "\n".join(rows)
 
 
-def install_recipe_catalog_commands(app: Any, *, catalog: RecipeCatalog) -> None:
+def install_recipe_catalog_commands(app: Any, *, catalog: RecipeCatalog,
+                                    native_drafts: NativeRecipeDraftLibrary | None = None) -> None:
     """Register non-destructive recipe library commands under existing chat ACL."""
     if getattr(app, "_recipe_catalog_commands_installed", False):
         return
@@ -39,8 +41,9 @@ def install_recipe_catalog_commands(app: Any, *, catalog: RecipeCatalog) -> None
     async def _allowed(message: Any) -> bool:
         return bool(await app._check_chat_and_respond(message))
 
-    install_recipe_buttons(app, catalog=catalog)
-    native_drafts = NativeRecipeDraftLibrary(catalog.library.root.parent / "native_recipe_drafts")
+    if native_drafts is None:
+        native_drafts = NativeRecipeDraftLibrary(catalog.library.root.parent / "native_recipe_drafts")
+    install_recipe_buttons(app, catalog=catalog, native_drafts=native_drafts)
 
     @app.router.message(Command("native_copy"))
     async def _native_copy(message: Any) -> None:
@@ -95,6 +98,7 @@ def install_recipe_catalog_commands(app: Any, *, catalog: RecipeCatalog) -> None
             changed = validate_native_draft({
                 **current.as_document(), "overrides": overrides,
             })
+            require_supported_native_execution(changed)
             native_drafts.save(name, versions[-1] + 1, changed.as_document())
         except (ValueError, KeyError, FileExistsError, FileNotFoundError, OSError) as exc:
             await message.answer("Ошибка настройки: " + html.escape(str(exc)),

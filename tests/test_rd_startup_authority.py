@@ -7,7 +7,7 @@ from rd_startup_authority import (
     RdStartupAuthorityGate,
     reconcile_startup_authority,
 )
-from runtime_safety import RuntimeSafetyError
+from runtime.safety.runtime_guard import RuntimeSafetyError
 
 
 class DummyHass:

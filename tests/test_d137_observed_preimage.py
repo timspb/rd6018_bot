@@ -1,4 +1,5 @@
 """D137 regression tests: never run hardware or service operations."""
+import hashlib
 import json
 from pathlib import Path
 import tempfile
@@ -28,14 +29,16 @@ class D137Tests(unittest.TestCase):
             "phase":"STARTED","transaction":"legacy"}))
         (root / ".deploy_sha").write_text("a"*40+"\n")
 
-    def capture(self, root):
+    def capture(self, root, proof=None):
         original = Path.read_bytes
         def fake_argv(path):
             if str(path)=="/proc/1234/cmdline":
                 return str(root / "app" / "bot.py").encode()+bytes([0])
             return original(path)
         with patch.object(Path, "read_bytes", fake_argv):
-            return observed_preimage(root, pid=1234)
+            return observed_preimage(
+                root, pid=1234, physical_off_reconciliation=proof,
+            )
 
     def test_observed_only_and_no_mutation(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -123,7 +126,56 @@ class D137Tests(unittest.TestCase):
             (root / "D144_INSTALLED_RELEASE.json").write_text(json.dumps({
                 **release, "transaction": transaction_id,
             }))
-            with self.assertRaisesRegex(ValueError, "D144 installed release identity"):
+            with self.assertRaisesRegex(ValueError, "D144 .*installed release identity"):
+                self.capture(root)
+
+    def test_newer_restored_slot_does_not_supersede_latest_committed(self):
+        from tools.node104_d090_transaction import inventory
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.fixture(root)
+            (root / ".deploy_sha").unlink()
+            release = {"schema": "D144_RELEASE_IDENTITY_V1", "source_sha": "1" * 40,
+                       "candidate_identity_sha256": "2" * 64}
+            transaction_id = "a" * 32
+            candidate = {"app": inventory(root / "app"), "venv": inventory(root / "venv")}
+            (root / "D144_TRANSACTION_14.json").write_text(json.dumps({
+                "schema": "D144_STATE_PRESERVING_V1", "phase": "COMMITTED", "slot": 14,
+                "transaction": transaction_id, "release_identity": release,
+                "candidate": candidate,
+            }))
+            (root / "D144_INSTALLED_RELEASE_14.json").write_text(json.dumps({
+                **release, "transaction": transaction_id,
+            }))
+            (root / "D144_TRANSACTION_15.json").write_text(json.dumps({
+                "schema": "D144_STATE_PRESERVING_V1", "phase": "RESTORED", "slot": 15,
+                "transaction": "b" * 32, "candidate": candidate,
+            }))
+            result = self.capture(root)
+            self.assertEqual(result["d090"]["installed_release"]["transaction"], transaction_id)
+
+    def test_conflicting_committed_identity_fails_closed_even_with_newer_restored(self):
+        from tools.node104_d090_transaction import inventory
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.fixture(root)
+            (root / ".deploy_sha").unlink()
+            candidate = {"app": inventory(root / "app"), "venv": inventory(root / "venv")}
+            for slot, tx, source in ((14, "a" * 32, "1" * 40),
+                                     (13, "c" * 32, "3" * 40)):
+                release = {"schema": "D144_RELEASE_IDENTITY_V1", "source_sha": source,
+                           "candidate_identity_sha256": str(slot) * 64}
+                (root / f"D144_TRANSACTION_{slot}.json").write_text(json.dumps({
+                    "schema": "D144_STATE_PRESERVING_V1", "phase": "COMMITTED", "slot": slot,
+                    "transaction": tx, "release_identity": release, "candidate": candidate,
+                }))
+                (root / f"D144_INSTALLED_RELEASE_{slot}.json").write_text(json.dumps({
+                    **release, "transaction": tx,
+                }))
+            (root / "D144_TRANSACTION_15.json").write_text(json.dumps({
+                "schema": "D144_STATE_PRESERVING_V1", "phase": "RESTORED", "slot": 15,
+            }))
+            with self.assertRaisesRegex(ValueError, "does not match committed app/venv"):
                 self.capture(root)
 
     def test_authentic_v2_retirement_without_session_is_observed_not_fabricated(self):
@@ -154,6 +206,42 @@ class D137Tests(unittest.TestCase):
             self.assertEqual(original, {str(x.relative_to(root)):x.read_bytes()
                                         for x in root.rglob("*") if x.is_file()})
             self.assertEqual(payload["preimage_sha256"],self.capture(root)["preimage_sha256"])
+
+    def test_orphaned_active_quarantine_is_bound_for_state_preserving_release(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.fixture(root)
+            (root / "state" / "charge_session.json").unlink()
+            path = root / "state" / "session_recovery_quarantine.json"
+            incident = {
+                "owner": "runtime.charge.recovery_quarantine_journal",
+                "schema_version": 1,
+                "quarantined": True,
+                "reason": "main_guard_current_ocp_transaction_unconfirmed:MainGuardExecutionFault:postflight_guard_ack_rejected:programmed_current_readback_mismatch",
+                "incident_id": "acb9302c-8925-47b1-be48-15a38dc01b4a",
+                "incident_utc": "2026-11-10T05:09:53.917914+00:00",
+                "identity": {
+                    "session_id": "6fa9a4b3-8c5d-4e7b-9a11-0123456789ab",
+                    "battery_id": "adhoc:EFB:60:38426001",
+                },
+            }
+            path.write_text(json.dumps(incident))
+            original = path.read_bytes()
+            payload = self.capture(root)
+            self.assertIsNone(payload["retired_session"])
+            self.assertEqual(payload["preserved_quarantine"]["incident_id"], incident["incident_id"])
+            self.assertEqual(payload["preserved_quarantine"]["session_id"], incident["identity"]["session_id"])
+            self.assertEqual(payload["preserved_quarantine"]["battery_id"], incident["identity"]["battery_id"])
+            self.assertTrue(payload["preserved_quarantine"]["session_absent"])
+            from tools.node104_d090_transaction import inventory
+            expected_app_sha = hashlib.sha256(
+                json.dumps(inventory(root / "app"), sort_keys=True, separators=(",", ":")).encode("ascii")
+            ).hexdigest()
+            self.assertEqual(payload["app_inventory_sha256"], expected_app_sha)
+            self.assertEqual(payload["preserved_quarantine"]["quarantine_sha256"],
+                             hashlib.sha256(original).hexdigest())
+            self.assertEqual(path.read_bytes(), original)
+            self.assertEqual(payload["preimage_sha256"], self.capture(root)["preimage_sha256"])
 
     def test_missing_session_with_quarantined_or_unknown_retirement_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -241,6 +329,85 @@ class D137Tests(unittest.TestCase):
                 "confirmed_off_evidence":"off-receipt","retired_utc":"2026-11-05T00:00:00Z",
                 "incident_id":"incident","incident_reason":"safe-off","battery_id":None}}))
         return doc
+
+    def guarded_final_safe_wait_fixture(self, root):
+        self.guarded_main_historical_on_fixture(root)
+        path = root / "state" / "charge_session.json"
+        doc = json.loads(path.read_text())
+        generation = time.time() - 3600
+        started = time.time() - 60
+        doc.update({
+            "stage": "Безопасное ожидание",
+            "stage_history": [
+                {"from": "Main Charge", "to": "Mix Mode"},
+                {"from": "Mix Mode", "to": "Безопасное ожидание"},
+            ],
+            "v2_trace_started_at": generation,
+            "safe_wait_next_stage": "Done",
+            "safe_wait_target_v": 13.8,
+            "safe_wait_target_i": 1.0,
+            "safe_wait_start": started,
+            "completion_kind": None,
+            "output_intent": None,
+            "v2_final_safe_wait": {
+                "version": 2,
+                "source_stage": "Mix Mode",
+                "next_stage": "Done",
+                "target_voltage_v": 13.8,
+                "target_current_a": 1.0,
+                "started_at": started,
+                "session_id": doc["v2_trace_session_id"],
+                "session_generation": generation,
+                "completion_reason": "confirmed_delta_finish_hold_complete",
+            },
+        })
+        path.write_text(json.dumps(doc))
+        return path, doc
+
+    def test_final_safe_wait_preserves_guard_without_automatic_resume(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path, doc = self.guarded_final_safe_wait_fixture(root)
+            before = path.read_bytes()
+            proof = self.historical_on_reconciliation()
+            accepted = self.capture(root, proof=proof)
+            guard = accepted["preserved_guarded_main"]
+            self.assertEqual(guard["guard_sha256"], doc[GUARD_KEY]["sha256"])
+            self.assertEqual(guard["session_sha256"],
+                             __import__("hashlib").sha256(before).hexdigest())
+            self.assertFalse(guard["automatic_resume_authorized"])
+            self.assertEqual(path.read_bytes(), before)
+            self.assertIsNone(accepted["retired_session"])
+            self.assertEqual(accepted["preimage_sha256"],
+                             self.capture(root, proof=proof)["preimage_sha256"])
+            with self.assertRaisesRegex(ValueError, "state-preserving OFF"):
+                self.capture(root)
+
+    def test_final_safe_wait_rejects_invalid_continuation_and_history(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path, original = self.guarded_final_safe_wait_fixture(root)
+            proof = self.historical_on_reconciliation()
+            changes = (
+                {"safe_wait_next_stage": "Main Charge"},
+                {"output_intent": "on"},
+                {"safe_wait_target_v": 14.0},
+                {"v2_final_safe_wait": None},
+                {"v2_final_safe_wait": {**original["v2_final_safe_wait"],
+                                         "session_id": "foreign"}},
+                {"v2_final_safe_wait": {**original["v2_final_safe_wait"],
+                                         "session_generation": 0.0}},
+                {"stage_history": original["stage_history"][:1]},
+            )
+            for delta in changes:
+                with self.subTest(delta=delta):
+                    path.write_text(json.dumps({**original, **delta}))
+                    with self.assertRaisesRegex(ValueError, "SAFE_WAIT continuation invalid"):
+                        self.capture(root, proof=proof)
+            path.write_text(json.dumps(original))
+            self.assertIsNotNone(
+                self.capture(root, proof=proof)["preserved_guarded_main"]
+            )
 
     def test_guarded_main_is_observed_and_byte_pinned_without_resume_authority(self):
         with tempfile.TemporaryDirectory() as tmp:

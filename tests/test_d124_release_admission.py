@@ -15,9 +15,25 @@ class D124AdmissionTests(unittest.TestCase):
         self.assertTrue(a.requires_d090_rollback)
         self.assertFalse(a.requires_repeat_all_physical_cases)
     def test_live_safety_envelope_fix_is_a_control_change(self):
-        a = classify(['managed_runtime_safety.py', 'safe_output.py'])
+        a = classify(['runtime/safety/managed_guard.py', 'application/safe_output_coordinator.py'])
         self.assertEqual(a.classification, 'python_control_change')
-        self.assertEqual(set(a.changed_control_paths), {'managed_runtime_safety.py', 'safe_output.py'})
+        self.assertEqual(set(a.changed_control_paths), {'runtime/safety/managed_guard.py', 'application/safe_output_coordinator.py'})
+
+    def test_any_safety_package_change_requires_control_admission(self):
+        for path in (
+            "runtime/safety/runtime_guard.py",
+            "runtime/safety/strict_guard.py",
+            "runtime/safety/managed_guard.py",
+            "runtime/safety/critical_telemetry.py",
+            "runtime/safety/communication_watchdog.py",
+            "runtime/safety/watchdog_runtime.py",
+        ):
+            with self.subTest(path=path):
+                admission = classify([path])
+                self.assertEqual(admission.classification, "python_control_change")
+                self.assertEqual(admission.changed_control_paths, (path,))
+                self.assertTrue(admission.requires_targeted_control_validation)
+                self.assertTrue(admission.requires_fresh_native_off)
 
     def test_firmware_change_requires_hardware_validation(self):
         a=classify(["esphome/rd6018.yaml"])

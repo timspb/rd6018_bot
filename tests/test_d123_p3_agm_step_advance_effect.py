@@ -5,7 +5,6 @@ from pathlib import Path
 
 from charge_controller import ManagedChargeController
 from runtime.charge.runtime import agm_step_advance as owner
-from runtime.safety.variables import PROTECTION_OCP_MARGIN_A, PROTECTION_OVP_MARGIN_V
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -67,12 +66,10 @@ class AgmStepAdvanceEffectTests(unittest.TestCase):
         expected_v, expected_i = controller._main_target(25.0)
         self.assertEqual(actions["set_voltage"], expected_v)
         self.assertEqual(actions["set_current"], expected_i)
-        self.assertAlmostEqual(
-            actions["set_ovp"], expected_v + float(PROTECTION_OVP_MARGIN_V.default)
-        )
-        self.assertAlmostEqual(
-            actions["set_ocp"], expected_i + float(PROTECTION_OCP_MARGIN_A.default)
-        )
+        # Normal AGM stage advance only emits Vset/Iset. Physical OVP/OCP
+        # remain installed protections; no redundant register write is allowed.
+        self.assertNotIn("set_ovp", actions)
+        self.assertNotIn("set_ocp", actions)
         self.assertEqual(controller._phase_current_limit, expected_i)
         self.assertEqual(actions["log_event"], "V2_AGM_STEP_2")
         self.assertIn("2/4", actions["notify"])

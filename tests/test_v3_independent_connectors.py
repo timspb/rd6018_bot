@@ -1,5 +1,7 @@
 import asyncio
+import os
 import unittest
+from unittest.mock import patch
 from dataclasses import replace
 
 from runtime.config import load_config
@@ -7,9 +9,19 @@ from runtime.output.bridge import HardwareSnapshot
 from runtime.physical.connectors import ConnectorSnapshotComparator, PhysicalConnectorFactory
 
 
+def _offline_connector_config():
+    # These tests construct connectors without opening a physical connection.
+    # Supply a non-routable local fixture address instead of depending on
+    # the developer's ESPHOME_API_HOST environment or real node credentials.
+    with patch.dict(os.environ, {
+        "ESPHOME_API_HOST": "127.0.0.1", "ESPHOME_API_PORT": "6053",
+    }):
+        return load_config("config")
+
+
 class IndependentConnectorTests(unittest.TestCase):
     def test_config_and_factory_are_independent(self):
-        config = load_config("config")
+        config = _offline_connector_config()
         ha = PhysicalConnectorFactory(config).create("ha_esp")
         esp = PhysicalConnectorFactory(config).create("esp_direct")
         self.assertEqual(ha.name, "ha_esp")
@@ -22,7 +34,7 @@ class IndependentConnectorTests(unittest.TestCase):
         self.assertEqual(ConnectorSnapshotComparator.compare(left, right).status, "MATCH")
 
     def test_connector_failure_is_isolated(self):
-        config = load_config("config")
+        config = _offline_connector_config()
         ha = PhysicalConnectorFactory(config).create("ha_esp")
         esp = PhysicalConnectorFactory(config).create("esp_direct")
         async def fail():
@@ -34,7 +46,7 @@ class IndependentConnectorTests(unittest.TestCase):
         asyncio.run(fail())
 
     def test_write_surface_is_only_verified_disable(self):
-        config = load_config("config")
+        config = _offline_connector_config()
         for name in ("ha_esp", "esp_direct"):
             connector = PhysicalConnectorFactory(config).create(name)
             self.assertTrue(callable(connector.disable_output))

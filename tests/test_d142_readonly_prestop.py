@@ -114,8 +114,8 @@ class D142Tests(unittest.TestCase):
             preimage={"preimage_sha256":"f"*64,
                       "preserved_guarded_main":{"revision":481,"last_output_on":True}}
             candidate={"candidate_identity_sha256":"a"*64,
-                       "preserved_guarded_main":True,
-                       "preserved_guard":{"revision":481,"last_output_on":True}}
+                       "preserved_guarded_main":False,
+                       "preserved_quarantine":{"incident_id":"incident-1","session_absent":True}}
             def collect():
                 events.append("fresh_d091")
                 return proof
@@ -124,6 +124,9 @@ class D142Tests(unittest.TestCase):
                 self.assertEqual(kwargs["physical_off_reconciliation"]["source_nonces"],
                                  proof["source_nonces"])
                 return preimage
+            def validate_app(observed):
+                events.append("validate_app")
+                self.assertIs(observed,preimage)
             def inspect(**kwargs):
                 events.append("d138")
                 self.assertIs(kwargs["observed_preimage_record"],preimage)
@@ -140,9 +143,10 @@ class D142Tests(unittest.TestCase):
                  patch.object(Path,"read_bytes",fake_argv):
                 result=d142.assess(root,stage,pid=321,source_sha="b"*40,
                     preimage_sha256=preimage["preimage_sha256"],collector=root/"collector",
-                    collect=collect)
-            self.assertEqual(events,["fresh_d091","d137","d138"])
-            self.assertTrue(result["preserved_guarded_main"])
+                    collect=collect,validate_app_inventory=validate_app)
+            self.assertEqual(events,["fresh_d091","d137","validate_app","d138"])
+            self.assertFalse(result["preserved_guarded_main"])
+            self.assertEqual(result["preserved_quarantine"],candidate["preserved_quarantine"])
 
     def test_fresh_preimage_is_reported_without_static_profile_digest_comparison(self):
         with tempfile.TemporaryDirectory() as tmp:

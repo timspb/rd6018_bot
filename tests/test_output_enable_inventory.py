@@ -13,8 +13,10 @@ inventory is derived by parsing source with ``ast``.
 from __future__ import annotations
 
 import ast
+import subprocess
 import unittest
 from pathlib import Path
+from source_audit_inventory import source_inventory
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -37,12 +39,12 @@ ENABLE_CALLS = frozenset(
     {
         # Controller action execution is centralized in the application port so a
         # verified-enable stage commit can be withheld when Output ON fails.
-        ("runtime_safety_strict.py", "turn_off", "super().turn_off"),
-        ("runtime_safety_strict.py", "turn_on", "super().turn_on"),
-        ("managed_runtime_safety.py", "turn_on", "super().turn_off"),
-        ("managed_runtime_safety.py", "turn_on", "super().turn_on"),
-        ("safe_output.py", "_force_off", "self.adapter.turn_off"),
-        ("safe_output.py", "enable", "self.adapter.turn_on"),
+        ("runtime/safety/strict_guard.py", "turn_off", "super().turn_off"),
+        ("runtime/safety/strict_guard.py", "turn_on", "super().turn_on"),
+        ("runtime/safety/managed_guard.py", "turn_on", "super().turn_off"),
+        ("runtime/safety/managed_guard.py", "turn_on", "super().turn_on"),
+        ("application/safe_output_coordinator.py", "_force_off", "self.adapter.turn_off"),
+        ("application/safe_output_coordinator.py", "enable", "self.adapter.turn_on"),
         # Canonical application-scoped execution port. START, Mix-only
         # START and Manual converge here instead of keeping direct HA enable/OFF calls.
         ("application/execution_port.py", "enable", "self.execution_owner.safe_enable_output"),
@@ -53,11 +55,14 @@ ENABLE_CALLS = frozenset(
 
 
 def _iter_production_files():
-    for path in sorted(REPO_ROOT.rglob("*.py")):
-        rel = path.relative_to(REPO_ROOT)
+    # The audited production inventory is the tracked source of THIS checkout.
+    # Nested independent Git worktrees must never register false actuator paths.
+    for rel in source_inventory(REPO_ROOT):
+        if rel.suffix != ".py":
+            continue
         if any(part in SKIP_DIRS for part in rel.parts):
             continue
-        yield rel.as_posix(), path
+        yield rel.as_posix(), REPO_ROOT / rel
 
 
 def scan_enable_calls():

@@ -5,7 +5,7 @@ import os
 from dataclasses import dataclass
 from typing import Optional
 
-from edge_safety_lease import EdgeLeaseState, EdgeSafetyLease, EdgeSafetyLeaseError, _bool_state
+from runtime.safety.edge_lease import EdgeLeaseState, EdgeSafetyLease, EdgeSafetyLeaseError, _bool_state
 
 
 @dataclass(frozen=True)

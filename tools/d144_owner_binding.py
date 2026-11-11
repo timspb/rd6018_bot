@@ -7,9 +7,53 @@ combined proof, and returns evidence, never authorization to start a cutover.
 from __future__ import annotations
 
 from pathlib import Path
+import grp
+import pwd
 
 import node104_d090_transaction as d090
 from tools.d142_readonly_prestop import assess
+
+
+def _service_account():
+    return pwd.getpwnam("rd6018"), grp.getgrnam("rd6018")
+
+
+def _validate_service_readable_tree(path: Path, *, uid: int, gid: int) -> None:
+    """Fail closed unless rd6018 can traverse directories and read files.
+
+    Ownership may remain root:rd6018, but group access must be present. This
+    deliberately checks every entry before D144 can stop the running service.
+    """
+    if path.is_symlink() or not path.is_dir():
+        raise d090.TransactionError("D145 candidate tree root is unsafe")
+    for item in (path, *path.rglob("*")):
+        info = item.lstat()
+        if item.is_symlink():
+            continue
+        if info.st_uid not in (0, uid) or info.st_gid not in (gid,):
+            raise d090.TransactionError("D145 candidate ownership is outside root:rd6018 policy")
+        mode = info.st_mode & 0o777
+        required = 0o050 if item.is_dir() else 0o040 | ((mode & 0o0100) >> 3)
+        if mode & required != required:
+            raise d090.TransactionError("D145 candidate is not traversable/readable by rd6018")
+
+
+def _prepare_service_readable_tree(path: Path, *, gid: int) -> None:
+    """Apply root:rd6018 ownership and least-privilege group read access."""
+    import os
+    if path.is_symlink() or not path.is_dir():
+        raise d090.TransactionError("D145 candidate tree root is unsafe")
+    for item in (path, *path.rglob("*")):
+        info = item.lstat()
+        if item.is_symlink():
+            continue
+        mode = info.st_mode & 0o777
+        if item.is_dir():
+            mode = (mode & 0o707) | 0o050
+        else:
+            mode = (mode & 0o707) | 0o040 | ((mode & 0o0100) >> 3)
+        os.chown(item, 0, gid)
+        os.chmod(item, mode)
 
 
 def prepare_only(owner: d090.D090Transaction, *, stage: Path,
@@ -32,8 +76,8 @@ def prepare_only(owner: d090.D090Transaction, *, stage: Path,
             raise d090.TransactionError("D144 invalid service MainPID")
         result = assess(owner.root, stage, pid=pid, source_sha=source_sha,
                         preimage_sha256=None, collector=collector,
-                        validate_app_inventory=lambda: d090.verify_pinned_preimage_app(
-                            owner.root / "app", owner.preimage_inventory_sha256))
+                        validate_app_inventory=lambda preimage: d090.verify_pinned_preimage_app(
+                            owner.root / "app", preimage["app_inventory_sha256"]))
         if result.get("preflight") != "PASS_AT_OBSERVATION_ONLY":
             raise d090.TransactionError("D142 pre-stop checks did not pass")
         return {
@@ -46,6 +90,7 @@ def prepare_only(owner: d090.D090Transaction, *, stage: Path,
             "capacity_pass": result["capacity_pass"],
             "preserved_guarded_main": bool(result.get("preserved_guarded_main")),
             "preserved_guard": result.get("preserved_guard"),
+            "preserved_quarantine": result.get("preserved_quarantine"),
             "activation_authorized": False,
         }
 
@@ -82,13 +127,38 @@ def execute_under_owner(owner: d090.D090Transaction, *, stage: Path,
         if candidate.exists() or candidate.is_symlink():
             raise d090.TransactionError("D145 candidate path already occupied")
         candidate.mkdir(mode=0o700)
+        staged = {"app": d090.inventory(stage / "tree"),
+                  "venv": d090.inventory(stage / "venv")}
         shutil.copytree(stage / "tree", candidate / "app", symlinks=True)
         shutil.copytree(stage / "venv", candidate / "venv", symlinks=True)
+        try:
+            service_user, service_group = _service_account()
+        except KeyError as exc:
+            raise d090.TransactionError("D145 rd6018 service account is absent") from exc
+        for name in ("app", "venv"):
+            _prepare_service_readable_tree(candidate / name,
+                                           gid=service_group.gr_gid)
+            _validate_service_readable_tree(candidate / name,
+                                            uid=service_user.pw_uid,
+                                            gid=service_group.gr_gid)
         d090._durable_tree(candidate)
-        wanted = {"app": d090.inventory(stage / "tree"),
-                  "venv": d090.inventory(stage / "venv")}
-        if any(d090.inventory(candidate / name) != wanted[name]
-               for name in ("app", "venv")):
+        wanted = {name: d090.inventory(candidate / name)
+                  for name in ("app", "venv")}
+        for name in ("app", "venv"):
+            if set(wanted[name]) != set(staged[name]):
+                raise d090.TransactionError("D145 copied candidate inventory mismatch")
+            for relative, expected in staged[name].items():
+                actual = wanted[name][relative]
+                if "link" in expected:
+                    matches = actual == expected
+                elif "directory" in expected:
+                    matches = actual.get("directory") is True
+                else:
+                    matches = all(actual.get(key) == expected.get(key)
+                                  for key in ("sha256", "size"))
+                if not matches:
+                    raise d090.TransactionError("D145 copied candidate content mismatch")
+        if any(not (candidate / name).is_dir() for name in ("app", "venv")):
             raise d090.TransactionError("D145 copied candidate inventory mismatch")
         # Disk is remeasured AFTER copying the staged release, not from an
         # optimistic check made before consuming additional space.
@@ -100,8 +170,11 @@ def execute_under_owner(owner: d090.D090Transaction, *, stage: Path,
             "source_sha": owner.pinned.source_sha,
             "candidate_identity_sha256": prepared["candidate_identity_sha256"],
         }
+        # Every D145 operation is a state-preserving Python-only release.
+        # Use the pinned D151 collector even when charge_session.json is absent:
+        # an active quarantine journal is also state that must survive the swap.
         router = ReadOnlyObserverRouter(
-            owner.root, preserve_active_session=bool(prepared.get("preserved_guarded_main")))
+            owner.root, state_preserving_recovery=True)
         previous_proof = owner.proof
         proof_index = [0]
         phases = ("PRE_STOP", "PRE_STOP", "STOPPED", "POST_START")
@@ -116,11 +189,12 @@ def execute_under_owner(owner: d090.D090Transaction, *, stage: Path,
                 raise d090.TransactionError("D149 physical proof phase mismatch")
             router.select(phase)
             owner.proof = router
-            if prepared.get("preserved_guarded_main"):
-                result = owner._read_recovery_proof(
-                    require_service_stopped=require_stopped)
-            else:
-                result = owner._read_proof(require_service_stopped=require_stopped)
+            # ALL D145 releases are Python-only and use D151's independent
+            # HA/Native Output-OFF and zero-current proof. Battery voltage
+            # may remain nonzero with R18 OFF even without active quarantine.
+            # The legacy hardware/firmware release still uses _read_proof.
+            result = owner._read_recovery_proof(
+                require_service_stopped=require_stopped)
             proof_index[0] += 1
             return result
         transition = OwnerTransition(

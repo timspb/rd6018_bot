@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Mapping
@@ -22,6 +23,7 @@ class MainMixEffectInput:
     target_voltage_v: float
     target_current_a: float
     log_event_end: Mapping[str, Any]
+    transition_evidence: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -38,16 +40,42 @@ class MainMixEffect:
 
 def build_main_mix_effect(value: MainMixEffectInput) -> MainMixEffect:
     voltage, current = float(value.target_voltage_v), float(value.target_current_a)
+    reason = str(value.reason).replace("|", "/").replace("\n", " ").replace("\r", " ").strip()
+    evidence_fields = []
+    evidence = value.transition_evidence or {}
+    for key in (
+        "mode", "main_imin_a", "main_hold_age_s", "main_hold_required_s",
+        "main_delta_a", "main_required_delta_a", "temperature_c",
+    ):
+        item = evidence.get(key)
+        if key == "mode":
+            if item in {"CV", "CC"}:
+                evidence_fields.append(f"mode={item}")
+            continue
+        if isinstance(item, bool) or item is None:
+            continue
+        try:
+            number = float(item)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(number):
+            evidence_fields.append(f"{key}={number:.3f}")
+    log_event = (
+        f"MIX_STARTED | reason={reason} | "
+        f"target_voltage_v={voltage:.2f} | target_current_a={current:.2f}"
+    )
+    if evidence_fields:
+        log_event += " | " + " | ".join(evidence_fields)
     return MainMixEffect(
         previous_stage=str(value.previous_stage), stage=str(value.mix_stage),
-        reason=str(value.reason), now_s=float(value.now_s), ah=float(value.ah),
+        reason=reason, now_s=float(value.now_s), ah=float(value.ah),
         target_voltage_v=voltage, target_current_a=current,
         action_values=MappingProxyType({
             "log_event_end": MappingProxyType(dict(value.log_event_end)),
             "set_voltage": voltage, "set_current": current,
-            "notify": (f"<b>🚀 V2 → Mix Mode</b>\n{value.reason}\n"
+            "notify": (f"<b>🚀 V2 → Mix Mode</b>\n{reason}\n"
                        f"Цель: {voltage:.2f}В / {current:.2f}А; выход по CV ΔI или CC ΔV."),
-            "log_event": "START | V2_MIX",
+            "log_event": log_event,
         }),
     )
 
@@ -72,7 +100,7 @@ def apply_main_mix_effect(host: Any, effect: MainMixEffect, actions: dict[str, A
 def apply_main_mix_entry(
     host: Any, *, reason: str, now_s: float, ah: float, voltage_v: float,
     current_a: float, temperature_c: float, target_voltage_v: float,
-    target_current_a: float,
+    target_current_a: float, transition_evidence: Mapping[str, Any] | None = None,
     actions: dict[str, Any],
 ) -> None:
     """Assemble and apply the existing MAIN MIX entry effect once."""
@@ -84,6 +112,7 @@ def apply_main_mix_entry(
         ah=ah,
         target_voltage_v=target_voltage_v,
         target_current_a=target_current_a,
+        transition_evidence=transition_evidence,
         log_event_end=host._make_log_event_end(
             now_s, ah, voltage_v, current_a, temperature_c, reason
         ),

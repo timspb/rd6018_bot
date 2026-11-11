@@ -49,8 +49,9 @@ class V3ResidualAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
         expected_v, expected_i = controller._main_target(25.0)
         self.assertAlmostEqual(actions["set_voltage"], expected_v, places=3)
         self.assertAlmostEqual(actions["set_current"], expected_i, places=3)
-        self.assertIn("set_ovp", actions)
-        self.assertIn("set_ocp", actions)
+        # Normal PREP -> MAIN never reinstates routine OVP/OCP writes.
+        self.assertNotIn("set_ovp", actions)
+        self.assertNotIn("set_ocp", actions)
 
     async def test_cooling_resume_is_owned_without_historical_tick(self):
         controller = self._controller()

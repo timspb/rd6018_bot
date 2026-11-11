@@ -17,6 +17,7 @@ def analysis_at(ts, *, voltage, current, is_cv=True, is_cc=False, current_min=0.
     metrics = SignalMetrics(
         d_voltage_v_per_min=0.0, d_current_a_per_min=0.0, d_temp_c_per_min=0.0,
         current_min_a=current_min, seconds_since_current_min=seconds_since_min,
+        main_stable_hold_s=seconds_since_min,
         delta_current_from_min_a=(current - current_min if current_min is not None else None),
         reversal_threshold_a=(max(0.03, current_min * 0.30) if current_min is not None else None),
         current_plateau_span_a=0.0, current_plateau_center_a=current,
@@ -151,7 +152,14 @@ class ChargeControllerAuthorityTests(unittest.IsolatedAsyncioTestCase):
             actions = await run_charge_session_tick(controller, 14.7, 0.5, 25.0, True, 50.0, True, is_cc=False)
         self.assertEqual(controller.current_stage, controller.STAGE_MIX)
         self.assertFalse(bool(actions.get("turn_off")))
-        self.assertEqual(actions.get("log_event"), "START | V2_MIX")
+        # Operator-facing transition replaces the retired internal V2 START.
+        # Preserve the source decision and actual target evidence in its log.
+        event = actions.get("log_event", "")
+        self.assertTrue(event.startswith("MIX_STARTED | reason=main_timeout_ca_efb_v1_compatible_mix"))
+        self.assertIn("target_voltage_v=16.50", event)
+        self.assertIn("target_current_a=", event)
+        self.assertIn("main_hold_required_s=", event)
+        self.assertNotIn("START | V2_MIX", event)
 
 
 if __name__ == "__main__":

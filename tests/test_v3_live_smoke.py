@@ -1,4 +1,6 @@
 import unittest
+import os
+from unittest.mock import patch
 
 from runtime.bench.live import LiveSmokeRunner
 from runtime.config import load_config
@@ -6,9 +8,15 @@ from runtime.output.bridge import HardwareSnapshot
 from runtime.physical.transports import PhysicalSnapshotComparator
 
 
+def _offline_config():
+    # Strict ESP profile validation remains intact; no physical connection.
+    with patch.dict(os.environ, {"ESPHOME_API_HOST": "127.0.0.1", "ESPHOME_API_PORT": "6053"}):
+        return load_config("config")
+
+
 class V3LiveSmokeTests(unittest.IsolatedAsyncioTestCase):
     async def test_runner_with_mocked_factory(self):
-        config = load_config("config")
+        config = _offline_config()
         runner = LiveSmokeRunner(config)
 
         class FakeTransport:
@@ -36,7 +44,7 @@ class V3LiveSmokeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(evidence.comparison.status, "MATCH")
 
     async def test_connected_but_incomplete_snapshot_is_invalid(self):
-        config = load_config("config")
+        config = _offline_config()
         runner = LiveSmokeRunner(config)
 
         class FakeTransport:

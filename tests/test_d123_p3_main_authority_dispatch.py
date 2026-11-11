@@ -18,7 +18,7 @@ def _record():
     return SimpleNamespace(
         decision=SimpleNamespace(decision="fixture-policy"),
         analysis=SimpleNamespace(
-            metrics=SimpleNamespace(seconds_since_current_min=321.0)
+            metrics=SimpleNamespace(seconds_since_current_min=321.0, main_stable_hold_s=321.0)
         ),
     )
 

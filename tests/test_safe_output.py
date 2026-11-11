@@ -2,13 +2,8 @@ import asyncio
 import unittest
 from datetime import datetime, timedelta, timezone
 
-from safe_output import (
-    OutputRequest,
-    SafeOutputCoordinator,
-    SafetySupervisor,
-    SafetyViolation,
-    snapshot_from_live,
-)
+from runtime.safety.output_policy import OutputRequest, SafetySupervisor, SafetyViolation, snapshot_from_live
+from application.safe_output_coordinator import SafeOutputCoordinator
 
 
 def live_state(**overrides):

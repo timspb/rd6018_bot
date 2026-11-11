@@ -90,7 +90,6 @@ class MainGuardSessionContractTests(unittest.TestCase):
             proposal_id=pending.proposal_id, now_s=1801,
             measured_current_a=4, measured_current_fresh=True,
             current_limit_readback_a=5, current_readback_fresh=True,
-            ocp_limit_a=5.1, ocp_readback_fresh=True,
         )
         doc = attach_guard(doc, committed, now_s=1802, expected_revision=1)
         with self.assertRaisesRegex(GuardJournalError, "enlarged"):
@@ -130,7 +129,6 @@ class MainGuardSessionContractTests(unittest.TestCase):
             proposal_id=pending.proposal_id, now_s=1802,
             measured_current_a=4, measured_current_fresh=True,
             current_limit_readback_a=5, current_readback_fresh=True,
-            ocp_limit_a=5.1, ocp_readback_fresh=True,
         )
         next_doc = attach_guard(doc, proven, now_s=1803, expected_revision=1)
         self.assertEqual(next_doc[GUARD_KEY]["revision"], 2)

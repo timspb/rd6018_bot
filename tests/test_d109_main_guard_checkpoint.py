@@ -57,7 +57,6 @@ class D109CanonicalGuardIntegration(unittest.IsolatedAsyncioTestCase):
         result=await self.port.execute_main_current_guard_reduction(
             guard=guard,proposal=proposal,persist=self.writer.persist,
             execution_lock=self.lock,now=lambda:clock,max_stage_current_a=12,
-            ocp_offset_a=.1,stabilize_delay_s=0.0,
             authority=MainGuardAuthority(
                 session_id="a"*32,battery_id="battery-real",
                 segment_id=guard.segment_id,profile="EFB",stage="Main Charge",
@@ -77,7 +76,9 @@ class D109CanonicalGuardIntegration(unittest.IsolatedAsyncioTestCase):
         result=await self.transact(guard,pending)
         self.assertTrue(result.verified,result.reason)
         self.assertEqual(result.guard.hardware_limit_a,5)
-        self.assertEqual(self.owner.events,[("set_current",5.0),("set_ocp",5.1)])
+        # Canonical MAIN Guard ratchet changes Iset only; OCP remains under
+        # the original hardware protection owner (f14fb3e boundary).
+        self.assertEqual(self.owner.events,[("set_current",5.0)])
         doc=json.loads(self.path.read_text())
         self.assertEqual(doc["target_current"],5.0)
         self.assertEqual(doc[GUARD_KEY]["revision"],2)
@@ -117,8 +118,7 @@ class D109CanonicalGuardIntegration(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(periodic["target_current"],3.0)
         self.assertEqual(periodic[GUARD_KEY]["revision"],5)
         self.assertEqual(self.owner.events,[
-            ("set_current",5.0),("set_ocp",5.1),
-            ("set_current",3.0),("set_ocp",3.1),
+            ("set_current",5.0), ("set_current",3.0),
         ])
 
     async def test_writer_refuses_use_outside_common_owner(self):
@@ -194,8 +194,7 @@ class D109CanonicalGuardIntegration(unittest.IsolatedAsyncioTestCase):
                         measured_current_a=measured,measured_current_fresh=True,
                         current_limit_readback_a=proposal.target_limit_a,
                         current_readback_fresh=True,
-                        ocp_limit_a=proposal.target_limit_a+.1,
-                        ocp_readback_fresh=True)
+)
                     holder.guard=current
                     # Persist the pure acknowledged state through the same
                     # canonical owner adapter. No actuator method is invoked.

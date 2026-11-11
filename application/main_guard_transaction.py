@@ -17,9 +17,13 @@ from runtime.charge.strategy.main_current_guard import (
 SaveSnapshot = Callable[[dict[str, Any]], Awaitable[None]]
 Now = Callable[[], float]
 MAX_READBACK_AGE_S = 10.0
-# ESP Native setter completion may precede its independent sensor callback.
-POSTWRITE_CONVERGENCE_S = 5.0
+# MAIN current ceiling reduction is not an emergency trip: allow two minutes
+# for independent ESP Native readback convergence after the setter completes.
+POSTWRITE_CONVERGENCE_S = 120.0
 POSTWRITE_POLL_S = 0.25
+# Measured output current must still be effectively zero when Output is OFF.
+# Keep this separate from the wider Iset register acknowledgement tolerance.
+ZERO_CURRENT_TOLERANCE_A = 0.01
 
 
 @dataclass(frozen=True)
@@ -100,8 +104,6 @@ async def execute_main_guard_reduction(
     execution_lock: asyncio.Lock,
     now: Now,
     max_stage_current_a: float,
-    ocp_offset_a: float,
-    stabilize_delay_s: float,
 ) -> MainGuardExecutionResult:
     """Execute only a decrease, using verified Iset and durable journal.
 
@@ -258,8 +260,7 @@ async def execute_main_guard_reduction(
 async def execute_main_guard_desulfation_return(
     port: Any, *, controller: Any, actions: Mapping[str, Any],
     execution_lock: asyncio.Lock, now: Now, max_stage_current_a: float,
-    recipe_voltage_ceiling_v: float, has_ovp: bool, has_ocp: bool,
-    ocp_offset_a: float, stabilize_delay_s: float,
+    recipe_voltage_ceiling_v: float,
     battery_v: float, current: float, ah: float,
 ) -> MainGuardExecutionResult:
     """Restore the existing guard's original MAIN current after verified OFF.
@@ -301,7 +302,7 @@ async def execute_main_guard_desulfation_return(
         output = finite_float(live.get("output_state_code_v2"))
         measured_current = finite_float(live.get("current"))
         iset = canonical_programmed_readback(live, "set_current")
-        if (output != 0 or measured_current is None or abs(measured_current) > READBACK_TOLERANCE_A
+        if (output != 0 or measured_current is None or abs(measured_current) > ZERO_CURRENT_TOLERANCE_A
                 or iset is None):
             return None
         protection = decode_protection_code(live.get("protection_code"))
@@ -364,7 +365,7 @@ async def execute_main_guard_desulfation_return(
         returned = guard.return_after_verified_desulfation(
             now_s=float(now()), from_stage="DESULFATION", to_stage="MAIN",
             output_off_proven=True, current_readback_a=actual_i,
-            ocp_readback_a=None, readbacks_fresh=True,
+            readbacks_fresh=True,
             segment_id=f"{guard.session_id}:MAIN:{float(now()).hex()}",
         )
         if returned.fault:
@@ -398,7 +399,6 @@ async def execute_main_guard_desulfation_return(
                     port, controller,
                     pre_return_guard, return_checkpoint_guard,
                     battery_v, current, ah, now, max_stage_current_a,
-                    ocp_offset_a, stabilize_delay_s,
                 )
         raise
     except Exception as exc:
@@ -413,7 +413,6 @@ async def execute_main_guard_desulfation_return(
                 await _compensate_interrupted_return(
                     port, controller, pre_return_guard, return_checkpoint_guard,
                     battery_v, current, ah, now, max_stage_current_a,
-                    ocp_offset_a, stabilize_delay_s,
                 )
                 guard = controller._main_current_guard
             except Exception as compensation_error:
@@ -431,8 +430,7 @@ async def execute_main_guard_desulfation_return(
 async def _compensate_interrupted_return(
     port: Any, controller: Any, prior: MainCurrentGuard,
     checkpoint: MainCurrentGuard, battery_v: float, current: float,
-    ah: float, now: Now, max_stage_current_a: float, ocp_offset_a: float,
-    stabilize_delay_s: float,
+    ah: float, now: Now, max_stage_current_a: float,
 ) -> None:
     """Durably retain the interrupted epoch while restoring its old Iset cap.
 
@@ -460,7 +458,7 @@ async def _compensate_interrupted_return(
             actual_i = finite_float(before.get("current"))
             protection = decode_protection_code(before.get("protection_code"))
             if (output == 0 and set_i is not None
-                    and actual_i is not None and abs(actual_i) <= READBACK_TOLERANCE_A
+                    and actual_i is not None and abs(actual_i) <= ZERO_CURRENT_TOLERANCE_A
                     and not protection.unknown and not protection.tripped):
                 values = (set_i,)
     if values is None:
@@ -486,7 +484,7 @@ async def _compensate_interrupted_return(
         }
     measured_after = finite_float(after.get("current"))
     if (finite_float(after.get("output_state_code_v2")) != 0
-            or measured_after is None or abs(measured_after) > READBACK_TOLERANCE_A
+            or measured_after is None or abs(measured_after) > ZERO_CURRENT_TOLERANCE_A
             or after_i is None
             or abs(after_i - prior.hardware_limit_a) > READBACK_TOLERANCE_A
             or not after_stamps

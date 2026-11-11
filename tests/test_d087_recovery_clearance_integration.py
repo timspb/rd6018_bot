@@ -111,6 +111,105 @@ class RecoveryClearanceAdmissionTests(unittest.TestCase):
                 self.assertFalse(result.cleared)
                 self.assertEqual(port.calls, 0)
 
+    def test_absent_session_uses_exact_quarantine_identity_and_writes_only_journal_tombstone(self):
+        class Controller:
+            STAGE_IDLE, STAGE_MAIN, STAGE_MIX = "IDLE", "MAIN", "MIX"
+            def __init__(self):
+                self.current_stage = self.STAGE_IDLE
+                self._v2_trace_session_id = "S-ABSENT"
+                self._v2_battery_id = "B-EFB"
+                self._recovery_session_retirement_pending = True
+
+        class Owner:
+            def __init__(self):
+                self.off_calls = 0
+            async def turn_off(self):
+                self.off_calls += 1
+                return True
+            async def get_native_physical_output_report(self):
+                return 0, {
+                    "native_type": "SensorState", "status": "ok", "age_s": 0.1,
+                    "subscription_timestamp_monotonic": time.monotonic(),
+                }
+
+        with tempfile.TemporaryDirectory() as temp:
+            session_file = Path(temp) / "charge_session.json"
+            journal_file = Path(temp) / "quarantine.json"
+            controller = Controller()
+            app = SimpleNamespace(charge_controller=controller)
+            journal = RecoveryQuarantineJournal(journal_file, app)
+            journal.persist("main_guard_current_setpoint_transaction_unconfirmed:postflight_guard_ack_rejected")
+            # The production controller can retain the exact quarantined
+            # identity in memory while IDLE after charge_session.json vanished.
+            owner = Owner()
+            guard = SessionRecoveryGuard(
+                initial_state=RecoveryGuardState(True, "setpoint transaction unresolved"),
+                durable=True,
+            )
+            port = ExecutionPort(owner, guard)
+            port.bind_guard_owner_lock(GuardExecutionOwnerLock())
+            app.execution_port = port
+            app.recovery_quarantine_journal = journal
+            authority = TelegramRecoveryAuthority()
+            context = authority.issue(
+                user_id=42, chat_id=42,
+                incident_id=journal.incident_binding()["incident_id"],
+            )
+            retirement = _ControllerSessionRetirement(app, str(session_file))
+            service = OperatorRecoveryClearanceService(
+                execution_port=port, journal=journal,
+                operator_authority=authority, session_retirement=retirement,
+            )
+            result = asyncio.run(service.clear(context))
+            self.assertTrue(result.cleared, result.reason)
+            self.assertEqual(owner.off_calls, 1)
+            self.assertFalse(session_file.exists(), "must not synthesize charge_session.json")
+            retired = json.loads(journal_file.read_text())
+            self.assertEqual(retired["state"], "retired")
+            self.assertEqual(retired["retirement"]["session_id"], "S-ABSENT")
+            self.assertEqual(retired["retirement"]["battery_id"], "B-EFB")
+            self.assertEqual(retired["retirement"]["incident_reason"],
+                "main_guard_current_setpoint_transaction_unconfirmed:postflight_guard_ack_rejected")
+            self.assertFalse(guard.quarantined)
+            self.assertFalse(journal.load().quarantined)
+            self.assertIsNone(controller._v2_trace_session_id)
+            self.assertIsNone(controller._v2_battery_id)
+            self.assertFalse(controller._recovery_session_retirement_pending)
+
+    def test_absent_session_rejects_wrong_incident_or_non_idle_controller_without_off(self):
+        class Controller:
+            STAGE_IDLE, STAGE_MAIN = "IDLE", "MAIN"
+            def __init__(self):
+                self.current_stage = self.STAGE_IDLE
+                self._v2_trace_session_id = None
+                self._v2_battery_id = None
+
+        with tempfile.TemporaryDirectory() as temp:
+            session_file = Path(temp) / "charge_session.json"
+            journal_file = Path(temp) / "quarantine.json"
+            controller = Controller()
+            app = SimpleNamespace(charge_controller=controller)
+            journal = RecoveryQuarantineJournal(journal_file, app)
+            app.recovery_quarantine_journal = journal
+            # Seed an authentic journal identity from the canonical owner.
+            controller._v2_trace_session_id = "S-ABSENT"
+            controller._v2_battery_id = "B-EFB"
+            journal.persist("main_guard_current_setpoint_transaction_unconfirmed:postflight_guard_ack_rejected")
+            controller._v2_trace_session_id = None
+            controller._v2_battery_id = None
+            retirement = _ControllerSessionRetirement(app, str(session_file))
+            binding = journal.incident_binding()
+            self.assertTrue(retirement.validate(binding))
+            self.assertFalse(retirement.validate({**binding, "incident_id": "wrong"}))
+            controller._v2_trace_session_id = "OTHER"
+            self.assertFalse(retirement.validate(binding))
+            controller._v2_trace_session_id = None
+            controller._v2_battery_id = "OTHER-BATTERY"
+            self.assertFalse(retirement.validate(binding))
+            controller._v2_battery_id = None
+            controller.current_stage = controller.STAGE_MAIN
+            self.assertFalse(retirement.validate(binding))
+
     def test_private_allowlisted_only_allow_all_never_grants(self):
         private = SimpleNamespace(from_user=SimpleNamespace(id=42), chat=SimpleNamespace(id=42, type="private"))
         group = SimpleNamespace(from_user=SimpleNamespace(id=42), chat=SimpleNamespace(id=-10, type="group"))

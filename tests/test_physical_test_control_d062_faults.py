@@ -7,7 +7,7 @@ from ha_history import ContinuousOnEvidence, MixHistoryEvidence
 from pb_domain import BatteryChemistry
 from rd_managed_adoption import ManagedAdoptionFingerprint
 from rd_managed_mix import ManagedMixState
-from runtime_safety import RuntimeSafetyError
+from runtime.safety.runtime_guard import RuntimeSafetyError
 
 from physical_test_control_d062 import install_physical_test_control_d062
 

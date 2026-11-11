@@ -33,6 +33,14 @@ class V3PhysicalMigrationGateTests(unittest.TestCase):
         forbidden_calls = {
             "turn_on", "turn_off", "set_voltage", "set_current", "set_ovp", "set_ocp",
         }
+        # Explicitly relocated safety execution owners are allowed to call the
+        # inherited, verified Output adapter. All pure policy modules and the
+        # charge/output domain remain prohibited from direct physical calls.
+        approved_safety_effect_owners = {
+            "runtime/safety/runtime_guard.py",
+            "runtime/safety/strict_guard.py",
+            "runtime/safety/managed_guard.py",
+        }
         roots = (ROOT / "runtime" / "charge", ROOT / "runtime" / "safety", ROOT / "runtime" / "output")
         for root in roots:
             for path in root.rglob("*.py"):
@@ -46,7 +54,8 @@ class V3PhysicalMigrationGateTests(unittest.TestCase):
                     elif isinstance(node, ast.ImportFrom):
                         self.assertNotIn((node.module or "").split(".")[0], forbidden_modules, str(path))
                     elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-                        self.assertNotIn(node.func.attr, forbidden_calls, str(path))
+                        if path.relative_to(ROOT).as_posix() not in approved_safety_effect_owners:
+                            self.assertNotIn(node.func.attr, forbidden_calls, str(path))
 
 
 if __name__ == "__main__":

@@ -13,7 +13,7 @@ from tools.acceptance_guard.takeover import D061TakeoverSmoke, TARGET, fingerpri
 from tools.acceptance_guard.takeover import seed_isolated_hands_off_state, require_hands_off_manager
 from tools import run_d061_takeover_smoke as runner
 from rd_control_mode import RdControlMode, RdControlModeManager
-from managed_runtime_safety import ManagedRuntimeSafetyGuard
+from runtime.safety.managed_guard import ManagedRuntimeSafetyGuard
 
 
 class _TestManagedGuard(ManagedRuntimeSafetyGuard):
@@ -501,7 +501,7 @@ class TakeoverRunnerTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(set(names), allowed)
             self.assertEqual(len(names),len(set(names)))
             self.assertEqual(archive.extractfile('source-manifest.json').read(),manifest)
-            self.assertNotIn('edge_safety_lease.py',names)
+            self.assertNotIn('runtime/safety/edge_lease.py',names)
             self.assertNotIn('hass_api.py',names)
             self.assertEqual(pairing.SUPPLEMENTAL_PATHS, allowed-{
                 'source-manifest.json','overlay-attestation.json'})

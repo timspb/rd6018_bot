@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Optional
 
-from edge_safety_lease import (
+from runtime.safety.edge_lease import (
     EdgeLeaseState,
     EdgeSafetyLease,
     EdgeSafetyLeaseError,

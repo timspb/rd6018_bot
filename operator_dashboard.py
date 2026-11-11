@@ -112,35 +112,31 @@ def _graph_toolbar(app: Any, user_id: int, actions=None):
     return top_row
 
 
+def _composed_operator_rows(app: Any, state: hmi.OperatorHmiState, *, hide_active_release: bool):
+    """Invoke installed ownership/adoption wrappers exactly once.
+
+    These wrappers may extend the generic action view with RD ownership controls.
+    Reuse the existing button filter without introducing another policy.
+    """
+    markup = hmi.build_operator_keyboard(app, state)
+    if hide_active_release:
+        markup = _hide_active_release_button(markup)
+    return list(markup.inline_keyboard)
+
+
 def _main_graph_markup(app: Any, state: hmi.OperatorHmiState, user_id: int, actions=None):
-    """Render the charge panel without graph controls or graph work."""
-    # Older composition wrappers preserve the two-argument builder signature.
-    # The V3 path passes capabilities explicitly; compatibility callers retain
-    # the unchanged legacy fallback.
-    # The root dashboard uses the existing state-driven RD control screen.  The
-    # capability view remains available to callers, but must not replace the
-    # ownership/autonomous composition on the root screen.
-    panel = hmi.build_operator_keyboard(app, state)
-    markup = app.InlineKeyboardMarkup(
-        inline_keyboard=list(panel.inline_keyboard)
+    """Render normal workspace; hide release only during managed charge."""
+    return app.InlineKeyboardMarkup(
+        inline_keyboard=_composed_operator_rows(app, state, hide_active_release=_charge_session_active(app))
     )
-    if _charge_session_active(app):
-        return _hide_active_release_button(markup)
-    return markup
 
 
 def _active_graph_panel_markup(app: Any, state: hmi.OperatorHmiState, user_id: int, actions=None):
-    """Keep graph ranges and active-charge controls on the same photo message."""
-    graph_rows = [_graph_toolbar(app, user_id, actions)]
-    # Preserve canonical ownership composition for the graph-backed panel.
-    # The V3 action list omits HANDS_OFF live Pb adoption.
-    panel_markup = hmi.build_operator_keyboard(app, state)
-    panel_rows = list(panel_markup.inline_keyboard)
-    panel_rows = [
-        [button for button in row if button.callback_data != "rd_hands_off_release_confirm"]
-        for row in panel_rows
-    ]
-    return app.InlineKeyboardMarkup(inline_keyboard=graph_rows + panel_rows)
+    """Keep graph ranges and existing RD ownership controls in one message."""
+    return app.InlineKeyboardMarkup(
+        inline_keyboard=[_graph_toolbar(app, user_id, actions)]
+        + _composed_operator_rows(app, state, hide_active_release=True)
+    )
 
 
 def _binary(value: Any) -> Optional[bool]:
@@ -438,7 +434,7 @@ def install_operator_graph_dashboard(app: Any) -> None:
         if interface is None:
             return None
         snapshot = await interface.get_operator_snapshot()
-        actions = await interface.get_operator_actions()
+        actions = await interface.get_operator_actions(snapshot=snapshot)
         state = OperatorSnapshotProvider.hmi_state_from_snapshot(snapshot)
         actions = _panel_actions(actions, dark=_dark_panel_enabled())
         caption = truthful_panel(state)
@@ -657,7 +653,7 @@ def install_operator_graph_dashboard(app: Any) -> None:
             if interface is None:
                 raise RuntimeError("operator interface is not installed")
             snapshot = await interface.get_operator_snapshot()
-            actions = await interface.get_operator_actions()
+            actions = await interface.get_operator_actions(snapshot=snapshot)
         except Exception as exc:
             app.logger.error("Failed to refresh V3 operator snapshot: %s", exc)
             return None
@@ -814,7 +810,7 @@ def install_operator_graph_dashboard(app: Any) -> None:
             if interface is None:
                 raise RuntimeError("operator interface is not installed")
             snapshot = await interface.get_operator_snapshot()
-            actions = await interface.get_operator_actions()
+            actions = await interface.get_operator_actions(snapshot=snapshot)
         except Exception as exc:
             app.logger.error("Failed to get V3 operator snapshot for dashboard: %s", exc)
             snapshot = None

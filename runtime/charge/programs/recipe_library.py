@@ -27,6 +27,8 @@ class RecipeLibrary:
         recipe = parse_recipe(document, max_voltage_v=self.max_voltage_v,
                               max_current_a=self.max_current_a)
         target = self._file(recipe.recipe_id, recipe.version)
+        if (target.parent / ".archived").exists():
+            raise ValueError("recipe is archived; its history is read-only")
         target.parent.mkdir(parents=True, exist_ok=True)
         data = {"id": recipe.recipe_id, "version": recipe.version,
                 "steps": list(recipe.steps)}

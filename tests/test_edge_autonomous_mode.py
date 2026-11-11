@@ -1,7 +1,7 @@
 import unittest
 
 from edge_autonomous_mode import EdgeAutonomousAuthority
-from edge_safety_lease import EdgeSafetyLease, EdgeSafetyLeaseConfig, EdgeSafetyLeaseError
+from runtime.safety.edge_lease import EdgeSafetyLease, EdgeSafetyLeaseConfig, EdgeSafetyLeaseError
 
 
 class FakeHass:

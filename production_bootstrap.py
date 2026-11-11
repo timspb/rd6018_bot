@@ -18,7 +18,7 @@ from production_controller import configure_production_charge_host, create_produ
 from manual_runtime import ProductionManualSessionManager, ProductionManualUIRoute
 from manual_text import install_manual_text
 from pb_domain import ChargeIntent
-from managed_runtime_safety import install_managed_runtime_safety
+from runtime.safety.managed_guard import install_managed_runtime_safety
 from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
 from runtime.ui.telegram.details import HOME_CALLBACK_DATA
 from runtime.ui.telegram.off_conditions import OFF_CALLBACK_DATA

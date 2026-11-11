@@ -69,14 +69,23 @@ class OperatorReadSource:
             "FAULT": HmiProcessState.CONTAINMENT,
             "HANDS_OFF": HmiProcessState.HANDS_OFF,
         }.get(snapshot.state, HmiProcessState.CONTAINMENT)
+        if snapshot.state in {"CHARGING", "FAULT"}:
+            preserved = str(getattr(snapshot, "process_state", "") or "")
+            candidates = (
+                HmiProcessState.RUNNING, HmiProcessState.PAUSED,
+                HmiProcessState.STORAGE, HmiProcessState.ADOPTED_MIX,
+            ) if snapshot.state == "CHARGING" else (HmiProcessState.INTERRUPTED,)
+            if snapshot.state == "CHARGING" or snapshot.snapshot.charge.program == "adopted_mix":
+                process = next((item for item in candidates if item.value == preserved), process)
         view = snapshot.snapshot
         authority_value = str(view.charge.program or "").lower()
-        authority = HmiAuthority.MANUAL if authority_value == HmiAuthority.MANUAL.value else (
-            HmiAuthority.AUTO if snapshot.state == "CHARGING" else (
-                HmiAuthority.NONE if snapshot.state == "IDLE" else (
-                    HmiAuthority.EXTERNAL if snapshot.state == "HANDS_OFF" else HmiAuthority.CONTAINMENT
-                )
-            )
+        authority = (
+            HmiAuthority.ADOPTED_MIX if process in {HmiProcessState.ADOPTED_MIX, HmiProcessState.INTERRUPTED}
+            else HmiAuthority.MANUAL if authority_value == HmiAuthority.MANUAL.value
+            else HmiAuthority.AUTO if snapshot.state == "CHARGING"
+            else HmiAuthority.NONE if snapshot.state == "IDLE"
+            else HmiAuthority.EXTERNAL if snapshot.state == "HANDS_OFF"
+            else HmiAuthority.CONTAINMENT
         )
         return OperatorHmiState(
             process_state=process,
@@ -98,6 +107,7 @@ class OperatorReadSource:
             stage_status=str(view.charge.evidence.get("stage_status", "") or ""),
             stage_time=view.charge.timer_text,
             delivered_ah=view.telemetry.accumulated_ah,
+            manual_interrupted=bool(getattr(snapshot, "manual_interrupted", False)),
         )
 
 

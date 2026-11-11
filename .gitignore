@@ -195,3 +195,6 @@ charge_session.json.mix-authority.json
 # Local vendor hardware resources, not source code
 local_assets/
 infrastructure/wsl/
+
+# Local Recipe Studio isolated workspace (never publish or deploy)
+.recipe-studio-local/

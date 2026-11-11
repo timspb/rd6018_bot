@@ -6,7 +6,7 @@ import tempfile
 import time
 from typing import Any, Optional
 
-from runtime_safety import RuntimeSafetyError
+from runtime.safety.runtime_guard import RuntimeSafetyError
 
 
 _RELEASE_VERSION = 1

@@ -3,7 +3,8 @@ from datetime import datetime, timezone
 
 from config import ENTITY_MAP
 from hass_api import HassClient
-from safe_output import OutputRequest, SafeOutputCoordinator, SafetyViolation
+from runtime.safety.output_policy import OutputRequest, SafetyViolation
+from application.safe_output_coordinator import SafeOutputCoordinator
 
 
 def live_state(**overrides):
@@ -190,7 +191,7 @@ class HassSafeOutputGateTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(await client.set_voltage(16.3))
         self.assertTrue(await client.set_current(2.0))
 
-    async def test_old_ocp_is_disabled_before_new_higher_current_start(self):
+    async def test_old_ocp_is_replaced_by_bounded_protection_before_higher_current_start(self):
         client = FakeHassClient()
         client.live.update({
             "ovp": 14.92, "ovp_readback_v2": 14.92,
@@ -199,8 +200,8 @@ class HassSafeOutputGateTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(await client.set_voltage(16.3))
         self.assertTrue(await client.set_current(6.0))
         self.assertTrue(await client.turn_on())
-        self.assertEqual(client.live["ovp_readback_v2"], 0.0)
-        self.assertEqual(client.live["ocp_readback_v2"], 0.0)
+        self.assertAlmostEqual(client.live["ovp_readback_v2"], 16.4)
+        self.assertAlmostEqual(client.live["ocp_readback_v2"], 6.1)
         self.assertEqual(client.service_calls, ["turn_on"])
 
     async def test_no_output_on_if_old_protection_register_cannot_be_read(self):
@@ -361,6 +362,62 @@ class HassSafeOutputGateTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(result.enabled)
         self.assertEqual(client.service_calls, ["turn_on"])
+
+
+    async def test_held_mix_ovp_is_replaced_without_zero_write(self):
+        class RejectZeroProtection(FakeHassClient):
+            def __init__(self):
+                super().__init__()
+                self.protection_writes = []
+
+            async def set_value(self, entity_id, value):
+                if entity_id in (ENTITY_MAP["ovp"], ENTITY_MAP["ocp"]):
+                    self.protection_writes.append((entity_id, float(value)))
+                    if value == 0:
+                        return False
+                return await super().set_value(entity_id, value)
+
+        client = RejectZeroProtection()
+        client.live.update({
+            "ovp": 16.6, "ovp_readback_v2": 16.6,
+            "ocp": 1.32, "ocp_readback_v2": 1.32,
+        })
+        self.assertTrue(await client.set_voltage(14.82))
+        self.assertTrue(await client.set_current(6.0))
+        self.assertTrue(await client.turn_on())
+        self.assertAlmostEqual(client.live["ovp_readback_v2"], 14.92)
+        self.assertAlmostEqual(client.live["ocp_readback_v2"], 6.1)
+        self.assertTrue(all(value > 0 for _, value in client.protection_writes))
+        self.assertEqual(client.service_calls, ["turn_on"])
+
+    async def test_rejected_bounded_protection_never_enables_output(self):
+        class RejectOvp(FakeHassClient):
+            async def set_value(self, entity_id, value):
+                if entity_id == ENTITY_MAP["ovp"]:
+                    return False
+                return await super().set_value(entity_id, value)
+
+        client = RejectOvp()
+        client.live.update({"ovp": 16.6, "ovp_readback_v2": 16.6})
+        self.assertTrue(await client.set_voltage(14.82))
+        self.assertTrue(await client.set_current(6.0))
+        self.assertFalse(await client.turn_on())
+        self.assertNotIn("turn_on", client.service_calls)
+
+    async def test_unconfirmed_bounded_protection_never_enables_output(self):
+        class RejectOvpReadback(FakeHassClient):
+            async def set_value(self, entity_id, value):
+                if entity_id == ENTITY_MAP["ovp"]:
+                    self.live["ovp"] = float(value)
+                    return True  # Command ACK, but stale physical V2 readback.
+                return await super().set_value(entity_id, value)
+
+        client = RejectOvpReadback()
+        client.live.update({"ovp": 16.6, "ovp_readback_v2": 16.6})
+        self.assertTrue(await client.set_voltage(14.82))
+        self.assertTrue(await client.set_current(6.0))
+        self.assertFalse(await client.turn_on())
+        self.assertNotIn("turn_on", client.service_calls)
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 """Reproduce STOP/disarm preempting in-flight START/arm on fake edge only."""
 import asyncio
 import unittest
-from edge_safety_lease import EdgeSafetyLease, EdgeSafetyLeaseConfig, EdgeSafetyLeaseError
+from runtime.safety.edge_lease import EdgeSafetyLease, EdgeSafetyLeaseConfig, EdgeSafetyLeaseError
 from tests.test_edge_safety_lease import FakeHass
 
 

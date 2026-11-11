@@ -1,4 +1,5 @@
 import ast
+from source_audit_inventory import source_inventory
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 import unittest
@@ -157,8 +158,13 @@ class TraceContextEvidenceTests(unittest.TestCase):
         self.assertTrue({"_persist_shadow_trace_if_ready", "_log_shadow_disagreement"}.isdisjoint(names))
         self.assertNotIn("_v2_last_disagreement", source)
         self.assertNotIn("_v2_disagreement_repeat_count", source)
+        # Separate Git worktrees (e.g. .worktrees/dryrun_virtual) are not
+        # production source owners in this checkout. Scan tracked files only.
         definitions = []
-        for path in ROOT.rglob("*.py"):
+        for relative in source_inventory(ROOT):
+            if relative.suffix != ".py":
+                continue
+            path = ROOT / relative
             module = ast.parse(path.read_text(encoding="utf-8"))
             definitions.extend((path.name, node.name) for node in ast.walk(module)
                                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))

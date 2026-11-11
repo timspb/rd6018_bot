@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 from diagnostic_probe import current_readback_evidence
 from rd6018_telemetry import canonical_programmed_readback
-from runtime_safety import RuntimeSafetyError, RuntimeSafetyGuard
+from runtime.safety.runtime_guard import RuntimeSafetyError, RuntimeSafetyGuard
 
 
 def live_state(*, v2_age_s=0.0, include_v2=True, legacy_current=2.0, v2_current=2.0):

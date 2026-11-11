@@ -30,7 +30,7 @@ class MixFinishHoldEffectTests(unittest.TestCase):
         self.assertIn("Imin=0.400", effect.notify)
         self.assertEqual(
             effect.log_event,
-            "V2_FINISH_HOLD_START | Imin=0.400А, ΔI=0.100А",
+            "V2_FINISH_HOLD_START | mode=CV | hold_seconds=7200.0 | Imin=0.400A | delta_a=0.100 | session=session-1",
         )
 
     def test_cc_effect_and_applicator_preserve_state_actions(self):
@@ -58,8 +58,20 @@ class MixFinishHoldEffectTests(unittest.TestCase):
         self.assertIn("CC", actions["notify"])
         self.assertEqual(
             actions["log_event"],
-            "V2_FINISH_HOLD_START | Vmax=16.470В, ΔV=0.050В",
+            f"V2_FINISH_HOLD_START | mode=CC | hold_seconds=7200.0 | Vmax=16.470V | delta_v=0.050 | session={controller._v2_trace_session_id}",
         )
+
+    def test_configured_hold_duration_and_required_delta_are_logged(self):
+        effect = owner.build_mix_finish_hold_effect(
+            now_s=4000.0, is_cc=False, is_cv=True,
+            voltage_max_v=None, delta_voltage_from_max_v=None,
+            current_min_a=.30, delta_current_from_min_a=.56,
+            session_id="session-2", hold_seconds=10800.0,
+            current_reversal_threshold_a=.55,
+        )
+        self.assertIn("Sticky finish-hold: 3ч", effect.notify)
+        self.assertIn("hold_seconds=10800.0", effect.log_event)
+        self.assertIn("required_delta_a=0.550", effect.log_event)
 
     def test_missing_metric_keeps_hold_but_no_finish_evidence(self):
         controller = ManagedChargeController(object())

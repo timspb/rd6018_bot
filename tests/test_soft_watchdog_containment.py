@@ -79,6 +79,24 @@ class SoftWatchdogContainmentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(app.events, [])
         self.assertEqual(app.logger.critical_messages, [])
 
+    async def test_managed_telemetry_recovery_suspends_independent_soft_watchdog(self):
+        app = DummyApp(output_on=True, controller_active=True)
+        app.runtime_safety_guard = SimpleNamespace(telemetry_recovery_active=True)
+        incident = SoftWatchdogIncident()
+
+        # The existing managed guard owns the accepted 300s wait. At 180s
+        # the auxiliary watchdog must not fire a competing physical OFF.
+        await soft_watchdog_poll_once(app, incident, now=400.0)
+        self.assertEqual(app.hard_stop_calls, 0)
+        self.assertFalse(incident.active)
+
+        # Once the guard stops accepting recovery, ordinary containment
+        # resumes instead of retaining an independent grace window.
+        app.runtime_safety_guard.telemetry_recovery_active = False
+        await soft_watchdog_poll_once(app, incident, now=400.0)
+        self.assertEqual(app.hard_stop_calls, 1)
+        self.assertTrue(incident.shutdown_complete)
+
     async def test_last_known_on_requests_immediate_stop_and_logs_once(self):
         app = DummyApp(output_on=True)
         incident = SoftWatchdogIncident()
@@ -268,15 +286,13 @@ class SoftWatchdogContainmentTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertNotIn("install_soft_watchdog_containment", bot_source)
         self.assertNotIn("soft_watchdog_containment", bot_source)
-        self.assertIn(
-            "from runtime.safety.soft_watchdog import "
-            "SoftWatchdogIncident, soft_watchdog_poll_once",
-            runtime_source,
-        )
-        self.assertIn(
-            "await soft_watchdog_poll_once(app, _soft_watchdog_incident)",
-            runtime_source,
-        )
+        monitoring = (root / "runtime/safety/watchdog_runtime.py").read_text(encoding="utf-8")
+        lifecycle = (root / "runtime/production_lifecycle.py").read_text(encoding="utf-8")
+        self.assertIn("from runtime.safety.soft_watchdog import SoftWatchdogIncident, soft_watchdog_poll_once", monitoring)
+        self.assertIn("await soft_watchdog_poll_once(app, incident)", monitoring)
+        self.assertIn("run_safety_watchdogs(app)", lifecycle)
+        self.assertNotIn("async def soft_watchdog_loop", runtime_source)
+        self.assertNotIn("async def watchdog_loop", runtime_source)
 
 
 if __name__ == "__main__":

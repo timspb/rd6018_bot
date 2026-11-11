@@ -1,5 +1,79 @@
 # RD6018 Bot V3 Project Runbook
 
+## Wake observer Telegram network error isolation — 2026-11-11
+
+`aiogram.dispatcher` polling network timeout is an external transport error,
+not `charger.fault` and never critical. Brief failures and recovery are silent.
+Continuous polling outage of at least 300 seconds emits one
+`charger.telegram_unavailable` warning; recovery after warning sends
+`charger.telegram_recovered` info. Watchdog, MAIN Guard and hardware faults
+remain immediate. The observer is deployed independently, without restarting
+the charging bot; temporary installer files must be removed after verification.
+
+## Wake observer START event contract — 2026-11-11
+
+When `program_active` transitions from false to true, suppress the pending
+routine heartbeat until a post-START, timestamped Output=ON readback and fresh
+voltage/current telemetry are available. Send one `charger.start_confirmed`
+with measured U/I/temperature/stage/Guard/Output; do not report the stale
+pre-ON snapshot as a successful START. If no confirmation within 120 seconds,
+send one warning `charger.start_output_unconfirmed`; likewise on early abort.
+Persist transition state in observer outbox; do not replay a false START report
+when observer restarts mid-session. Fault and service alerts bypass this delay.
+Only restart the observer for this rule; never restart an active charge bot.
+Remove temporary deployment files after verified activation.
+
+## Canonical mandatory post-release cleanup — 2026-11-11
+
+Every node104 installation is INCOMPLETE until after verified D144 COMMITTED,
+installed SHA, service health, physical OFF and telemetry checks, the deployer
+cleans ALL superseded deployment artifacts. Do not accumulate safety copies
+"just in case". Remove old D138 stages, upload temporaries, obsolete candidate
+folders, prior D144 backup/old app/venv directories, abandoned pip-unpack,
+unused install scripts and stale release material after confirming they are
+not referenced by the active transaction. Preserve runtime app/venv/state,
+service unit/environment/secrets, D090/D144 identity journals and immutable
+D151 collectors. Keep only the minimal currently required rollback boundary
+while a transaction is in flight; prune it after committed acceptance according
+to the owner's release contract. Never delete logs/database/state or disable
+services merely because they look old without verifying their consumers.
+Measure disk use before and after, audit `systemctl`, verify no D144 active
+transaction, and report exact installed SHA and remaining artifacts. Treat
+cleanup as part of DONE, not optional follow-up.
+
+## 2026-11-11 D145 software-only proof correction
+
+Python-only D145 `execute` must call `D090Transaction._read_recovery_proof`
+for all four D151 phases, including idle/no-quarantine state. This validates
+fresh independent HA + ESP Native Output OFF, zero current, service phase,
+lease, session and source nonces without incorrectly requiring zero battery
+voltage. Firmware/physical release paths retain strict voltage proof. The
+previous conditional based on preserved quarantine incorrectly blocked idle
+software releases when physical battery voltage was nonzero.
+
+## R7.2 producer binding cutover — 2026-11-10: PASS
+
+Owner-authorized run `rd6018-r72-producer-bind-cutover-20261110-01` changed
+only producer `rd6018/node104` from enabled route
+`10dd32de00d144b398c2d3f89127be0c` to this chat's independently inspected
+enabled route `e4df14fbac534f2086fa70fa7dc16c62`. Preflight through the
+existing pinned HOME-PC→VM110 identity confirmed the target route enabled,
+the old producer binding exact, and `wake-event-gateway.service` active.
+The official R7.2 `wakebridge.cli producer-bind --replace` operator API
+returned `ok=true`. A subsequent official `producer-list` showed exactly
+one enabled row for `rd6018/node104` on the target route with
+`route_enabled=1`; `cezar/agent-factory` remained unchanged. The trusted
+chat inspector after the operation still returned this chat's own route.
+No direct SQLite writes were made.
+
+The initial Codex CLI run stopped at its MCP approval boundary; the controlling
+ChatGPT session then performed the exact owner-authorized operation through
+the existing HOME-PC connector and pinned VM110 host identity. No test event
+was emitted, so no new event delivery/ACK is claimed. Gateway configuration
+and token, node104 observer/service, outbox, charger and physical hardware
+were untouched. Evidence:
+`reports/CODEX_RD6018_R72_PRODUCER_BIND_CUTOVER_20261110.txt`.
+
 ## ОБЯЗАТЕЛЬНО: актуальные физические данные — напрямую с ESP Native API
 
 **БРАТЬ АКТУАЛЬНЫЕ ДАННЫЕ С ESP, А НЕ ИЗ HA, СТАРОГО ОТЧЁТА ИЛИ КЭША.**
@@ -668,15 +742,17 @@ program/readback/enable/readback sequence, and only its successful verified
 acknowledgement may commit SAFE_WAIT -> MAIN.
 
 When the active session has a durable MAIN Current Guard, that same return
-transaction first requires fresh direct ESP Native Output=OFF, Iset and OCP
-readbacks, issues the existing verified-OFF operation, and requires newer OFF
-callbacks before programming. It restores the Guard's original bounded MAIN
-current (never above the accepted recipe or global stage limit), verifies fresh
-Iset/OCP, atomically saves the new Guard segment with the charge session, and
-only then enables Output. The new MAIN segment starts with zero accrued time
-and a fresh 30-minute Guard interval. If the preflight reports Output ON, no
-V/I/OVP/OCP target is issued. This is software behavior; it does not constitute
-node104 or hardware validation.
+transaction first requires fresh direct ESP Native Output=OFF, Iset and clear
+R16 protection evidence, issues the existing verified-OFF operation, and
+requires newer OFF callbacks before programming. It restores the Guard's
+original bounded MAIN current (never above the accepted recipe or global
+stage limit), verifies fresh Iset, atomically saves the new Guard segment with
+the charge session, and only then enables Output. Numeric OCP is not a MAIN
+Guard admission gate or setter; its original physical protection owner remains
+unchanged. The new MAIN segment starts with zero accrued time and a fresh
+30-minute Guard interval. If preflight reports Output ON, no V/I/OCP target
+is issued. This is software behavior; it does not constitute node104 or
+hardware validation.
 
 A restart defect was found while adding the required regression: historical
 restore reconstructed DESULFATION `stage_start_time` from Ah and could corrupt
@@ -1513,6 +1589,14 @@ EXECUTION BLOCKER: HOME-PC invocation of canonical D145 prepare was denied by to
 ## 2026-11-07 D144 slot14 installed
 2026-11-07 node104 D145/D144 deployment ACCEPTED at service and physical level. Owner retired EFB80 session first; charge_session.json absent. D145 prepare returned PREPARE_ONLY_PASS, fresh_d091_off=true, capacity_pass=true, preserved_guarded_main=false. D145 execute EXIT 0; D144_STATE_PRESERVING_V1 slot14 COMMITTED, transaction be4fce7576844e5c95df1ea8e6aeda15, source d49cb6d1bb24fa3d2496ca4564aaf1d4ea91fa5b, candidate identity b9be5f6f9188991324372f07fbbfc7d3e9c0999678ecbe332b948d2621f0e981. New service PID231800 active from 08:41:27 UTC, NRestarts0, single bot.py polling process. aiogram Start polling and Run polling for bot @RD6018_bot logged 08:41:34 UTC; no active TelegramConflictError (startup INFO contains a generic conflict advisory). Voltage relaxation sidecar PID62502 active, zero restarts. Postflight D148 collect_live: ESP Native and HA independently Output OFF U0V I0A, safety lease disarmed, no trip/quarantine, active_session=false, TTL900s. Disk 3.5 GB free, 54 percent used. No hardware commands. Prior installed slot13 source 9692cf37. D49 stage and release profile retained. Operator navigation, journal formatting, and 60-second in-place message refresh still require live Telegram interaction acceptance, not established by polling.
 
+## 2026-11-07 — MAIN to MIX countdown display polish on frozen UI baseline
+
+Baseline frozen BEFORE modifications. Exact known-good installed UI source d49cb6d1bb24fa3d2496ca4564aaf1d4ea91fa5b is protected by immutable-intent annotated Git tag baseline/rd6018-telegram-ui-fast-slot14-20261107, pushed to owned origin timspb/rd6018_bot. Node104 read-only verification at 09:43 UTC: rd6018-bot.service Active, PID231800, NRestarts0; D144 slot14 installed identity d49cb6d, transaction be4fce7576844e5c95df1ea8e6aeda15, D144_TRANSACTION_14.json present, prior image directories d144-backup-14, d144-old-14-app and d144-old-14-venv exist. No node104 writes or restarts in this sprint; physical controller and established Telegram UI baseline untouched.
+
+Feature-only branch feature/main-mix-countdown-display. Narrow source change ONLY operator_hmi.py (HMI projection) and tests/test_operator_hmi.py; no change to panel_lifecycle, Telegram publisher, SignalAnalyzer, MAIN authority, safety, sample storage, firmware or hardware. Countdown uses accepted analyzer Imin epoch if available, otherwise valid analyzer seconds_since_current_min. A missing, NaN, Inf or negative analyzer clock no longer fabricates a fresh 3-hour countdown: HMI says Imin time unconfirmed. A new accepted minimum resets the displayed countdown through the existing analyzer timestamp; in-place 60-second Telegram refresh recomputes the caption from current time, no new timer. The destination label now respects actual intent: Recovery/Conditioning MAIN to MIX, Normal MAIN completion, AGM or unknown intent MAIN decision. Existing regulator/CV, readback and tail evidence requirements are unchanged. This is operator-facing information, not transition authorization or a guarantee that all independent safety gates have passed.
+
+Regression evidence (Windows repository virtualenv, dummy offline TG_TOKEN): 122/122 targeted HMI, dashboard, panel lifecycle, graph refresh, signal analyzer, MAIN clock/authority tests PASS; 105/105 V3 UI suite PASS; Python compilation and git diff --check PASS. Additional HMI tests exercise missing clock, countdown advancing minute-by-minute without new analyzer sample, normal-vs-recovery destination, and invalid clock. Historical frozen source remains available; new change is NOT deployed, not merged to main. Future installation must use exact new-source SHA, safe retired-session Native+HA OFF proof and existing D145/D144 owner, without modifying or cleaning the slot14 backup before acceptance.
+
 ## Non-negotiable modularity and configuration canon (2026-11-07)
 
 **No new monoliths.** This applies to all RD6018 changes, including operator HMI, charging algorithms, recovery, telemetry, logging, and release tooling. An existing oversized file is not a license to add another feature branch to it.
@@ -1524,3 +1608,610 @@ EXECUTION BLOCKER: HOME-PC invocation of canonical D145 prepare was denied by to
 - Before each change: identify existing canonical owner and config source, perform the smallest source modification that implements the requirement, and remove superseded code rather than adding shims. Do not construct a parallel abstraction, extra proof/authorization, new service, duplicate observer, or alternative rollback path.
 - Acceptance: focused module tests + existing architecture/UI regressions + actual entrypoint behavior where relevant. Record evidence and exact SHA in the runbook. Keep the deployed known-good baseline untouched until an explicit safe D145/D144 installation is authorized; never confuse source acceptance with live hardware/UI acceptance.
 - If requested work needs a new setting or subsystem, extend the original semantic owner rather than opening an independent control plane. Reject any design that makes two modules authoritative for the same state.
+
+## 2026-11-07 — MIX CV/CC accepted Delta presentation audit and fix, source-only
+
+Scope: user ordered continued work on item 2 MIX indication, explicitly no node104 deployment during charging. Read-only static audit uncovered incorrect UI dependency: after a durable CV Delta accepted, a later live regulator CC caused operator_hmi.py to reject that accepted CV evidence and announce Delta unavailable; the converse CC->CV had same fault. The canonical finish evidence stores the accepted mode independently of current regulator; the controller/SignalAnalyzer retain sole decision authority.
+
+Fixed presentation only: a new small pure read-only runtime/ui/components/mix_stage_progress.py owns the persisted MIX finish-hold label/countdown. It identifies confirmed Delta by durable finish_evidence.mode (CV -> delta I, CC -> delta V), delta_reported and valid accepted reference/delta, not by current live regulator. It displays the remaining hold from existing recipe-owned _effective_mix_finish_hold_seconds and persisted finish_hold_started_at, and labels missing evidence explicitly rather than inventing proof; invalid/future timestamps produce no fake countdown. Existing pre-confirmation live MIX CV Imin/Delta I and CC Vmax/Delta V paths remain in the same read model, with no new clock/publisher/observer/authority or physical call. operator_hmi.py delegates this one existing hold branch; panel_lifecycle.py untouched.
+
+Regressions: 3 new operator HMI tests for accepted CV->CC/CC->CV mode changes and future hold timestamp; 48/48 HMI PASS, 134/134 targeted HMI/dashboard/panel/graph/SignalAnalyzer/MAIN/MIX PASS, 105/105 V3 UI PASS, Python py_compile and git diff --check PASS. Pure source only, still NOT deployed. Frozen known-good node104 D144 slot14 exact SHA d49cb6d1bb24fa3d2496ca4564aaf1d4ea91fa5b and backup must remain untouched until operator explicitly requests a safe deployment. Next sprint: journal event completeness and clear human wording, continuing on isolated source branch.
+
+## 2026-11-07 — Human charge journal pass after MIX presentation fix (source-only)
+
+Audited the existing journal chain: authoritative SignalAnalyzer accepted extrema produce MAIN_HOLD_START/MAIN_HOLD_RESET and MIX_IMIN_UPDATED/MIX_VMAX_UPDATED in runtime/charge/evidence/trace_context.py; existing production runtime log_event_sub writes them to the established charging_history.log, and the canonical journal component filters service CHECKPOINT/RESTORE rows before pagination (8 events/page). Durable V2_FINISH_HOLD_START is recorded by existing runtime/charge/runtime/mix_finish_hold.py; no second journal, telemetry collector, timer, or persistence path is needed. Full live event coverage of a charge cycle remains unproven without a new cycle; do not fabricate past events or equate source audit with physical acceptance.
+
+Found human-factors issue: MAIN_HOLD_START was rendered as if the entire transition hold had definitively started, but the source event only proves the analyzer accepted an Imin epoch (tail readiness and decision gates are independent). Narrow two-string presentation change in runtime/ui/components/journal.py now reads 'Imin принят; отсчёт от минимума' and 'Новый Imin; отсчёт от минимума заново'. Updated existing journal milestone assertions in tests/test_operator_journal_milestones.py. No state transition, safety, output, journal data format, or event producer changes. Tests 116/116 combined operator journal/HMI/dashboard/panel PASS and 105/105 V3 UI PASS, compilation and git diff --check PASS. No node104 deployment per operator instruction; frozen known-good D144 slot14 d49cb6d remains untouched. Next work: continue journal source-to-persisted-event mapping and catalog program parity on HOME-PC, keeping every value at its canonical modular owner.
+
+## 2026-11-07 — 12 native charge recipe variants: ownership catalog audit (source-only)
+
+Audited the canonical native recipe catalog: exactly 3 chemistries Ca/Ca, EFB, AGM x 4 intents normal, recovery, conditioning, diagnostic = 12 descriptive variants, NOT 12 independent controllers. PREP/MAIN/DESULFATION/Recovery SAFE_WAIT/MIX/Final SAFE_WAIT/COOLING/DONE are existing stage-specific production authorities. The diagnostic variants exclude automatic high-voltage DESULFATION, MIX and associated SAFE_WAIT from their advertised stage paths. Native recipe parameters come from strategy-owned VariableSpec declarations; AGM generic MAIN voltage is not editable; MAIN C-rate copies cap at 0.1C; pinned session settings validated through existing native selection and guarded START rather than separate runner. Actual physical stage traversal remains conditional on live evidence and safety, not guaranteed by catalog metadata.
+
+Confirmed catalog ownership mistake: STAGE_OWNERS labelled FINAL_SAFE_WAIT as runtime.charge.runtime.mix_scaffold although existing production stage_authority.apply_authoritative_stage_tick delegates final SAFE_WAIT to runtime.charge.runtime.final_safe_wait_authority.apply_final_safe_wait_authority. Fixed ONLY metadata declaration in native_recipe_catalog.py to the actual existing owner; regression in test_native_recipe_catalog.py checks catalog owner vs production dispatch and exposure for 9 non-diagnostic variants, exclusion for 3 diagnostic variants. No physical runtime code, charge strategy, settings, panel lifecycle, service or hardware modified.
+
+Acceptance: 7/7 focused catalog/default-execution tests PASS; extended native-policy, real-stage, pinned-selection/start, persistence/restore and safe-wait/MIX/desulfation suites 29/29 PASS with PYTHONPATH including repository tests directory. An initial expanded invocation without tests on PYTHONPATH failed module import test_start_transaction_service; rerun with correct test PYTHONPATH passed, no code workaround. Full 12-variant physical battery charge cycles are NOT verified by these tests. Continue separate static parity inventory and preserve node104 D144 slot14 d49cb6d until operator permits deployment.
+
+## 2026-11-07 - Canon: externalize literal configuration and decompose touched monoliths
+All meaningful hard-coded numeric and semantic values must belong to one typed config/spec owner; human-facing UI strings reside in focused UI label catalogs. Protocol constants and trivial math are documented exceptions, not arbitrary tunables. Any monolith touched for a feature is incrementally decomposed at the affected boundary, with behavior preserved and redundant logic removed. No new control plane, timer, or duplicate owner. This is a source policy change only; slot14 d49cb6d/node104 remain untouched.
+
+## 2026-11-08 - Active autonomy and chat migration pointer
+Current source-only continuation plan: docs/assistant/RD6018_AUTONOMOUS_HANDOFF_2026-11-08.md. Ready-to-paste new chat instruction: docs/assistant/RD6018_NEW_CHAT_PROMPT_2026-11-08.md. Follow AGENTS.md and latest assistant checkpoint; complete source stages in priority order, test and push only to owned feature branch. Next: callback and PanelLast single-publisher acceptance, then snapshot parity, MIX/MAIN display edges and broader offline regression. Production node104 D144 slot14 d49cb6d remains untouched until owner separately authorizes physical deployment with direct ESP evidence. Autonomous wake scheduling belongs to the receiving chat, not this repo or a second agent.
+
+## 2026-11-08 — P3 MIX finish countdown rejects invalid current-clock input (source only)
+
+`runtime/ui/components/mix_stage_progress.py` formats the already persisted MIX Delta finish-hold; it does not own the timer or transition. A valid `finish_hold_started_at` and duration with `now_s=NaN/Inf` previously caused `math.ceil()` to raise, and `hmi_auto_stage_progress` could blank the operator status due to its broad presentation exception handler. The pure presenter now validates `now_s` using its existing `_finite` parser and displays `Финишная выдержка · время не подтверждено` for NaN/Inf/negative/zero, without inventing a countdown. Accepted CV/CC Delta semantics and `SAFE_WAIT` destination remain unchanged for valid clocks.
+
+Windows HOME-PC offline focused HMI/MIX/button suite **64 passed, 19 subtests passed**. Source-only code and tests; production node104 remains frozen at D144 slot14 `d49cb6d1bb24fa3d2496ca4564aaf1d4ea91fa5b`, no deploy, restart or physical action. Further P3 audit may inspect future accepted-evidence timestamps and LIVE owner visuals, but software tests do not establish live charge acceptance.
+
+## 2026-11-08 — P4 offline matrix: recipes, MAIN guard, restore, Telegram (no physical tests)
+
+HOME-PC Windows venv selected 6-suite cohort: native recipe catalog (3 chemistries × 4 intents), native restore parity, guarded restore hold, MAIN admission, cold-start recovery and terminal Telegram panel. Unfiltered result **50 PASS / 1 FAIL / 114 subtests PASS**. Single failure is `test_main_guard_admission.py::test_missing_file_corrupt_file_and_symlink_do_not_create_identity` at Windows `Path.symlink_to()` before policy assertion (`WinError 1314`, insufficient symlink privilege). A scoped rerun excluding ONLY this platform-dependent case is **50 PASS / 1 deselected / 114 subtests PASS**. WSL Ubuntu 24.04 Python 3.12 separately runs the full MAIN guard admission test module, including real symlink verification: **10 PASS / 20 subtests PASS**. No weakening/deleting safety tests or fake success claim.
+
+Attempted broader WSL six-suite cohort with system Python 3.12; test collection blocked by missing `python-dotenv` and `aiogram`. No system package installation or virtualenv mutation was performed; full Linux matrix is NOT accepted. These are offline behavior regressions only, NOT 12 physical battery cycles, runtime recovery acceptance, or ESP Native output proof. Production node104 frozen D144 slot14 `d49cb6d1bb24fa3d2496ca4564aaf1d4ea91fa5b` remains untouched. Recommended subsequent work: verify an existing isolated Linux test venv before broad P4, and continue source-only P3/P4 checks; never perform node deployment without separate authorization.
+
+## 2026-11-08 — P4 transaction contract regression (source-only)
+
+WSL Ubuntu 24.04 Python 3.12 D144 state-preserving/owner binding suite: **25 passed + 7 subtests**. HOME-PC Windows recovery guard, recovery service, recovery resume Output transaction, link-session policy: **31 passed + 14 subtests** after running from repository root. The isolated old recovery test fixture incorrectly treated optional `HassClient.verify_live_programming(ovp_v, ocp_a)` values as mandatory and demanded an OCP write on the existing guarded Iset-only desulfation MAIN return. The fixture now models optional verification fields, preexisting adequate OCP, and requires the same durable guard/source transition without redundant OVP/OCP setters. Only test code was changed; the existing ExecutionPort, source owner, protective limits and physical command paths remain untouched. This is not production deployment or hardware acceptance. More detailed checkpoint: `docs/assistant/RD6018_CURRENT_CHECKPOINT.md`.
+
+## 2026-11-08 — P3/P4 MIX UI proof and orphan retirement read-only guard
+
+The existing `mix_finish_hold_status` formats read-only persisted Delta evidence. A snapshot containing `delta_reported=True` and `finish_evidence.available=True` but nonpositive accepted Delta/reference previously advertised a confirmed ΔI/ΔV. The pure presenter now requires positive finite reference and Delta before displaying confirmation, without changing SignalAnalyzer or charge transitions. `application/controller_session_retirement.py` orphan-binding read path now declines partial controller adapters lacking canonical `STAGE_MAIN`, `STAGE_MIX`, `STAGE_IDLE` rather than throwing and disrupting the Telegram keyboard. No new safety owner, timer or Output command. Specific regressions cover CV/CC invalid proof and the partial controller alongside the valid orphan-MIX path. Home-PC offline focused **24 passed + 21 subtests**, expanded UI/operator/managed safety/orphan **314 passed + 39 subtests**. No physical acceptance; node104 remains frozen at D144 slot14 `d49cb6d1bb24fa3d2496ca4564aaf1d4ea91fa5b`.
+
+## 2026-11-08 — P5 current feature source manifest (no staging)
+
+Canonical offline `tools/node104_atomic_deploy.py manifest` on clean HEAD `bf9e44960d19b4e505b32d9f63146781cfdfe67b` reports **1411 tracked source files** and `archive_sha256=8cf72a343b90ea9575b422cbc72a9adcb033b42dc4978000e1e01e02db3c5fe7` for `node104/rd6018-bot`. WSL source-release/atomic-deploy tests: **19 PASS + 9 subtests PASS**. The command only generated a read-only source manifest; no staged artifact, deployed build, backup or physical evidence. Compare current source hash to the historical D123 Sprint 61/62 manifest records only as separate revisions. Actual installed revision, durable rollback preimage, fresh ESP Native state and bench/physical acceptance remain separate, unproven boundaries; node104 production remains frozen D144 slot14 `d49cb6d1bb24fa3d2496ca4564aaf1d4ea91fa5b`.
+
+## 2026-11-08 — P5 MAIN display invalid recipe duration
+
+`hmi_auto_stage_progress.py` now reads `MAIN_POLICY.tail_hold_hours` through the existing finite-value parser. Previously None/string values could make a presentation-only exception erase accepted `Imin` status; NaN/Infinity were shown as ordinary wait-for-CV. Pure `main_stage_progress.py` now displays `время выдержки не подтверждено` for invalid hold duration when tail evidence is otherwise ready, without fabricating elapsed time or a MAIN → MIX countdown. The existing charge controller, recipe authority, accepted analyzer clock, safety and physical effects were not changed. Red test reproduced four failure cases; after the source-only change the focused Windows HMI tests **82 PASS / 25 subtests PASS**, expanded UI/operator/safety/orphan **315 PASS / 43 subtests PASS**. Node104 remains frozen D144 slot14 `d49cb6d1bb24fa3d2496ca4564aaf1d4ea91fa5b`; no physical or live acceptance.
+
+## 2026-11-08 — P5 read-only Native callback coherency after MIX V2 alerts
+
+`ESPHomeTransport` receives independent SensorState battery-voltage and authoritative Vset callbacks; the canonical age metadata is per-channel and must not be reset by a cache read or an unrelated callback. Source-only regression in `tests/test_esp_home_transport.py` simulates both readings degraded, Vset-only recovery, then battery callback recovery without a Native disconnect. This possible pattern explains why two different guard warnings can occur in successive samples, but DOES NOT establish actual incident causation. In the existing 500-line transport, the two duplicated reconnect-completeness conditions were consolidated into one **pure** helper `runtime/physical/transports/esp128_callback_coherence.py`, shared by the 8-second reconnect wait and the outage-epoch clearing decision. No new controller, telemetry timer, guard, physical route or policy. Source-only WSL isolated venv transport/safety/metadata cohort **63 PASS**. Windows broad cohort had one D106 Linux-only `fcntl` collection failure, and isolated Linux transport suite passed in full. Actual node104 callback/link/Output history is unknown; no device/HA/ESP access or physical writes, deploy, restart, threshold change or acceptance. See `docs/assistant/RD6018_V2_TELEMETRY_INCIDENT_2026-11-08.md` for details.
+
+## 2026-11-08 — Exact-byte D061 historical trust anchors on Windows checkout
+
+When HOME-PC has `core.autocrlf=true` and the repository uses `* text=auto`, the seven exact-byte D061 acceptance assets under `tools/acceptance_guard/` can be checked out as CRLF even though their canonical Git blobs retain the original LF and match pinned SHA-256. This causes fail-closed historical D061 stage-pairing/takeover tests to reject the worktree. Keep `.gitattributes` `-text` for `source-manifest.json`, `__init__.py`, `guard.py`, `adapters.py`, `transient.py`, `pairing.py` and `takeover.py`; restore only exact committed Git bytes, never update pinned hashes, weaken digest checking, or regenerate reviewed overlay. D061 Linux isolated-venv tests after scoped checkout fix: **50 passed**. The broader Linux discovery was **interrupted** at 14% (437 passed, 2 skipped, 1 failed, 5 errors), so it is not full acceptance. Separate targeted source-only WSL suites were **102 passed** and **88 passed**. Production node104 remains frozen at D144 slot14 `d49cb6d1bb24fa3d2496ca4564aaf1d4ea91fa5b`; no deployment or device work. Handoff and checkpoint capture precise steps and remaining evidence needs.
+
+## 2026-11-08 — D123 historical ownership/OVP test parity (source-only)
+
+In the isolated WSL full-suite triage, the collected test-ID slice 400–520 initially had 3 failures. The trace single-writer check counted a legitimate separate Git worktree at `.worktrees/dryrun_virtual`, so the test now scans tracked `*.py` paths from the current checkout rather than blindly traversing nested worktrees. AGM step and MAIN→DESULFATION effect tests expected `set_ovp` and `set_ocp` at every stage transition; the current canonical `charge_controller._add_phase_limits/_add_desulf_limits` deliberately programs stage Vset/Iset only and leaves hardware protection registers in place. The tests now explicitly assert no redundant OVP/OCP action while preserving stage and current-limit assertions. No runtime behavior or safety mechanism changed. Focused affected D123 suite: **17 PASS**. Full ordered slice of 121 collected IDs: **121 PASS** (WSL isolated Python 3.12). This is not an exhaustive 3033-test suite pass; previous full suite remains interrupted. Production node104 stays frozen D144 slot14 `d49cb6d1bb24fa3d2496ca4564aaf1d4ea91fa5b`.
+
+## 2026-11-08 — Historical D123 Sprint57 pre-ON OCP fixture parity
+
+The existing MAIN Guard pre-ON strategy checks fresh Native Output OFF, protection status and Iset against the durable current ceiling; it is not the owner of OVP/OCP programming and cannot authorize Output ON. The old Sprint57 test expected an OCP mismatch to block this narrow reconciliation. Test-only correction splits the cases: protection trip and Iset mismatch still block; OCP variation does not add an artificial pre-ON gate, and a fresh `RECONCILED` assessment still cannot call verified Output ON. WSL bounded collected test IDs 521–700: **181 PASS** after correction; no runtime or physical modifications. Whole 3033-test suite has not completed.
+
+## 2026-11-08 — P5 SQLite worker shutdown leak in source-only pytest
+
+A full-suite segment previously completed all 200 assertions but could not exit; Python `threading._shutdown` waited for `aiosqlite._connection_worker_thread`. Isolated two tests opening the process-global battery-registry DB without owning its shutdown: Manual interrupted restart and MIX diagnosed-cell-fault veto. Both tests now mock the unrelated read-only battery-registry/history lookup, preserving real manual state and diagnostic-veto logic, physical safety fakes and no-Output contracts. In `test_manual_context.py`, source scan is now restricted to Git-tracked files of the current checkout instead of descending into independent nested worktrees/virtualenvs. Linux isolated venv combined tests: **13 PASS exit 0**; bounded source-test slice 1101–1300: **200 PASS exit 0**. No production runtime or DB ownership changes. Full 3033-test suite remains unverified; continue bounded chunks and track exit codes (a pytest summary alone is insufficient).
+
+## 2026-11-08 — Canon clarification: routine OVP/OCP programming was removed
+
+Correction to shorthand in earlier P4/P5 notes: automatic charge transitions do **not** retain or recompute old positive OVP/OCP thresholds as routine stage protections. Normal START, MAIN, DESULFATION and stage transitions program Vset/Iset only. The pre-Output-ON boundary retires stale nonzero OVP/OCP values to zero with authoritative readback when no explicit recipe-owned protection is requested; zero denotes disabled physical OVP/OCP threshold. Explicitly requested protection (e.g. MIX OCP) remains transaction-specific. Hardware protection-trip status, voltage/current/temperature ceilings, fail-closed readback and 900 s lease remain active. This wording supersedes earlier descriptions such as 'pre-existing adequate OCP retained' or 'physical protection registers left in place' for normal stages. No change to production runtime, thresholds or node104 is authorized by this clarification.
+
+## 2026-11-08 — P5 tracked production inventories and recipe first SET
+
+Bounded WSL collected test IDs 1701–1900 initially 199 PASS/1 FAIL: Output-enable inventory walked a separate nested `.worktrees/dryrun_virtual` and falsely counted nine actuator paths. `tests/test_output_enable_inventory.py` now enumerates Git-tracked production `.py` in THIS checkout without modifying its frozen call-site list. Rerun **200 PASS, exit 0**. IDs 1901–2100 initially timed out at 56 PASS because production-module namespace tests recursively scanned nested worktrees/virtualenvs; their retired-module checks also saw only `__pycache__` directories for `runtime/application` and `runtime/charge/shadow`. `tests/test_production_module_namespace.py` now checks tracked production files and tracked retired paths, preserving exact forbidden symbols and modules. Rerun **200 PASS, exit 0**. IDs 2101–2300 initially 198 PASS/2 FAIL: first recipe SET test expected old OVP/OCP programming; recipe-policy graph test scanned nested worktree. Changed test expectation to Vset/Iset with omitted OVP/OCP (None), and scanned tracked production Python only. Rerun **200 PASS, exit 0**. These are test-scope and fixture fixes only, no physical command code edits.
+
+Owner correction: routine OVP/OCP setting was **removed** on normal START and MAIN/DESULFATION/stage transitions, not merely skipped on some repetitions. Existing pre-ON boundary clears old positive OVP/OCP to zero when no explicit recipe-owned protection is requested, verifying readback; explicit MIX OCP is transaction-specific. Never describe old OVP/OCP thresholds as retained ordinary stage protection. Hardware trip status, chemistry/absolute V/I bounds, temperature, Output readback and 900s lease remain separate safeguards. Source safety/charge production unchanged. Next continue bounded IDs 2301–3033; full suite remains unaccepted until coverage + exit status established. No node104 interaction.
+
+## 2026-11-08 — обновлён автономный план P1–P5 и закрыт блок 2301–2500
+
+После опубликованного `99dacdd156cd549b7264be086b486db01400c010` проверены clean branch `feature/main-mix-countdown-display`, origin `https://github.com/timspb/rd6018_bot.git`, ahead/behind 0/0; активных RD6018 Codex/Python процессов не обнаружено. Составлен самостоятельный актуальный план `docs/assistant/RD6018_AUTONOMOUS_PLAN_2026-11-08.md`: P1–P4 исходные границы закрыты, P5 приоритет — полный WSL suite с контролируемым exit status, затем инцидент Native V2 и отдельно release-evidence. Разрешены только исходники, документация, офлайн-тесты. Физический node104 по-прежнему frozen D144 slot14 `d49cb6d1bb24fa3d2496ca4564aaf1d4ea91fa5b`.
+
+Собранный исторический набор содержит 3033 test IDs; до нового этапа проверенные куски 400–2300 завершились успешно (один skip). Исследован 2301–2500: первоначально 199 PASS, 1 FAIL из-за `test_transition_audit_retirement.py` обхода вложенного `.worktrees/dryrun_virtual`, и зависание в shutdown после успешных проверок. После минимального изменения тестового сканирования через `git ls-files -z '*.py'` legacy-retirement модуль 3 PASS. Изоляция 2301–2400 дала 100 PASS / exit 0; 2401–2500 — 100 PASS, но timeout 124. Виновный отдельный `tests/test_telegram_start_dispatch.py`: 4 PASS при зависшем общем aiosqlite worker; соседние start-transaction и terminal panel тесты завершались штатно. Добавлен только `asyncTearDown` закрывающий process-global test `database.close_db()` после каждого изолированного dispatcher теста; `test_telegram_start_dispatch.py` теперь 4 PASS / exit 0. Итоговый повтор 2401–2500 — 100 PASS / exit 0, затем всего 2301–2500 — **200 PASS / exit 0 (20.26s)**. Два прежних DeprecationWarning `utcfromtimestamp` не менялись. Тестовый диагностический файл `_sqlite_trace_tmp.py` должен быть удалён до коммита; он не часть проекта. Runtime/physical/DB implementation не изменён. Следующие тесты: диапазоны 2501–3033 и непроверенные 1–399 с точными exit codes, только затем контролируемый полный suite. Офлайн результаты не подтверждают live Telegram, производство и физическую приёмку.
+
+## 2026-11-08 — P5 partitioned regression and single Telegram renderer
+
+Original 3033-ID source list now has bounded exit-0 coverage. Final portions: **2701–2900 200 PASS**, **2901–3033 133 PASS**, **1–200 198 PASS + 2 skipped**, **201–399 199 PASS**. Earlier 400–2700 cohorts appear in checkpoint. Partitioned completion is not an uninterrupted whole-suite acceptance; monitored continuous run remains.
+
+Corrected actual UI boundary violation: HMI components no longer instantiate aiogram buttons, but pass callback-row descriptors to the existing Telegram renderer. No new publisher, action selector, timer or physical route. Architecture inventories now scan current Git-tracked sources, not a separate worktree; exact approved physical-call inventory retained. Offline ESP connector/smoke fixtures use loopback addresses strictly for test configuration validation. PREP→MAIN no longer expects removed OVP/OCP commands. Focused UI/HMI/V3 regressions 60 PASS. node104 frozen.
+
+## 2026-11-08 — P5 full-suite order dependency and HMI instance isolation
+
+First continuous WSL full suite: **3030 PASS, 3 skipped, 1 FAIL, 6 warnings, 427.83 s**. The sole manual-interrupted callback failure was introduced at collection-time by globally stacked HMI wrappers: `rd_ownership_recovery` prepended `rd_ownership_hands_off` using its captured manager on another app. Existing wrapper is now app-bound: it never augments markup for `app_arg is not app`. Same-app behavior and all safety decisions preserved. New regression for own/foreign apps; focused 17 PASS, full collection with only former failed test selected 1 PASS. Re-run whole suite for genuine acceptance, node104 remains frozen.
+
+## 2026-11-08 — P5 continuous full-suite PASS at d13d2cf
+
+Actual owned feature HEAD `d13d2cfcce4401728e37d5481167aa5516fc363f` at test start, own remote `https://github.com/timspb/rd6018_bot.git`. Monitored uninterrupted WSL Ubuntu 24.04 isolated Python 3.12 `PYTHONPATH=tools:.:tests PYTHONDONTWRITEBYTECODE=1 /home/home-pc/.venvs/pcp-test/bin/python -m pytest -q tests` completed **EXIT 0: 3032 passed, 3 skipped, 6 warnings in 431.06s (7m11s)**. Earlier uninterrupted run at `4a5f7f6` was 3030 passed, 3 skipped, 1 failed and showed cross-app HMI wrapper ownership leak, fixed in `d13d2cf`, now proved resolved end-to-end. Warnings: 5 `datetime.utcfromtimestamp` deprecations `database.py:238` and 1 empty legend warning `graphing.py:203`, nonblocking, follow-up source-only cleanup. This PASS is entirely offline: no physical IO, no claim of live Telegram or node104 acceptance. Production remains D144 slot14 `d49cb6d1bb24fa3d2496ca4564aaf1d4ea91fa5b`, unchanged. Next: update plan/checkpoint/runbook, commit/push documentation; inspect one focused responsibility of oversized `runtime/production_runtime.py` (3635 lines) and incrementally extract only if a clear cohesive owner boundary exists, with new regression and full/targeted test evidence. Do not reimplement owner, or expand physical/safety surface. Freeze source-manifest only for exact final HEAD, offline, without deployment.
+
+## 2026-11-08 — Incremental monolith decomposition: pure stage duration presentation
+
+After verified continuous full-suite 3032 PASS / 3 skipped / exit 0 at `d13d2cf`, documentation baseline was recorded in owned branch commit `9a7a436`. For the next source-only stage, inspected `runtime/production_runtime.py` (3635 lines) and selected only its cohesive **pure UI duration formatting** responsibility; no charge-stage or hardware control moved. Relocated `_format_eta_compact` and `_format_seconds_compact` unchanged in semantics into new focused `runtime/ui/components/stage_duration.py` as `format_eta_compact` / `format_seconds_compact`, removed the old monolith implementations, and imported functions under their existing private runtime names. Added `tests/test_stage_duration_presentation.py` with invalid/blank/zero/hours/minutes/string input equivalence assertions. Existing stage progress, timer authority, counters, callback and publication paths unchanged. Focused WSL tests: `test_stage_duration_presentation.py`, `test_hmi_auto_stage_progress.py`, `test_operator_hmi.py`, `test_operator_button_rules.py`, `test_operator_dashboard.py` **82 PASS in 26.20s**. This is source-only decomposition and **not** a new continuous full-suite PASS after the change; previous full-suite pass was before extraction. No node104 or physical actions. Next: diff/compile, commit/push scoped module/runtime/tests/docs; inspect further monolith responsibility only with demonstrated single-owner extraction and regression, not mechanical splitting.
+
+## 2026-11-08 — P5 full regression after stage-duration extraction
+
+On tested source HEAD c32a37d19a5815a3e03c6ab503b03fba580acb38, the uninterrupted WSL isolated pytest -q tests completed: **3034 passed, 3 skipped, 6 warnings, exit 0 in 378.68s**. The extraction to runtime/ui/components/stage_duration.py also passed 115 focused HMI/Telegram/architecture tests. Five warnings are database.py:238 utcfromtimestamp deprecations; one is graphing.py:203 empty legend. This source-only result does not prove physical node104, real Native V2 callback events or live Telegram acceptance. Production remains frozen at D144 slot14 d49cb6d1bb24fa3d2496ca4564aaf1d4ea91fa5b; no node access, restart, deployment, output or physical command. Do not decompose further for file size alone; remaining work requires a concrete defect or separate live approval.
+
+## 2026-11-08 — Operator-approved 300s managed telemetry recovery (source-only)
+
+Ordinary polling and MAIN/MIX stage-change callback delays share one bounded 300-second recovery window owned by the existing ManagedRuntimeSafetyGuard. This is a wait for fresh data, not accepting stale data as fresh. The strict 20s preflight/readback validation remains unchanged; isolated runtime callbacks with fresh Output/protection evidence can recover without immediate software STOP. Actual Native disconnect retains its epoch; a standalone callback fault starts at first detection. Missing metadata, unknown Output, stale protection, dangerous measured values and known hardware trips remain fail-closed. A pure runtime/safety/telemetry_recovery.py classifies eligibility. The guard returns a recovery-pending flag on a copied sample; data_logger defers controller ticks; existing legacy and soft watchdogs do not issue a competing early OFF within the same guard-owned window. At 300s, fail-closed still applies. The edge safety lease remains 900s. Source-only targeted regression: 190 PASS, with 54 supplemental focused PASS (overlapping suites); full-suite on new HEAD is pending. No node104 writes, deployment, physical test or live acceptance.
+
+## 2026-11-08 — 300s software communication watchdog also above 15V
+
+Owner decision: remove the accelerated 60-second communication-loss timeout at U > 15 V. `WATCHDOG_TIMEOUT_S` stays 300s; historical `HIGH_V_FAST_TIMEOUT_S` remains a compatibility symbol but its default is now 300s. Deleted the duplicate `WATCHDOG_HIGH_V` software shutdown branch in `runtime/production_runtime.watchdog_loop`; the remaining watchdog uses one 300s timeout regardless of voltage. Existing confirmed physical trip, unsafe voltage/current/temperature checks and 900s edge safety lease remain separate and immediately enforceable. This does not authorize operation on dangerously out-of-range telemetry. Regression `test_v3_charge_logic_dependency_contraction` checks 300s equality and absence of early-off path. Focused safety/watchdog tests 76 PASS. Source-only; production node104 not changed.
+
+## 2026-11-08 — High-voltage 300s watchdog final full-suite acceptance
+
+Owner-requested removal of the 60s software communication-loss timeout when U > 15V has now completed a monitored full WSL isolated test run at source baseline `85477d1e8e3512cf052dc3529c65c49a8b54a255` plus the scoped source diff: `pytest -q tests` **3048 passed, 3 skipped, 6 warnings, EXIT 0 in 410.81 seconds**. The normal watchdog remains 300s. `HIGH_V_FAST_TIMEOUT_S` is retained for historic compatibility/diagnostics with a new 300s default; `WATCHDOG_HIGH_V` branch is absent from `runtime/production_runtime.watchdog_loop`. Architecture test explicitly asserts no accelerated high-voltage timeout and a single software stop callsite. Physical safety, OVP/OCP/OPP protection, unsafe voltage/current/temperature handling and 900s safety lease have not been changed. This is source-only acceptance, NOT an installed or physically tested node104 release. The six warnings (five datetime deprecations and one empty Matplotlib legend) remain nonblocking. Do not continue mechanical monolith decomposition without an actual responsibility boundary or regression. Commit and push only the seven scoped files to the verified owned feature branch; confirm clean status and upstream 0/0. Production remains D144 slot14 `d49cb6d1bb24fa3d2496ca4564aaf1d4ea91fa5b`.
+
+## 2026-11-08 — Node104 read-only deployment preflight: PARTIAL / HOLD
+
+Owner approved preflight, not unconditional live deployment. Source HEAD `aaa17c744464dce44cf5839c6a81e784a21430e9` clean/synced. Canonical offline manifest returned archive SHA256 `3e138f751d09b9008737f363517cf8a72b78bf9cdd28f62c9d3507b2c69261b9`; no staging or deployment. Via existing HOME-PC node104 profile, read-only inspection observed `rd6018-bot.service` active/running, PID 231800, ActiveEnterTimestamp 2026-11-07 08:41:27 UTC; filesystem 7.7 GiB with 3.5 GiB available (54% used). Existing app/venv and pinned D148 collector paths were present. Actual installed source SHA was not verified. Attempted direct read-only D091/D148 ESP Native physical collector execution was blocked by an execution safety system. Therefore actual live R18 Output, U/I, lease, session state, ESP identity, HA comparison and D091 OFF proof are UNKNOWN. Release HOLD: NOT PHYSICALLY ADMITTED. No node104 write, stage, deploy, service restart, Output, lease, setpoint, database or ESP modification. Do not attempt alternate-wrapper bypass of execution-policy denial. Historical D144 slot14 source `d49cb6d1bb24fa3d2496ca4564aaf1d4ea91fa5b` is not newly observed live installed evidence.
+
+## 2026-11-08 — AUTO/MIX STOP fail-closed recovery fix (SOURCE ONLY)
+
+Operator screenshots showed AUTO/MIX paused, repeated V2 protection `battery voltage is implausible: 0.010V` while a separate screen showed battery around 12.87–12.88V, and `/recovery_clear` returned **no active recovery quarantine**. These samples are at different times; neither proves which ESP Modbus/Native report generated 0.010V. Owner reports physical Output OFF and that ordinary STOP cannot retire the AUTO session. The real code boundary: `runtime/production_runtime.py::_hard_stop_charge()` calls the existing `ExecutionPort.request_verified_off()` and raises `RuntimeError("STOP refused: physical Output OFF not verified")` if the OFF receipt is false; `operator_managed_stop.py::_stop_exact_session()` only ran its software-retirement fallback after `OutputOffNotConfirmed`, so this ordinary refusal path left AUTO active. The old fallback also retired on a single untyped `switch=off, current≈0` read without checking Native provenance or age.
+
+Source-only repair to the **existing** managed STOP owner (no second orchestrator, no new command or safety timer): allow the fallback for either `OutputOffNotConfirmed` or that **exact** RuntimeError, never for other runtime failures. Before retiring the **same identity-locked** AUTO session, require a new independent read with typed ESP Native SensorState for both canonical Output R18 (`output_state_code_v2=0`) and current (`abs(I)<=0.05A`), metadata `source=esp_native_api`, `native_type=SensorState`, `status=ok`, monotonic timestamps **strictly after** the specific STOP attempt began, valid finite age **<=8s**, and accepted canonical freshness for both. No HA-only/cached/unknown/NaN/nonzero current/stale callbacks, no changed session identity. Fault containment stays latched; no ON, setpoint, lease or hardware safety policy modification, no modification of strict pre-ON proof. Focused STOP + recovery + safety cohort **51 PASS**. Full test suite pending in `/tmp/rd6018_stop_native_fallback_full_20261108.log`. **NOT DEPLOYED**; installed node104 remains older D144 slot14 until new tested candidate passes and production admission is explicitly established. If Native genuinely has no fresh callbacks, STOP continues to fail closed; actual node104 failure still requires Native evidence and service logs to establish.
+
+## 2026-11-08 — Safety decomposition: source-only release candidate
+
+Protection and Output decomposition complete in source commit `5ed03cc49a6a58ca0aae26e6aa5fbb0ebcb77c5f`: one safety watchdog task, standalone managed guard + strict guard + runtime guard in `runtime/safety/`, separate critical telemetry/electrical envelope/foreign Output/edge lease/temp integrity policies, pure `output_policy.py` and existing verified Output transaction in `application/safe_output_coordinator.py`. No duplicate actuator or second watchdog. Historical D061 pinned overlays retained byte-identically. Full checkout WSL suite 3065 PASS / 3 SKIP / 0 FAIL; exact source-only archive 3058 PASS / 10 SKIP / 0 FAIL. `source.tar` SHA256 `973e69bf8d4d4fb9df5b2fd87a2faa493b7986b72a5fe7ff1981676b4a63d706`, manifest SHA256 `745bf13eecf0d851fe3c6bf70013e207de2489814bb59b1978a7fa6c16760df3`; full stage path and validation log in assistant checkpoint. **SOURCE ONLY.** Standard D145/D090 deployment remains blocked pending current node104 preimage + live independent typed Native/HA Output OFF evidence and fresh D146 profile. Direct WSL SSH root@192.168.1.104 on 2026-11-08 returned permission denied; no production actuation or service restart. Do not reuse old profile pins. Preserve unresolved 0.010V and stalled MIX evidence until exact incident provenance is determined.
+
+## 2026-11-09 — D137 restored history and D145 access-mode correction (source-only)
+
+D137 now selects the newest valid paired `COMMITTED` D144 transaction rather than the numerically newest transaction of any phase. `RESTORED`/`FAILED`/`PREPARED` remain immutable history and do not supersede an installed release. Every COMMITTED identity must pair with its transaction and installed app/venv inventory; malformed or ambiguous records fail closed. D145's previous staging root was intentionally mode 0700, and its later candidate parent was also mode 0700; copying the tree retained inaccessible app/venv permissions. The canonical owner now prepares only candidate app/venv as root:`rd6018`, applies minimal group read/traversal and executable group bits, verifies every entry and content identity before D144 can stop the service. Candidate parent/backups remain private; systemd restrictions are unchanged. Focused cohorts: D137/D138/D144/D145 + D090/profile/archive **103 PASS** before final refinement; final owner/D137/entrypoint **37 PASS** after refinement. See current assistant checkpoint for exact changed files, rerun requirement and operational state. **Production installation remains HOLD** because fresh Native/HA/D137 evidence was inaccessible from the current SSH sandbox; old stage/profile pins are stale and must be rebuilt.
+
+
+## 2026-11-09 — Recipe Studio RS-0: approved scope and baseline
+
+Owner approved development of a usable **PC UI and Telegram recipe editor**. Canonical implementation plan: `docs/assistant/RD6018_RECIPE_STUDIO_PLAN_2026-11-09.md`. Priorities: P0 physical/manual control first; Recipe Studio RS-0→RS-4 source-only work may proceed in small verified steps. Build atop existing native-draft library, user step-recipe library, single START owner and existing Telegram handlers. No second charge engine, daemon, ACL, data store or parallel panel lifecycle.
+
+RS-0 confirmed code owners and a concrete mismatch: `tools/recipe_visual_editor_prototype.html` exports `rd6018.recipe_visual_draft.v1`, **not** executable `recipe_schema` or `NativeRecipeDraft`. It includes `kind=native` stages and `repeat_count`, neither executable by the step runner. Must not treat the visual JSON as ready-to-run. Native drafts are schema-checked and execution-subset checked separately; existing `require_supported_native_execution` rejects unsupported overrides. Target architecture: one visual UI with explicit native-vs-step editing modes; one canonical library for PC and Telegram; backend validation; immutable revision and session digest.
+
+RS-0 regression on owner/recipe contracts: **26 PASS, exit 0** in WSL Ubuntu 24.04, `PYTHONPATH=tools:.:tests PYTHONDONTWRITEBYTECODE=1 /home/home-pc/.venvs/pcp-test/bin/python -m pytest -q` across ten recipe/native/catalog/UI test files. No runtime edit, deploy, restart, Output/setpoint/ESP command. Production node104 remains D144 slot16 COMMITTED source `3f50133` and is independent of these source edits. Next scoped work: RS-1A pure offline canonical export/import for the *supported* step recipe subset with explicit rejection of unsupported native stages, tests before any backend/Telegram wiring.
+
+
+## 2026-11-09 — Recipe Studio RS-1A offline canonical bridge
+
+Implemented **source-only** extension of existing `tools/recipe_visual_editor_prototype.html`: a separate `Экспорт SET/OFF/WAIT` produces exactly canonical `{id,version,steps:[{action,params,until}]}`; the existing import recognizes that canonical format and converts it back to visual `CUSTOM` stages. Draft JSON remains a separate, explicitly non-executable format. UI now exposes recipe ID (ASCII), version and local preliminary U/I ceilings; the latter are **not** hardware-authoritative and do not grant START or replace server `RecipeLibrary/recipe_schema/recipe_preflight`.
+
+Fail-closed conversion refuses visual `kind=native` and named dynamic `MAIN/MIX/...` stages, unsupported repeat_count, non-zero minute budgets not expressible in the canonical format, mismatched Output action and U/I, stale/invalid predicates, unsigned/zero time waits, invalid step count/identity, SET exceeding local provisional ceilings, and WAIT not immediately preceded by OFF. Canonical import validates structure, fields, ceilings, OFF/WAIT sequencing and unknown actions before visual transformation. The bridge **does not** translate chemistry/capacity visual metadata into executable behavior; no actuator paths are added.
+
+Added `tests/test_recipe_visual_canonical_bridge.py` with Node.js execution of the actual functions extracted from HTML; checks real Python `parse_recipe + inspect_recipe` for round-trip and rejection cases. Final focused run including user-recipe, native-draft, START-selection and UI catalogue tests: **34 PASS, exit 0**, WSL Ubuntu 24.04. Extracted embedded JavaScript `node --check` PASS; `git diff --check` PASS. No node104 deployment/restart, ESP/HA access, Output/charging/lease action, new backend, extra recipe runner or Telegram modification.
+
+**Next:** RS-1B — replace provisional browser-only validation/import behavior with an explicit offline contract-based check and save flow through the **existing** `RecipeLibrary` / native draft library; expose immutable version, actual `VariableSpec`/supported-execution limits, and compare browser preview with backend admission. Do not expose a new unauthenticated network listener. Physical/manual control P0 remains the higher operational priority and must be accepted separately.
+
+## 2026-11-09 — Recipe Studio RS-1B: canonical offline check/save (source-only)
+
+Implemented offline bridge to existing **production canonical owners**, without a new daemon, API, device port, authorization layer or store:
+- `runtime/charge/programs/recipe_studio_import.py`: `inspect_step_document` and `publish_step_document` accept **only** `{id, version, steps}`, apply existing `parse_recipe` with actual production limits and `inspect_recipe`, reject inadmissible WAIT/control-flow, stale/skipped revisions and archived recipes, then call the already immutable/atomic `RecipeLibrary.save`. OFF-first valid drafts are labelled not START-eligible; even SET-first never authorizes physical START.
+- Same module `inspect_native_document` and `publish_native_document`: accept only `{name, version, draft:{schema:1,base_recipe_id,execution_kind:"native_authority",overrides}}`, use existing `validate_native_draft`, real `VariableSpec` ranges/policies, `require_supported_native_execution` (unsupported-but-displayed fields rejected), and unchanged immutable `NativeRecipeDraftLibrary.save`. Wrong base identity / stale version rejected by that library.
+- `tools/recipe_studio_offline.py`: CLI `check`, `save`, `check-native`, `save-native`; explicit input JSON file and **mandatory explicitly chosen library root for save**. No implicit node104/production path, remote API, charging session or network socket. Pure checks do not create any library files. JSON responses include validation status, identity, version, warnings and `physical_start_authorized:false`. Nonfinite JSON refused. Source of hardware limit values reused from `config.MAX_MANUAL_VOLTAGE` and `runtime.safety.variables.MAX_STAGE_CURRENT_A.default`, matching production `bot.py`.
+
+Examples from repository root:
+```sh
+python tools/recipe_studio_offline.py check --file ./exported-step-recipe.json
+python tools/recipe_studio_offline.py save --file ./exported-step-recipe.json --library-root ./scratch-recipes
+python tools/recipe_studio_offline.py check-native --file ./native-draft.json
+python tools/recipe_studio_offline.py save-native --file ./native-draft.json --library-root ./scratch-native-drafts
+```
+Saved JSON is compatible with the existing backend catalog/draft library, **not automatically deployed to node104 or activated**. PC HTML currently exports canonical step candidates (RS-1A); a fully interactive native UI and browser-to-library persistence are **future work**, not represented as finished. Import via CLI is a documented interim offline bridge, not the final PC UX.
+
+Acceptance: `PYTHONPATH=tools:.:tests PYTHONDONTWRITEBYTECODE=1 /home/home-pc/.venvs/pcp-test/bin/python -m pytest -q` on 12 selected recipe/native/visual/start/catalog regression files: **48 passed, exit 0, 52.20 s**. `git diff --check` PASS. New test files: `tests/test_recipe_studio_offline_import.py`, `tests/test_recipe_studio_native_import.py`. No node104, BW600, HA102, ESP, Output or firmware operation.
+
+Next RS-1C: introduce friendly native parameter editor UI with `VariableSpec` metadata exported by the **existing** backend; create a browser-save transport only after verifying existing operator ACL binding, without adding a public network listener or second charge executor. P0 manual mode physical validation remains independent and high priority.
+
+## 2026-11-09 — Recipe Studio RS-1C: native parameter UI backed by the canonical metadata registry
+
+**Status: SOURCE-TESTED, not deployed.** The existing browser editor `tools/recipe_visual_editor_prototype.html` now has an additional native-recipe panel beside the separate step-program panel. It selects all **12 canonical variants** (Ca/Ca/EFB/AGM × normal/recovery/conditioning/diagnostic), displays owner descriptions/units/defaults/min/max/type, permits overrides only for parameters actually executable by production stage owners, imports/exports versioned `{name,version,draft}` documents supported by the existing `NativeRecipeDraftLibrary`, and marks non-executable settings read-only. Previous step recipe editing remains separate. No device command, recipe START, new actor/service, new local network listener, new ACL or duplicate configuration registry.
+
+**Canonical metadata** is built in `runtime/charge/programs/recipe_studio_native_catalog.py` from `native_recipes()`, `native_recipe_parameters()`, actual owner `VariableSpec` and each one-parameter draft passed through `validate_native_draft` + `require_supported_native_execution`. The browser loads generated `tools/recipe_studio_native_catalog.js`, produced by `tools/recipe_studio_offline.py catalog-native --output tools/recipe_studio_native_catalog.js`. Static catalog is a **generated UI snapshot, never the validation authority**; after any change in native specifications, regenerate it. `tests/test_recipe_studio_native_ui.py` asserts byte/semantic parity to current Python, so drift fails tests rather than silently presenting stale limits. A focused JS module `tools/recipe_studio_native_editor.js` implements rendering, input checks and JSON round-trip; the existing HTML remains source of layout and has no second embedded native rules registry.
+
+**Usage:** open `tools/recipe_visual_editor_prototype.html` from PC on HOME-PC; use the new section 'Копия штатного интеллектуального рецепта' and 'Экспорт копии JSON'. To check and save selected file via **existing** backend: `python tools/recipe_studio_offline.py check-native --file native.json` and `python tools/recipe_studio_offline.py save-native --file native.json --library-root ./scratch-native-drafts`. Using a test library (not production) is intentional; no browser-to-node104 publish, not yet final 'Save' button. A new immutable version is chosen explicitly; stale or wrong-parent revisions are rejected by the already existing native library. Browsers can reject wrong types/out-of-range/unknown input locally but final Python admission also checks cross-field combinations and excludes unsupported policies.
+
+**Acceptance:** `PYTHONPATH=tools:.:tests PYTHONDONTWRITEBYTECODE=1 /home/home-pc/.venvs/pcp-test/bin/python -m pytest -q` for `tests/test_recipe_studio_native_ui.py` and 8 native/user recipe/visual/start/UI regression modules: **45 PASS, 0 FAIL, 47.21 sec**, `node --check` for both newly generated catalog and native editor + HTML inline script PASS; `git diff --check` PASS. Tests execute real JS via Node sandbox with synthetic DOM; catalog diffed to canonical Python. Production node104 remains D144 slot16 COMMITTED code source `3f50133`, unchanged and untested physically by this source-only stage.
+
+**Next RS-1D:** make local authenticated browser→library persistence through already available operator boundary, reusing `publish_step_document` / `publish_native_document` and existing catalog; first choose an existing safe user-facing process/ACL, not a new public or network service. Regression must test race/stale version, real reload and isolated state. P0 manual-control physical validation remains separately outstanding.
+
+## 2026-11-09 — D151: START failure after reinstall, retained OVP/OCP zero-clear defect
+
+**Operator evidence:** Telegram screenshot around 11:13 user local / 01:13 UTC on 2026-11-09, EFB 60 Ah recovery START rejected, Telegram displayed `output enable command returned false`. Live pinned SSH on node104 read-only: service `active/running`, PID237957, NRestarts=0, D144 slot16 installed source 3f50133 (historical sealed identity), `state/rd_control_mode_v2.json` mode `pb_managed`. Exact journald 01:12:50–01:13:24 UTC:
+- START accepted 01:12:52; V/I programming 01:12:54–55; setpoint readback 01:13:01.
+- Safety lease armed 01:13:02, generation204, remaining~899.7s, Modbus age~1.23s.
+- **01:13:04 START refused: cannot retire old ovp=16.60**.
+- Output OFF commanded and freshly confirmed 01:13:09; lease disarmed 01:13:11; subsequent OFF proofs 01:13:15 and 01:13:21, disarm 01:13:16/22.
+- Final generic UI reason `output enable command returned false` is secondary to the explicit OVP retirement error.
+- Independent fresh D150 direct ESP Native + HA post-failure read-only returned exit0: `ha102_output_off=true`, `esp128_output_off=true`, `active_session=false`, `edge_lease_armed=false`, fresh Native callbacks and distinct source nonces. No output activation/retry was requested during diagnosis.
+
+**Source cause:** in `hass_api.py::_retire_unrequested_protection_limits` the installed code treats old protections OVP/OCP as disposable when new request doesn't explicitly include them, writes `set_ovp(0.0)` or `set_ocp(0.0)`, and requires V2 readback of zero. This is the exact path that returned false with old OVP 16.60 V; the underlying reason why the edge/HA refused the zero write is not yet independently proven. It is not safe to regard the absence of an explicit phase limit as a request to disable protection. Prior tests expected zero, hiding the defect.
+
+**Source-only repair:** same single HassClient/ExecutionPort START owner now replaces retained protections, while fresh confirmed Output OFF, with bounded per-session targets `Vset + PROTECTION_OVP_MARGIN_V` and `Iset + PROTECTION_OCP_MARGIN_A` (existing module-owned margins, 0.10 V and 0.10 A). Each inferred limit is subjected to existing SafetySupervisor preflight and absolute voltage/current/protection ceilings; no extra authorization, alternate actuator, new config or independent protection owner. Any absent V2 readback, failed setter, invalid safety envelope, missing fresh OFF proof, or failure to converge to the new protected readbacks within 10s fails closed without sending Output ON. Explicit recipe OVP/OCP are unchanged. Crucial real-world EFB example: Vset14.82, Iset6.00 -> candidate OVP14.92 and OCP6.10, **to be confirmed physically**.
+
+**Regression:** `PYTHONPATH=tools:.:tests PYTHONDONTWRITEBYTECODE=1 /home/home-pc/.venvs/pcp-test/bin/python -m pytest -q tests/test_hass_safe_output_gate.py tests/test_live_transition_interlock.py tests/test_managed_runtime_safety.py tests/test_runtime_safety.py tests/test_recovery_resume_output_transaction.py` -> **85 passed, 0 failed, exit0, 47.67s**. Updated old regression that expected disabled 0.0 OVP/OCP; new physical-edge-like fake rejects 0.0 writes yet permits bounded positive limits; independent scenarios reject set command and stale ACK/no-readback, both preserve no Output ON. Source-only tested; not installed to node104, not physically accepted; no firmware/ESP/HA commands and no user START retransmission.
+
+**Next:** independent focused code review + production D145/D144 upgrade with newly pinned exact source only after fresh canonical admission/backup and explicit safe operator deployment approval; re-run direct ESP Native and HA readback and perform controlled physical START only after upgrade under supervision. Never edit node104 files in place, bypass D145 or claim the code fix alone restored charging.
+## 2026-11-09 — D152 follow-up: is OVP/OCP=0 a supported disable command?
+
+Owner correctly challenged the D151 fix: should determine whether protections can be **disabled at the start**, avoiding conflicts during MAIN→MIX, before relying on per-phase targets.
+
+**Source-confirmed root cause of the 2026-11-09 01:13:04 UTC failure** is upstream of the physical RD6018: `runtime/safety/runtime_guard.py::set_ovp` and `set_ocp` explicitly reject `requested <= 0`. The installed `hass_api.py::_retire_unrequested_protection_limits` sends `set_ovp(0.0)` and `set_ocp(0.0)`; hence the wrapper returns `False` and logs `cannot retire old ovp=16.60`. **The refusal does not prove** that ESPHome/Modbus or the Riden hardware firmware refuses zero. The prior D151 note's phrase 'physical edge may reject it' was a hypothesis; this guard rejection is established by exact code. The source-only D151 repair avoids zero by writing bounded protection targets and checks V2 readback, but no physical MAIN→MIX acceptance yet, and its behavior is not a proof that per-stage OVP/OCP cannot conflict.
+
+**Public references:** Riden RD60xx UniSoft custom firmware reference (https://device.report/m/8a8fbfa06ae71aa02f3066894034f57ab11198f808da180b3f26fde2e9dc9800) explicitly states `OVP=0`, `OCP=0` disable corresponding software protections **for UniSoft custom firmware**. EEVblog user reports testing `OCP=0` on own RD6018 running UniSoft and the front panel blanks its OCP value: https://www.eevblog.com/forum/testgear/ruideng-riden-rd6006-dc-power-supply/1100/ . Official Riden manuals explain programming OVP/OCP via front panel but have not yet established the zero disable semantic for **node104 RD6018's exact device firmware**. Repo `esphome/rd6018.yaml` registers at Modbus holding 82 OVP, 83 OCP, both `min_value:0` on ESPHome numbers. This proves UI/firmware adapter accepts numeric zero at this layer, not that hardware disables reliably.
+
+**Operational caution:** Simply relaxing the runtime guard to allow 0 would disable a protective layer on a live high-voltage Ca/Ca/EFB MIX charging system, and the existing SafetySupervisor START policy, runtime monitor, phase execution and readback expectations must be reviewed together. No command to write 0, START, flash or remotely edit node104 was executed. Confirm hardware firmware version and V2 semantics by read-only sources first. A guarded *offline* simulation of MAIN→MIX→safe-wait with explicit phase protection targets and verified readback is preferable to disabling both protections before a physical test. The existing current-setting CC regulation must never be presented as equivalent to separate protective OCP, and lease/thermal shutdown are independent safety controls.
+
+**Decision pending physical test, not silently applied:** either retain positive phase-bounded OVP/OCP with correct transition sequencing (raise OVP before raising Vset; reduce I and settle before tightening OCP/OVP), or investigate firmware-specific zero disable solely in controlled hardware-off bench tests with a safe load and independent hardware limits. Do not remove safety gates or install zero semantics on node104 on documentation evidence alone. Source-only D151 commit 90cf2f8 remains local, uninstalled.
+
+## 2026-11-09 — D153: OVP/OCP zero command admitted in guard only with confirmed OFF (source-only)
+
+Owner instruction: "го разрешать 0", following documented investigation of the conflicting zero-rejection in `runtime/safety/runtime_guard.py`. Implemented minimal bounded acceptance in **existing** `RuntimeSafetyGuard.set_ovp/set_ocp` only (no second authority): `0.0` is an allowed value **only if Output OFF is positively observed** with fresh authoritative heartbeat (prefer `output_state_code_v2`, and require timestamp age ≤300 s). Invalid/negative/over-ceiling values remain rejected. Writing zero while ON or unknown does not forward a protection command; existing active-output fail-closed/OFF path remains. This is a firmware-specific **register command allowance**, not evidence that stock RD6018 firmware implements 0 as 'disable', nor physical proof the protective function is off. Hardware write on node104 NOT attempted. Tests cover OFF success, active ON failure, unknown/stale OFF, contradictory authoritative V2 ON, and negative values.
+
+**Critical separation of behaviors:** D151 source-only `HassClient._retire_unrequested_protection_limits` still installs bounded **positive** protective OVP/OCP targets at START and confirms readback; it was **not** changed here to disable protections automatically. Stage transitions through MIX still require separate proof for OVP/OCP sequencing. Allowing zero with Output ON would disable independent protection during potential high-voltage battery charging and is deliberately not implemented. No change to hardware safety lease (900 s), charge currents/voltages, MIX, actuator hierarchy or production node104. Do not represent guard acceptance as 'OVP/OCP disabled at startup' until the full disable flow is designed and physically proven on this exact firmware.
+
+**Acceptance:** `PYTHONPATH=tools:.:tests PYTHONDONTWRITEBYTECODE=1 /home/home-pc/.venvs/pcp-test/bin/python -m pytest -q tests/test_d153_zero_protection_off_only.py tests/test_hass_safe_output_gate.py tests/test_managed_runtime_safety.py tests/test_recovery_resume_output_transaction.py tests/test_runtime_safety.py tests/test_live_transition_interlock.py` — 90 PASS, 0 FAIL (49.38 seconds), `git diff --check` PASS. The five direct zero tests are in `tests/test_d153_zero_protection_off_only.py`. Current installed node104 is unchanged, no startup, firmware, flash or local HA/ESP side effects.
+
+## 2026-11-09 — RS-1D local browser→canonical library persistence (source-only)
+
+**Status:** implemented on HOME-PC source branch; not deployed on node104 and never sends device commands. The existing HTML `tools/recipe_visual_editor_prototype.html` gains **«Проверить в библиотеке» and «Сохранить новую версию»** buttons for **both** step SET/OFF/WAIT and native parameter copies. There is no second charger or recipe executor. Actions use new browser-only `tools/recipe_studio_save.js` and existing native editor UI to call an **explicitly started, short-lived localhost bridge** `tools/recipe_studio_local.py`. It invokes only `inspect_step_document/publish_step_document` or `inspect_native_document/publish_native_document` from the existing canonical implementation. Save returns the identity/version/readback digest or native base, and `physical_start_authorized=false` in all cases. No START/STOP/output/HA/ESP/firmware routes exist; backend does not import hardware execution.
+
+**Launching from HOME-PC:** double-click `E:\CODEX\rd6018_bot\tools\start-recipe-studio.cmd`. This starts a transient Python server from the existing WSL Ubuntu-24.04 environment, opens `http://127.0.0.1:8768/studio`, and keeps the terminal alive only while the local editor is in use. The chosen scratch storage path is `E:\CODEX\rd6018_bot\.recipe-studio-local\` (mapped to /mnt/e...), separated into `steps/` and `native/`; this directory is gitignored. Browser opened as `file://` cannot save, because the bridge is required. Closing the terminal stops the bridge. If port 8768 is already used, launching fails visibly rather than silently picking a public port.
+
+**Browser boundary:** HTTP binds only `127.0.0.1`, verifies Host, same-origin POST Origin, JSON Content-Type, short-lived random capability token via custom header, 256 KiB input limit; no CORS wildcard. The sensitive `studio-config.js` token is given only to a same-origin subresource fetch from `/studio` with `Sec-Fetch-Site: same-origin` and exact local Referer, to prevent foreign websites loading it as a JavaScript tag. Files served from fixed allowlist; no arbitrary files, templating, shell exec, arbitrary destination paths or actuator interfaces. Every save uses the *same* original immutable library and production schema/preflight; result reload is verified. A thread lock serializes local saves; version mismatch and no-overwrite hardlink publication reject duplicate/stale revisions. The local token is not equivalent to the Telegram operator ACL and is **not** used for remote/prod exposure. Existing native `VariableSpec` generated catalog remains read-only display; Python validation authoritative.
+
+**Acceptance:** 50 PASS, 0 FAIL on browser bridge, native PC UI, canonical conversion, offline importer, preflight, atomic-save and START-selection regression; `node --check` for all edited JS and extracted inline HTML script; `git diff --check` PASS. `tests/test_recipe_studio_local_bridge.py` verifies both kinds, save→readback, immutable v1/v2, repeated/stale writes, CSRF/Host/Content-Type, token leak via cross-site script, path traversal, absent hardware routes. No GUI browser automation yet; DOM/JS tests remain in Node. Runtime node104 still prior installed D144 source; hardware mode P0, physical START, MAIN→MIX, and zero OVP/OCP firmware semantics are separate outstanding tasks.
+
+**Next:** RS-2 operator-facing history/version selection, archive/revision comparison, and user-friendlier rendering for step recipes, using this same local boundary and canonical library. Do not turn the local bridge into a persistent production service or silently upload local recipes to node104. Physical P0 START/mode acceptance is still urgent and independent.
+
+
+## 2026-11-09 — RS-2: local recipe history, immutable revision load, diff and archival
+
+**Status:** RS-2 source implemented and offline verified; node104, HA102, ESP, firmware, physical output and running production untouched. The existing PC HTML now contains the "Библиотека рецептов · версии и архив" panel; user can select step/native collection and recipe, inspect all historical version numbers, load a chosen saved version into the **same existing editor** as an unsaved `latest+1` draft, compare arbitrary existing versions via safe textual diff, or archive with explicit browser confirmation. Archived history remains readable and comparable but cannot be opened for editing or receive new versions. Step visual import uses existing `visualFromCanonical`; native import uses existing `inspectDraft`; neither re-implements the charging algorithms.
+
+**Authoritative owners reused:** `RecipeLibrary` and `NativeRecipeDraftLibrary` for load/versions/save, `RecipeCatalog` for step list/archive, `NativeRecipeDraftLibrary.archive` for native archival (added to the same owner), `runtime/charge/programs/recipe_studio_history.py` as pure read/diff dispatcher only. Both `RecipeLibrary.save` and `NativeRecipeDraftLibrary.save` reject new revisions when `.archived` exists; prevents bypass through direct calls by editor components. Historical `vN.json` bytes are never changed. `tools/recipe_studio_local.py` adds only `/api/list`, `/api/load`, `/api/compare`, `/api/archive` behind the existing localhost Host/Origin/capability-token check, fixed JSON shapes and explicit identity fields; no arbitrary paths or actuator endpoints. `tools/recipe_studio_save.js` and `tools/recipe_studio_history.js` implement browser UI; the same `tools/start-recipe-studio.cmd` remains the entry point, using isolated `.recipe-studio-local/` storage.
+
+**Behavior:** `load` returns the exact immutable existing revision and the browser chooses `latest+1`; saving still requires canonical Python validation and same library optimistic version policy, so stale/racing saves are refused. `compare` performs canonical sorted-key JSON diff (version label excluded from content, preserving meaningful parameter changes), up to 24000 output characters. Archive is permanent from this UI (readable, no delete); no silent restore or deletion. PC-local scratch library does not replicate to node104 or modify pinned sessions. Native source selection remains fixed across revisions. Dynamic MAIN/MIX are not mapped into primitive SET/OFF steps.
+
+**Acceptance:** WSL Ubuntu 24.04 pytest for 11 Recipe Studio, step/native admission, visual canonical bridge, atomic save, catalog, preflight, native draft library and START selection regression modules: **67 PASS, 0 FAIL, 63.61 seconds**. JavaScript syntax checks: `recipe_studio_history.js`, `recipe_studio_save.js`, `recipe_studio_native_editor.js`, and extracted HTML inline script PASS. `git diff --check` PASS. End-to-end HTTP tests in `tests/test_recipe_studio_history.py` cover two native/step revision chains, exact readback, compare, archival preserving bytes, read-only archive, direct-library bypass rejection, invalid paths and unsupported production endpoints and same-origin credential boundary.
+
+**Next:** RS-3 Telegram user-friendly UI on the existing `runtime/ui/telegram/recipes.py` and `recipe_buttons.py`: version history and copy/edit/save next revision, reuse canonical stores, preserve one Telegram panel lifecycle. Physical P0 manual control, START/OVP/OCP zero semantics and MAIN→MIX transition tests remain outstanding and are independent of this source-only recipe editor effort.
+
+## 2026-11-09 — RS-3A Telegram version navigation, copy and archival
+
+Source-only improvement in **existing** `runtime/ui/telegram/recipe_buttons.py`; no new Telegram UI owner, service, ACL or charge executor. Individual step recipe panel now includes inline actions "История версий", "Копировать", "В архив". History is paginated (8 per page), loads immutable versions via existing `recipes:view:` route, and preserves Telegram callback 64-byte size cap. Copy calls existing `RecipeCatalog.duplicate` with generated `copy_<random>` name, creates independent v1 and routes to established step editor. Archive requires a separate confirmation/cancel callback, calls `RecipeCatalog.archive`, does not alter version bytes and prevents further edits via the canonical `RecipeLibrary.save` guard from RS-2. Existing `app._check_chat_and_respond` applies to all operations, and all responses explicitly avoid physical START. Native recipes remain their independent catalog; no native execution altered.
+
+**Acceptance:** `tests/test_recipe_telegram_history_buttons.py` + `tests/test_recipe_real_callback_chain.py`, `tests/test_unified_recipe_catalog_ui.py`, `tests/test_user_recipe_catalog_pagination.py`, `tests/test_user_recipe_editor_pagination.py`, `tests/test_recipe_empty_preview_entry.py`: **12 PASS, 0 FAIL**, ~26.5 sec. Includes chain history→duplicate→archive-confirm, unchanged source versions, archive blocking new versions, 18-version pagination, Telegram callback max64, refusal for missing source, denied-chat mutation. `git diff --check` PASS. Not installed to node104; local source development only.
+
+Next: RS-3B native user-copy Telegram browser, safe revision through existing `NativeRecipeDraftLibrary` with supported-override validation and no new persistence channel; then independent RS-4 acceptance. Production physical D151–D153/START and MIX transition remain separate outstanding work.
+
+## 2026-11-09 — RS-3B native Telegram copy/browser and strict supported override check
+
+Extends the existing `runtime/ui/telegram/recipe_buttons.py` owner; no second router or service. The 12 canonical native variants now offer a "Создать свою копию" button. This creates a non-energizing draft `copy_<10hex>` v1 through the **same** `NativeRecipeDraftLibrary` object used by the registered `/native_copy` and `/native_set` commands (passed into `install_recipe_buttons`). Adds "Мои копии штатных программ" listing and versioned read-only view with up to 10 recent versions. Callback length <=64 bytes is enforced for dynamically generated buttons; very long names are not presented as oversized callback payloads. Each callback uses the canonical chat ACL and returns no hardware activation or execution grants.
+
+**Important correction:** Telegram `/native_set` previously called only `validate_native_draft` before `save`, allowing syntactically/range-valid overrides unsupported by the production stage owners. It now additionally calls `require_supported_native_execution`, matching Recipe Studio local/CLI and START admission. Existing immutable version semantics and archive guards stay owned by the same native library.
+
+**Acceptance:** `tests/test_recipe_telegram_native_drafts.py` + `tests/test_recipe_telegram_history_buttons.py`, `tests/test_recipe_real_callback_chain.py`, `tests/test_unified_recipe_catalog_ui.py`, `tests/test_user_recipe_catalog_pagination.py`, `tests/test_user_recipe_editor_pagination.py`, `tests/test_recipe_empty_preview_entry.py`: **15 PASS, 0 FAIL**, 29.74 seconds. Confirmed native copy, readback and view, denied chat, missing canonical native ID, step history/copied/archive workflow and callback pagination. `git diff --check` PASS. Not deployed to node104 or connected to physical RD6018; still source-only.
+
+**RS-3 overall:** step buttons history/copy/confirm archive (RS-3A), native canonical program copy and draft view (RS-3B). Editing native parameters continues through `/native_set`, creating immutable revisions, now with supported-execution check. A dedicated inline native parameter adjustment UI remains possible for later UX iteration, not marked complete. Next RS-4: integration/regression of PC and Telegram stores, preserve pinned selection, verify no START/output routes and prepare source release with install/rollback plan; physical P0/START/MIX remains a separate urgent gate.
+
+## 2026-11-09 — RS-4 integration gate 1: unified source regression after RS-3
+
+RS-3A committed `b0fa187`; RS-3B committed `cf32156`. After both, a unified source-only 17-module Recipe Studio/Telegram integration run exercised browser local history/API, native and step immutable stores, version archive and readback, visual JSON bridge, offline admission, Telegram ACL and real callback chains, native supported-override guard, preflight and START selection. Command:
+`PYTHONPATH=tools:.:tests PYTHONDONTWRITEBYTECODE=1 /home/home-pc/.venvs/pcp-test/bin/python -m pytest -q tests/test_recipe_telegram_native_drafts.py tests/test_recipe_telegram_history_buttons.py tests/test_recipe_studio_history.py tests/test_recipe_studio_local_bridge.py tests/test_recipe_studio_native_ui.py tests/test_recipe_studio_native_import.py tests/test_recipe_studio_offline_import.py tests/test_recipe_visual_canonical_bridge.py tests/test_user_recipe_atomic_save.py tests/test_user_recipe_catalog.py tests/test_user_recipe_preflight.py tests/test_native_recipe_draft_library.py tests/test_native_recipe_start_selection.py tests/test_recipe_real_callback_chain.py tests/test_unified_recipe_catalog_ui.py tests/test_user_recipe_catalog_pagination.py tests/test_user_recipe_editor_pagination.py`
+**Result: 81 PASS / 0 FAIL, exit 0, 81.99 s**. Clean working tree before this note, branch `feature/main-mix-countdown-display` ahead of owned origin by 13 commits. No node104/HA102/ESP actions or charging hardware actuation.
+
+Remaining RS-4 release boundaries: review/validate PC browser UI with a real browser on HOME-PC; confirm that the two local scratch libraries are isolated from production; release package/update plan, compatibility and rollback with the established node104 D144/D145 mechanism; independent physical START/MAIN→MIX/OVP-OCP zero-write and PB_MANAGED↔HANDS_OFF acceptance. No production PASS or installation solely from source tests. User-approved plan continues without redesign, extra authorizations or duplicate engines.
+
+
+## 2026-11-09 — MAIN/MIX operator journal source acceptance (not node104 deployment)
+
+On HOME-PC feature branch `feature/main-mix-countdown-display`, journal/HMI telemetry source code commit `c70a6de38efbd6de8540ae09e6c3b40d4d524805` extends existing controller evidence with readable MAIN→MIX reason and thresholds, new-fact Imin/Vmax/Delta evidence, actual recipe finish-hold duration, a MIX progress message at the **existing** 10-minute checkpoint, and session-aware temperature source/age/status provenance. Fail-closed read-only formatting never substitutes a measured RD regulation mode. One execution owner and existing charge algorithm/safety remain intact. Source regression 212/212 PASS, separate D177 synthetic dry-run 31/31 PASS (different not-merged worktree). See `docs/assistant/RD6018_JOURNAL_TEMPERATURE_DRYRUN_2026-11-09.md` for exact coverage/limitations. Node104 and battery were untouched, temperature disagreement 25°C physical vs 23°C Telegram still requires fresh direct ESP Native readback and simultaneous secondary HA. No release/firmware/Output actuation or GitHub publication occurred at this checkpoint.
+## 2026-11-10 — standalone RD6018 Wake R7.2 connector (source only)
+
+Added a separate `integrations/rd6018-wake-connector/` package with a
+read-only snapshot contract, strict event normalization, allowlisted fields,
+stable event IDs, a size/age-bounded SQLite outbox, retry backoff, external
+per-chat route validation, config schema/example, isolated systemd template,
+and mocked tests. The connector service reads only an operator-provided
+read-only diagnostic snapshot file and persists locally. It does not import
+the bot runtime or use actuator/ESP/HA write paths.
+
+Audit boundary: D106 (`tools/node104_d106_live_observer.py`) and D151/D091 are
+read-only OFF/release proof collectors; D106 rejects active persistent charge
+sessions, so neither is a suitable periodic source during the owner-reported
+active charge. The exact R7.2-capable call found in the existing HOME-PC
+launcher is `notify_r72_complete.py`, which represents Codex task completion.
+It is deliberately not used for RD events. No generic R7.2 producer/ACK query
+is exposed by current MCP tools or found in the accessible documented
+interfaces. Outbound transport is therefore disabled; events remain local.
+No ACK or delivery claim is made.
+
+Focused package tests: `python3 -m unittest -v test_connector.py` — **8
+passed**. This verifies parser/normalization, route validation, secret-field
+exclusion, dedupe/restart persistence, retry timing, invalid-route hold,
+submitted-vs-acknowledged state distinction, config permissions, and
+snapshot symlink/size refusal. No live source, R7.2 transport, SSH, ESP, HA,
+node104 service, or charger was accessed. Owner reports charge actively
+running; D144 slot18 source `7c40e54` remains untouched. This package is not
+ready to install/enable until an admitted live-charge-safe source interface
+and supported generic R7.2 submission/ACK contract are supplied.
+
+## 2026-11-10 — Event Gateway producer scope correction (source only)
+
+The Wake Bridge 7.2 project chat owns Event Gateway, Dispatcher and the R7.2
+transport adapter. RD6018 owns only the generic producer event contract and a
+bounded local spool. This entry supersedes the preceding connector design
+where it mentions chat route validation, local delivery retries/ACK states,
+or concrete HA polling. Those responsibilities and integrations are absent
+from the corrected producer.
+
+`integrations/rd6018-wake-connector/connector.py` now defines the exact
+universal envelope, strict UTC/UUID/source/type/severity validation,
+allowlisted bounded payload, deterministic UUIDv5 occurrence identity,
+persistent local dedupe, `pending_gateway` / `gateway_accepted` /
+`quarantined_unknown` states, and an injectable `EventGatewayClient` protocol.
+Gateway acceptance is not chat delivery. There is no HTTP client, guessed API
+path, route configuration, delivery retry or ACK orchestration. The temporary
+source adapter remains a bounded snapshot file; no HA request or node access
+was made. README documents the missing published API contract and adapter
+checklist.
+
+This work is local source and mocked tests only. Connector tests: 10 PASS;
+`py_compile`, JSON parsing, cache cleanup, and `git diff --check` PASS. The
+uncommitted source diff is against base HEAD
+`663d1051004a1e31c77d00d3a6bcf70ae3e02048`; no commit SHA exists. No node104,
+HA, ESP, service,
+deployment, charger, D144 slot18, state/config, output, or lease was accessed
+or changed. `.git` is mounted read-only in this workspace: `git fetch origin
+feature/main-mix-countdown-display` could not write `.git/FETCH_HEAD`; the
+currently displayed tracking ref is at the base HEAD but live origin state is
+unverified. Commit/push remain unavailable from this workspace.
+
+## 2026-11-10 — Event producer source check
+
+Producer-only scope: Wake Bridge profile chat owns Gateway, Dispatcher and R7.2; this repo awaits its API contract. Connector tests **10 PASS**, `py_compile`, JSON parsing and `git diff --check` PASS; package `__pycache__` removed. No node104 or deployment/hardware access. Branch `feature/main-mix-countdown-display`, base HEAD `663d1051004a1e31c77d00d3a6bcf70ae3e02048`; sole remote is expected `origin` URL, but `.git` is read-only so commit/push and fresh remote comparison are blocked. Local changes remain uncommitted.
+
+## 2026-11-10 — read-only HA source adapter follow-up (SOURCE ONLY, HOLD)
+
+Correction to the preceding connector notes: this follow-up implements an
+independent `integrations/rd6018-wake-connector/ha_source.py` adapter that
+reads the canonical `config/physical/ha102.yaml` entity map and performs only
+GET state requests. It does not import the production HA transport, use any
+switch/number control entity, or implement service calls/WebSocket commands.
+It uses only `RD6018_WAKE_HA_URL` and `RD6018_WAKE_HA_TOKEN`; no `HA_TOKEN`
+fallback exists. TLS verification, bounded responses, timeouts, strict
+sensor-domain allowlisting, freshness provenance, separate internal/external
+temperature fields, and bounded no-follow session metadata parsing are
+covered by mocks. A typed adapter-attested snapshot is consumed by the
+existing local spool service. No production application code was changed.
+
+The `main_current_guard_v1` mapping is limited to schema/revision/snapshot
+shape and a small fault-category allowlist. It does not expose guard
+internals, session/battery IDs, or raw journal data. Missing HA timestamps
+produce unknown freshness; `last_updated` is used only as a documented
+conservative fallback. The first fresh snapshot after an unknown/stale episode emits one telemetry-recovered event.
+Stale session metadata is ignored using the declared bounded
+`session_max_age_s` setting (24-hour default). No optional systemctl query was
+added.
+
+Validation: connector suite **16 PASS**; package Python compilation, JSON
+parsing, and `git diff --check` passed. Tests use mocked transports/files and
+made no network, SSH, HA, systemd, ESP, or node104 calls. Exact code HEAD is
+still base `663d1051004a1e31c77d00d3a6bcf70ae3e02048`; these changes remain
+uncommitted. Deployment remains explicitly **HOLD** pending independent
+review, dedicated least-privilege HA identity, and the unresolved generic
+Wake producer/ACK contract. No node104 runtime, secrets, D144 slot18,
+service, charge, firmware, or physical interface was accessed or changed.
+
+
+## 2026-11-10 — HA source adapter hardening (LOCAL SOURCE ONLY)
+
+Review of the mocked adapter tests found and corrected edge cases: HA redirects
+are refused to prevent forwarding the bearer token; entity IDs must be unique;
+naive or future-dated timestamps cannot prove freshness; implausible numeric
+readings are rejected rather than clamped; and the raw output-state code is
+preserved as a code instead of being misrepresented as a boolean. Internal and
+external temperatures are both required core measurements and remain separate.
+
+The stage occurrence timestamp from the canonical session file is used only
+for deterministic event identity and is excluded from the event payload.
+Unknown source periods are deduplicated across polling intervals, persisted
+across restart, and followed by one recovery event when a fresh snapshot
+returns. The heartbeat reports successful telemetry freshness, not output-ON.
+
+The systemd template now creates its private mode-0700 state directory.
+Installation still requires a dedicated non-admin HA identity with read-only
+access to the exact allowlisted entities and a narrowly scoped read-only
+group/ACL for charge_session.json. No file permissions, credentials,
+services, production runtime, or hardware were changed. Validation remains
+mock-only; deployment remains HOLD.
+
+Final local validation: 21/21 connector unit tests PASS; py_compile PASS; config example and JSON schema parse PASS; git diff --check PASS. All HA responses were mocked. No live HA request, node104 access, deployment, firmware operation, or charger interaction occurred.
+
+
+## 2026-11-10 — MAIN Guard setpoint ACK and missing-session recovery correction (SOURCE ONLY)
+
+Corrected the misleading legacy current_ocp wording: the MAIN Guard ratchet transaction is an Iset/current-setpoint acknowledgement path; it does not establish an OCP trip. New quarantine reasons use main_guard_current_setpoint_transaction_unconfirmed; retirement validation continues to accept the old prefix solely for already-persisted incidents.
+
+The durable quarantine reason now retains bounded electrical evidence from the failed postflight ACK: requested Iset, Native Iset readback, delta, configured readback tolerance, measured current, and ages of the required Native observations. No session/battery identifiers or credentials are added to the diagnostic string.
+
+Fixed the /recovery_clear dead end for the authentic case where charge_session.json has already been removed by the controller but the strict active quarantine journal still retains the original session/battery/incident identity. The absent-session path is permitted only when the controller is IDLE with no in-memory session identity, the journal binding exactly matches the requested incident, and the reason is the MAIN Guard current-setpoint transaction (including the legacy persisted prefix). It does not synthesize or restore charge_session.json. The coordinator still requires the explicit private-chat operator confirmation and a fresh typed Native Output-OFF receipt; only then does the existing quarantine journal owner write its schema-2 retirement tombstone. Finalization rechecks the committed tombstone and IDLE/no-session state before releasing the in-memory quarantine.
+
+The existing-session retirement path remains unchanged. Unknown/corrupt journal, mismatched incident/session/battery, non-IDLE controller, or missing fresh OFF evidence remain fail-closed. No OCP control/readback was reinstated.
+
+Validation: focused recovery/MAIN Guard cohort 107 PASS, 18 subtests PASS before the additional diagnostic test; expanded cohort after the follow-up MAIN Guard signature cleanup 157 PASS, 2 deselected, 85 subtests PASS. Two tests were deselected only because this Windows runner cannot create symlinks (WinError 1314) and the other uses a Linux-only path/encoding assumption. The full suite cannot be collected on Windows because release tooling imports Linux-only fcntl/grp modules; re-run full regression under the project's Linux/Python 3.11 environment before release. py_compile and git diff --check PASS. No node104 files, HA, ESP, service, charge state, Output, lease, or D144 slot were changed. Production deployment remains HOLD; this is source-only until Linux regression and exact release admission are complete.
+
+
+## 2026-11-10 — MAIN Guard is Iset-only; remove stale OCP contract
+
+Owner correction applied: OCP was already removed from the MAIN Guard control contract and must not be reintroduced as an Iset-ratchet companion. The previous source still carried stale OCP arguments in the MAIN Guard commit/readback and verified-desulfation-return APIs. Removed those arguments and the corresponding test fixture expectations. MAIN Guard now admits/commits a reduction using the measured-current and Native Iset evidence only; the verified desulfation return likewise checks current-setpoint reset and fresh Output-OFF evidence without an OCP readback parameter. Updated production comments/log wording and the checkpoint/shadow descriptions so they no longer label this Iset-only operation as Iset/OCP.
+
+Scope is deliberately limited to MAIN Guard. This does not change independent hardware trip telemetry, RuntimeSafetyGuard, or explicit recipe-owned MIX protection. No protection actuator was added and no OCP setter/readback was reinstated in MAIN Guard.
+
+Validation in isolated WSL Python 3.12:
+- MAIN Guard/recovery focused cohort: 140 PASS.
+- Full pytest tests: 3199 passed, 2 failed, 3 skipped (475.65 s).
+- The two failures are the same pre-existing operator UI state=None failures on the parent baseline (operator_managed_stop.py, test_operator_actions.py::test_keyboard_renders_logical_actions_without_runtime_objects, and test_operator_hmi.py::test_idle_safety_denial_does_not_hide_charge_workspace_navigation). Parent baseline full suite: 3189 passed, 3 failed, 3 skipped; its third failure was D149 router pin matching, which is fixed in the current branch. Thus the current full run has no new failure relative to the parent baseline and has ten additional passing tests.
+- py_compile and git diff --check: PASS.
+
+Source-only. No service, ESP, HA, charge session, Output, setpoint, lease, node104 or D144/D145 slot was touched. Production deployment remains HOLD pending the established release admission and physical acceptance.
+
+
+## 2026-11-10 — RD6018 read-only event observer / R7.2 delivery status
+
+The standalone observer implementation is committed locally as `5cc1bf9` on `feature/main-mix-countdown-display` (branch one commit ahead of the displayed origin tracking ref at inspection). It reads existing node104 SQLite sensor history, bounded state documents, service status and journal; it has no charger control path. Polling is 20 seconds internally, but normal summaries are rate-limited to at least 1800 seconds; fault/guard/service/telemetry transitions and mode/stage changes are event-driven with persistent duplicate suppression and separate recovery events.
+
+Focused observer + connector suite: **31/31 PASS** on HOME-PC WSL. This does not prove installation, activation or delivery.
+
+Operator's preceding handoff reported the observer staged but inactive on node104, Gateway at `192.168.1.110:8765`, node104 TCP + `/healthz` PASS, and producer binding to that preceding chat. These are retained as reported evidence only. In this chat, trusted R7.2 self-inspection returned `OWN_ENABLED_ROUTE_UNAVAILABLE`; the panel opener alone is not route proof. A read-only SSH attempt to node104 from WSL returned `Permission denied (publickey,password)`, so current service state, installed hashes, token-file presence/mode and node104→Gateway health remain unverified.
+
+**HOLD:** do not activate the observer or enqueue a test event until this chat's own enabled route is confirmed and node104 read-only access is restored. Never borrow a route from another chat, print token values, replay an uncertain event, or modify RD6018/ESP/HA/charge state. After the gates pass, use one harmless unique event and require exact event-ID/route/attempt/ACK correlation before claiming delivery.
+
+
+### 2026-11-10 — Fresh node104 observer preflight (read-only)
+
+Using the existing pinned HOME-PC node104 executor (not raw OpenSSH), verified: `rd6018-bot.service` active; `rd6018-wake-observer.service` installed but inactive/dead; `/etc/rd6018-wake-observer.env` absent; node104 TCP to `192.168.1.110:8765` connected; Gateway `/healthz` HTTP 200. No producer token is provisioned in the observer's dedicated env file. Local observer outbox has one pending `charger.guard_fault` event.
+
+Fresh observer snapshot: measured 0.01 V / 0.00 A, freshness 24.4 s, `guard_state=quarantined`, normalized `fault_code=guard_readback_fault`; charger bot remains running. `charge_session.json` is absent. `session_recovery_quarantine.json` remains `quarantined=true` with legacy reason prefix `main_guard_current_ocp_transaction_unconfirmed` and `programmed_current_readback_mismatch`. This is a persisted guard quarantine / legacy diagnostic label; it does not mean the removed OCP control contract has been reintroduced. Do not clear or retire it as part of observer work. No charger/session/lease/setpoint/output state was changed.
+
+R7.2 self-route inspector still returns `OWN_ENABLED_ROUTE_UNAVAILABLE` for this chat. Therefore no event was submitted to Gateway and no observer service was activated. Remaining gates: current-chat route proof and dedicated producer token provisioning. Once both pass, start only the observer service and verify exact event ID + route + attempt count + ACK. Continue to enforce 20-second internal polling, 1800-second minimum normal summary interval, immediate transition alerts, and persistent dedupe.
+
+
+### 2026-11-10 — R7.2 route restored; producer binding mismatch found
+
+After the user reconnected the existing app, `wake_r72_inspect_this_chat({})` returned `ok=true`, enabled own-chat route `e4df14fbac534f2086fa70fa7dc16c62`, `last_ack=null`. Read-only inspection of VM110 `routes.sqlite` showed route `e4df14fbac534f2086fa70fa7dc16c62` is enabled, but producer `rd6018/node104` remains enabled on old route `10dd32de00d144b398c2d3f89127be0c`. The producer therefore must not be activated or allowed to send events yet.
+
+The installed R7.2 `wakebridge.producers.bind` operation is documented in source as an explicit trusted-local operator function, intentionally not exposed as a model-facing MCP action. Do not bypass that security boundary by directly editing `producer_routes` SQLite or invoking the private CLI over SSH/WinSCP. Required next step: perform the normal owner-authorized producer binding cutover through the trusted R7.2 operator surface, then re-inspect binding and current route. Only after that, transfer the existing `rd6018/node104` Gateway token into node104's dedicated root-owned mode-0600 EnvironmentFile, start the observer, and verify a unique event ID with exact current route and matching ACK. No event submitted and no binding changed in this step.
+
+
+## RD6018 observer activation preflight — 2026-11-10: HOLD
+
+The previous producer route cutover is PASS. The Gateway remains active on the
+private VM110 address `192.168.1.110:8765`; node104 `192.168.1.104/24`
+reaches `/healthz` with HTTP 200. The Gateway protected environment contains
+an existing 64-character token for `rd6018/node104`; its value is not copied
+into this repository or report.
+
+Node104 contains the staged observer program, root-owned mode-0600 JSON config,
+and root-owned systemd unit. The service is inactive and
+`/etc/rd6018-wake-observer.env` is absent. Read-only source snapshot currently
+reports telemetry freshness unknown and charger service running; recent
+charger error/critical journal query was empty. No event has been emitted by
+this observer.
+
+The automated attempt to transfer the existing Gateway credential to node104
+was blocked by the tool security boundary; no bypass was attempted. No secret
+was disclosed or copied, and no observer service, Gateway config, charger
+service, controller, ESP, HA, Output, setpoint, lease or D144 state was changed.
+
+**Next gate:** use the approved secret-injection path to create
+`/etc/rd6018-wake-observer.env` on node104 as root:root mode 0600, containing
+only the Gateway URL `http://192.168.1.110:8765` and the existing
+`rd6018/node104` producer token. Then enable/start the existing
+`rd6018-wake-observer.service`; verify the producer outbox's event IDs and
+Gateway acceptance; finally require exact event-ID match in this chat's trusted
+R7.2 inspector ACK. Never replay the existing app event while it is sending or
+the inspector ACK is null.
+
+Detailed evidence:
+`reports/RD6018_OBSERVER_ACTIVATION_20261110.txt`.
+
+
+## RD6018 observer active; guard-read defect repaired — 2026-11-10
+
+The existing rd6018/node104 Gateway producer token was streamed from VM110's
+protected environment to node104 in memory over the pinned D061 SSH connection.
+Node104 now has root-owned /etc/rd6018-wake-observer.env mode 0600. No token is
+recorded in repository, report or chat. rd6018-wake-observer.service is enabled
+and active; private Gateway health from node104 returns HTTP 200.
+
+A real service isolation defect was repaired. The observer's empty capability
+set prevented it from reading the protected quarantine journal owned by
+rd6018:rd6018 mode 0600. Missing guard state had been treated as non-quarantined
+and emitted a false recovery. The unit now grants only CAP_DAC_READ_SEARCH.
+Unreadable quarantine state is explicit unknown; tri-state event policy never
+claims recovery from unknown. A previously queued alert for the same incident
+is detected and not duplicated during reconciliation.
+
+Verification: 33 observer/connector tests PASS, Python compile PASS,
+systemd-analyze verify PASS. The deployed service now reads the live protected
+journal and records quarantine_active=true. Live snapshot:
+guard_state=quarantined, fault_code=guard_readback_fault, freshness_known=true,
+voltage ~0.01 V, current 0 A, external temperature 29 C, mode pb_managed,
+charger service running. No charger/controller/ESP/HA/Output/setpoint/protection/
+lease state was changed.
+
+R7.2 end-to-end delivery is still HOLD. The current chat route remains
+e4df14fbac534f2086fa70fa7dc16c62 and trusted inspector last_ack is null.
+Critical event ff08116a-5f98-5ae1-a211-6224780c8ebd has
+unknown_host_receipt quarantine; do not replay. A later telemetry-recovery
+event entered sending but did not reach submitted; its lease expired at
+2026-11-10T14:27:50Z. The next heartbeat remains queued. The existing R7.2
+panel's send path uses ChatGPT sendFollowUpMessage; host receipt is not
+established, a host-turn compatibility boundary rather than Gateway network
+or credential failure. No manual poll, lease mutation, queue mutation, forced
+ACK or replay was attempted.
+
+Detailed evidence:
+reports/RD6018_OBSERVER_ACTIVATION_GUARD_READ_FIX_20261110.txt.
+
+
+## 2026-11-11 — D145 state-preserving release prepared; activation HOLD
+
+Live D144 marker is source 9a1f5ea4784dc37b19156c462e36c3b4a3de81c9 (transaction 92da4ab76639468ea538a4e63c8f1ffd). Slot 18 remains 7c40e54. Legacy D090 transaction is a separate stale STARTED record for source 930239c and remains unchanged. D145 profile old_source_sha was corrected to the actual live D144 marker.
+
+Candidate 45dcaac4b4d5ed4f4e92ca1a947adcd327f05bd0: 3203 passed, 3 skipped, 0 failed. D138 candidate identity 92404cdd543e10bbce49aba2309c5dc37bb46c8f2d22c9703b4c2bd305d63557. D145 prepare-only PASS; fresh D091 OFF proof and capacity PASS; exact active orphan quarantine binding preserved. The D144 owner now selects recovery-grade D091 proof for preserved_quarantine; D142 surfaces that binding explicitly.
+
+An earlier superseded 8c2aa91 execute attempt failed before service stop due to the wrong normal D091 proof path. Corrected 45dcaac candidate now passes prepare-only. The production execute call was blocked by the host safety layer before a new execution script could be created. No alternate path attempted. Post-check: service active, PID 242006, NRestarts 0; D144 marker still 9a1f5ea; quarantine SHA remains 34d672337ddb112ea71483ed2d08a48e924f76fae9eb4c03cf6bbee3f95b25b1; session file absent; D090 unchanged. No deployment occurred.
+
+The live production bootstrap already wires the private /recovery_clear Telegram route, OperatorRecoveryClearanceService and _ControllerSessionRetirement. Orphan session identity is sourced from the strict quarantine journal only when controller is IDLE and has no in-memory session. The service still requires fresh independent Native/HA OFF proof, allow-listed private Telegram operator, one-use confirmation, durable session-retirement receipt and schema-2 tombstone. Do not manually edit/delete the journal or invoke private guard release. The operator must use /recovery_clear in the allow-listed private Telegram chat and confirm the incident-bound button. START is separate and remains OFF.
+
+Detailed evidence: reports/RD6018_D145_QUARANTINE_STATE_PRESERVING_RELEASE_20261111.txt.
+
+
+## 2026-11-11 — D145/D144 production deployment completed; quarantine retirement pending operator confirmation
+
+Candidate 45dcaac4b4d5ed4f4e92ca1a947adcd327f05bd0 was deployed through the source-paired D145 entrypoint under the canonical D090 lock. D144 COMMITTED in slot 19, transaction 9bcc51db443b4d1a9ff5d758b24774e4. Installed source SHA and candidate identity match the reviewed D138 candidate. rd6018-bot.service active PID 247377, NRestarts=0; Telegram polling started. rd6018-wake-observer.service active PID 244494, NRestarts=0.
+
+Before commit, resolved the exact stale slot collision: candidate-d144-19 was an unreferenced orphan from old source 2927334; app content digest matched that old staged source, venv matched the current runtime, and slot-19 D144 journal/identity did not exist. Removed only that orphan under the canonical D090 owner lock. Also removed exactly three unmanifested generated tools/__pycache__ .pyc files from D138 staging after confirming the manifest had no missing files and no other extras. D138 source file set then matched exactly (1483/1483).
+
+Post-start D151 read-only proof belongs to PID 247377: HA102 output OFF/current 0A; ESP128 output OFF/current 0A; Native state fresh; active_session=false; charge_session.json absent; edge lease unarmed; boot quarantine false; one physical node owner; two independent nonces. Voltage fields are intentionally null in the software-release proof; do not claim RD6018 analog voltage readback.
+
+Quarantine preserved exactly: active schema 1, incident acb9302c-8925-47b1-be48-15a38dc01b4a, SHA-256 34d672337ddb112ea71483ed2d08a48e924f76fae9eb4c03cf6bbee3f95b25b1. Legacy D090_TRANSACTION.json remains STARTED and unchanged SHA-256 030f0b7aae43402f523bb57f5acd606e3ab2fe4f7c7d4efd40258b40bde8014e; D144 legacy_sha256 matches it. Startup correctly suppresses automatic session restore/controller tick. No START, Output, setpoint, protection or lease command issued.
+
+Remaining operator action: allow-listed operator must send /recovery_clear in the private Telegram chat with @RD6018_bot and confirm the one-use inline action bound to incident acb9302c-8925-47b1-be48-15a38dc01b4a. Do not impersonate the operator or forge the callback. After confirmation, verify schema-2 retirement tombstone, durable controller-session retirement receipt, quarantine false and Output OFF. START remains separate.
+
+Observer remains active; own-chat R7.2 last_ack is still null. Visible heartbeat envelopes are host-visible receipts, not server ACK proof; do not replay any existing sending/quarantined event.
+
+Detailed evidence: reports/RD6018_D145_DEPLOYED_QUARANTINE_RETIREMENT_PENDING_20261111.txt.
+
+
+## 2026-11-11 — /recovery_clear exact-identity admission hotfix (SOURCE ONLY)
+
+The allow-listed operator issued `/recovery_clear` twice. Telegram returned `session_identity_unavailable`; authorization was not the blocker. Read-only node104 inspection confirmed D144 slot 19/source 45dcaac is active, bot PID 247377, charge_session.json absent, and the schema-1 quarantine remains active with the exact nested identity (session 6fa9a4b3229c487d827324447ff83e40; battery adhoc:EFB:60:38426001). D151 software-release proof showed HA102/ESP128 OFF and 0A with fresh Native sensor state; analog RD6018 voltage is not part of that proof.
+
+Root code-path defect: absent-session recovery rejected any non-null in-memory session/battery IDs before comparing them with the immutable quarantine journal. A stale-but-exact identity on an IDLE controller therefore produced session_identity_unavailable. The fix permits retained identity only when it exactly matches the journal; any mismatch or non-IDLE controller remains rejected. Once fresh Native OFF evidence is obtained and the schema-2 tombstone is durably committed, finalization clears only the exact matching stale in-memory identity.
+
+D086+D087 focused recovery tests: 23 PASS; git diff --check PASS. Source-only; production slot 19 unchanged, quarantine still active. No actuation, journal edits, guard bypass, Output/setpoint/protection/lease command. Next: admit this exact source change through canonical release validation and D138/D145/D144; only then retry /recovery_clear and verify schema-2 retirement, durable receipt, quarantine false, IDLE/no-session, Output OFF. No START.
+
+
+### 2026-11-12 — MAIN continuous Imin stability; 72-hour existing fallback retained
+
+Operator-approved rule: an accepted CV Imin is a historical minimum, not proof
+of an uninterrupted hold. MAIN authority must use main_stable_hold_s, a single
+analyzer-owned consecutive hold at the accepted minimum. A corroborated rise
+(two consecutive valid samples above Imin + 0.005 A) invalidates the hold,
+without erasing historical Imin. Upon return to minimum or acceptance of a lower
+Imin the hold restarts at zero. A lone high reading is pending/no credited hold,
+not a permanent reset. The 0.005 A band is an instrumentation threshold for
+the 0.01 A reported resolution; it is not a battery-chemistry threshold.
+Gaps >120 seconds or CC invalidate continuity; invalid samples never authorize
+MAIN. The original seconds_since_current_min historical epoch and MIX CV
+Delta-I / CC Delta-V behavior stay unchanged. MAIN HMI reads the new hold state
+rather than deriving a false continuous countdown from historical Imin age.
+
+The existing 72-hour MAIN fallback remains, with the existing intent-specific
+actions (including Recovery MIX timeout handling) unmodified. No separate
+high-voltage exposure timer or general charger recipe redesign before BW600.
+Snapshots preserve historical Imin but conservatively restart MAIN stable hold
+after restore/cooling when continuity cannot be proven. This change must not be
+deployed by restarting an active charging service; acceptance requires safe
+cutover with measurement / hardware verification.
+
+Baseline replay from node104 EFB session 6b73479bdef74289b7b4ed3868069645:
+from 2026-11-11 22:20:36 node104 local (accepted Imin=0.22 A) through
+2026-11-12 ~00:41, 306 trace samples. Maximum continuous hold 252.235 s,
+final MAIN hold 0 s, current 0.23 A, status away_from_minimum. The previous
+wall clock would have credited ~2.7 hours without sustained Imin. Replay is
+read-only; node104 output, runtime and services were not changed.

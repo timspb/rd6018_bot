@@ -70,7 +70,6 @@ from runtime.safety.variables import (
     PROTECTION_OVP_MARGIN_V,
     WATCHDOG_TIMEOUT_S,
 )
-from runtime.safety.soft_watchdog import SoftWatchdogIncident, soft_watchdog_poll_once
 from runtime.safety.live_protection import evaluate_live_protection
 from charging_log import clear_event_logs, get_recent_events, log_checkpoint, log_event, log_stage_end, rotate_if_needed, trim_log_older_than_days
 from production_controller import create_production_charge_host
@@ -91,6 +90,8 @@ from runtime.safety.voltage_variables import PB_AUTOMATIC_TARGET_CEILING_V
 from database import add_record, cleanup_old_records, get_graph_data_with_temp, get_logs_data, get_raw_history, init_db
 from hass_api import HassClient
 from rd6018_telemetry import as_bool, telemetry_freshness, finite_float
+from runtime.charge.evidence.temperature_source_journal import TemperatureSourceJournalObserver
+from runtime.charge.evidence.mix_progress_journal import mix_progress_event
 from time_utils import format_time_user_tz
 import html
 from application.intents import OperatorIntent, OperatorIntentKind
@@ -423,7 +424,6 @@ soft_watchdog_outage_reported: bool = False
 # Allow the full 300s loss window plus that observation margin; the
 # independent 900s edge safety lease retains physical authority.
 SOFT_WATCHDOG_TIMEOUT = 6 * 60
-_soft_watchdog_incident = SoftWatchdogIncident()
 MIN_START_TEMP = 10.0  # °C — заряд не начинаем, если внешний датчик ниже
 last_checkpoint_time: float = 0.0
 _event_log_last_at: Dict[str, float] = {}
@@ -970,6 +970,18 @@ def _safe_float(val, default: float = 0.0) -> float:
 
 def _cap_current(value: float) -> float:
     return min(MAX_STAGE_CURRENT, max(0.1, float(value)))
+
+
+_temperature_source_observer = TemperatureSourceJournalObserver()
+
+
+def _log_temperature_source_if_changed(live, *, stage, voltage, current, temperature, ah, session_id=None):
+    """Observational, never a charging/safety decision."""
+    _temperature_source_observer.record(
+        live, stage=stage, voltage=voltage, current=current,
+        temperature=temperature, ah=ah, session_id=session_id,
+        log_event=log_event,
+    )
 
 
 def _should_skip_noisy_log_event(stage: str, event: str, now_ts: Optional[float] = None) -> bool:
@@ -1868,40 +1880,10 @@ def _strip_html_tags(text: str) -> str:
     return re.sub(r"\s+", " ", plain).strip()
 
 
-def _format_eta_compact(raw_eta: Any) -> str:
-    """Сделать ETA читабельным для мобильного дашборда."""
-    s = str(raw_eta or "").strip()
-    if not s or s == "—":
-        return "—"
-    if ":" in s:
-        parts = s.split(":")
-        if len(parts) == 2:
-            try:
-                h = int(parts[0])
-                m = int(parts[1])
-                if h > 0:
-                    return f"{h}ч {m:02d}м"
-                return f"{m}м"
-            except ValueError:
-                return s
-    return s
-
-
-def _format_seconds_compact(seconds: Any) -> str:
-    """Short human-friendly duration."""
-    try:
-        total = int(float(seconds))
-    except (TypeError, ValueError):
-        return "—"
-    if total <= 0:
-        return "0м"
-    hours = total // 3600
-    mins = (total % 3600) // 60
-    if hours and mins:
-        return f"{hours}ч {mins:02d}м"
-    if hours:
-        return f"{hours}ч"
-    return f"{max(1, mins)}м"
+from runtime.ui.components.stage_duration import (
+    format_eta_compact as _format_eta_compact,
+    format_seconds_compact as _format_seconds_compact,
+)
 
 
 def _format_stage_progress_line(live: Dict[str, Any]) -> str:
@@ -2107,84 +2089,6 @@ def _compact_dashboard_caption(
     return "\n".join(line for line in lines if line)
 
 
-async def soft_watchdog_loop() -> None:
-    """Run canonical bounded software-watchdog containment for managed authority."""
-    app = sys.modules[__name__]
-    while True:
-        await asyncio.sleep(10)
-        try:
-            await soft_watchdog_poll_once(app, _soft_watchdog_incident)
-        except asyncio.CancelledError:
-            raise
-        except Exception as ex:
-            logger.error("soft_watchdog_loop: %s", ex)
-
-
-async def watchdog_loop() -> None:
-    """Hardware Watchdog: при потере связи — аварийное отключение. При U>15В — 60 сек таймаут."""
-    global last_chat_id
-    while True:
-        await asyncio.sleep(30)
-        try:
-            now = time.time()
-            last = charge_controller.last_update_time
-            if last <= 0:
-                continue
-            delta = now - last
-
-            live = await hass.get_all_live()
-            outage_since = live.get("_native_link_outage_since")
-            if (
-                isinstance(outage_since, (int, float))
-                and not isinstance(outage_since, bool)
-                and math.isfinite(outage_since)
-                and 0 <= time.monotonic() - outage_since < 300.0
-            ):
-                # A stale pre-disconnect U/R18 is not grounds for a second,
-                # independent software shutdown inside the owner-approved
-                # 5-minute communication window.
-                continue
-            v = _safe_float(live.get("voltage"))
-            output_on = str(live.get("switch", "")).lower() == "on"
-
-            if not output_on:
-                continue
-
-            if delta >= WATCHDOG_TIMEOUT:
-                logger.critical("CRITICAL: Watchdog timeout. Emergency shutdown.")
-                i = _safe_float(live.get("current"))
-                ah = _safe_float(live.get("ah"))
-                t = _safe_float(live.get("temp_ext"))
-                log_event(
-                    charge_controller.current_stage,
-                    v,
-                    i,
-                    t,
-                    ah,
-                    "WATCHDOG_TIMEOUT",
-                )
-                await _hard_stop_charge()
-                continue
-
-            if v > HIGH_V_THRESHOLD and delta >= HIGH_V_FAST_TIMEOUT:
-                logger.critical("CRITICAL: Watchdog timeout (high voltage >15V, 60s). Emergency shutdown.")
-                i = _safe_float(live.get("current"))
-                ah = _safe_float(live.get("ah"))
-                t = _safe_float(live.get("temp_ext"))
-                log_event(
-                    charge_controller.current_stage,
-                    v,
-                    i,
-                    t,
-                    ah,
-                    "WATCHDOG_HIGH_V",
-                )
-                await _hard_stop_charge()
-                charge_controller.emergency_hv_disconnect = True
-        except Exception as ex:
-            logger.error("watchdog_loop: %s", ex)
-
-
 async def charge_monitor() -> None:
     """Фоновая задача: раз в 15 мин проверяет ток; алерты при завершении заряда и при нулевом потреблении."""
     global last_chat_id, last_charge_alert_at, last_idle_alert_at, zero_current_since
@@ -2269,8 +2173,11 @@ async def data_logger() -> None:
             await asyncio.sleep(30)
             continue
 
-        if "_native_link_outage_since" in live:
-            # A reconnect may deliver an incomplete Modbus callback batch.
+        if (
+            "_native_link_outage_since" in live
+            or live.get("_managed_telemetry_recovery_pending") is True
+        ):
+            # Reconnect or delayed ordinary/transition callback evidence.
             # Defer controller decisions without treating partial data as a
             # healthy heartbeat; the existing 300s guard owns the timeout.
             logger.info("Native link recovering; charge controller tick deferred")
@@ -2289,6 +2196,16 @@ async def data_logger() -> None:
             temp_ext = live.get("temp_ext")
             t = _safe_float(temp_ext)
             ah = _safe_float(live.get("ah"))
+            try:
+                _log_temperature_source_if_changed(
+                    live, stage=charge_controller.current_stage,
+                    voltage=battery_v, current=i, temperature=temp_ext, ah=ah,
+                    session_id=getattr(charge_controller, "_v2_trace_session_id", None),
+                )
+            except Exception as exc:
+                # Observability is best-effort. It must not interrupt the
+                # established safety/charge control path.
+                logger.warning("TEMP_SOURCE journal unavailable: %s", type(exc).__name__)
             is_cv = _canonical_bool(live, "is_cv")
             is_cc = _canonical_bool(live, "is_cc")
             output_switch = live.get("switch")
@@ -2646,7 +2563,7 @@ async def data_logger() -> None:
                     )
                     # Accepted MAIN identity is not a runtime-private hint:
                     # compare the canonical durable session, its recipe and
-                    # fresh physical Iset/OCP while holding the common owner.
+                    # fresh physical Iset readback while holding the common owner.
                     canonical_main_session = read_canonical_session(SESSION_FILE)
                     admission = admit_main_guard_shadow(
                         controller=charge_controller,
@@ -2727,7 +2644,7 @@ async def data_logger() -> None:
                             if outcome is not None:
                                 if outcome.verified:
                                     logger.info(
-                                        "MAIN Guard Iset/OCP reduced and journaled: %.2f A",
+                                        "MAIN Guard Iset reduced and journaled: %.2f A",
                                         outcome.guard.hardware_limit_a,
                                     )
                                 else:
@@ -2790,6 +2707,20 @@ async def data_logger() -> None:
 
                     if charge_controller.is_active and (now_ts - last_checkpoint_time >= 600):
                         log_checkpoint(charge_controller.current_stage, battery_v, i, t, ah)
+                        if charge_controller.current_stage == charge_controller.STAGE_MIX:
+                            try:
+                                progress = mix_progress_event(
+                                    live,
+                                    getattr(charge_controller, "_v2_session_signal_context", None),
+                                    stage=charge_controller.STAGE_MIX,
+                                    session_id=getattr(charge_controller, "_v2_trace_session_id", None),
+                                    now_s=now_ts,
+                                    max_age_s=float(WATCHDOG_TIMEOUT_S.default),
+                                    hold_started_at=getattr(charge_controller, "finish_timer_start", None),
+                                )
+                                log_event(charge_controller.current_stage, battery_v, i, t, ah, progress)
+                            except Exception as exc:
+                                logger.warning("MIX_PROGRESS journal unavailable: %s", type(exc).__name__)
                         last_checkpoint_time = now_ts
                     
                     # Очистка БД и журнала событий каждые 24 часа (записи старше 30 дней)

@@ -12,7 +12,7 @@ from rd_ownership_recovery import (
     install_rd_ownership_recovery,
     release_unmanaged_live_output_to_hands_off,
 )
-from runtime_safety import RuntimeSafetyError
+from runtime.safety.runtime_guard import RuntimeSafetyError
 
 
 class DummyCallbackRegistry:
@@ -256,6 +256,23 @@ class OwnershipRecoveryHmiTests(unittest.TestCase):
 
         callbacks = self._callbacks(hmi.build_operator_keyboard(app, state))
         self.assertIn("rd_ownership_hands_off", callbacks)
+
+    def test_ownership_keyboard_is_bound_to_installed_app(self):
+        from application.operator_actions import OperatorActionsView
+
+        app, manager = self._app()
+        foreign, _ = self._app()
+        install_rd_ownership_recovery(app, manager)
+        state = self._state(hmi.HmiProcessState.IDLE, hmi.HmiAuthority.NONE, output_on=False)
+        actions = OperatorActionsView.for_state("IDLE", safety_allowed=True)
+
+        foreign_callbacks = self._callbacks(
+            hmi.build_operator_keyboard(foreign, state, actions=actions)
+        )
+        self.assertNotIn("rd_ownership_hands_off", foreign_callbacks)
+        self.assertIn("operator_refresh", foreign_callbacks)
+        own_callbacks = self._callbacks(hmi.build_operator_keyboard(app, state, actions=actions))
+        self.assertIn("rd_ownership_hands_off", own_callbacks)
 
     def test_hands_off_off_exposes_return_to_pb_control(self):
         app, manager = self._app(hands_off=True)

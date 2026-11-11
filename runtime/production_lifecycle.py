@@ -12,6 +12,7 @@ from typing import Any
 
 from application.execution_port import get_or_create_execution_port
 from runtime.background import start_background_tasks
+from runtime.safety.watchdog_runtime import run_safety_watchdogs
 from rd6018_telemetry import as_bool
 
 SHUTDOWN_SESSION_LOCK_TIMEOUT_S = 5.0
@@ -165,8 +166,7 @@ class ProductionRuntimeLifecycle:
         self._background_tasks += start_background_tasks(
             app.data_logger,
             app.charge_monitor,
-            app.soft_watchdog_loop,
-            app.watchdog_loop,
+            lambda: run_safety_watchdogs(app),
         )
         app.logger.info("RD6018 bot starting")
         app.logger.info(

@@ -5,7 +5,7 @@ import contextvars
 import logging
 from typing import Any, Awaitable, Callable, Optional
 
-from runtime_safety import RuntimeSafetyError
+from runtime.safety.runtime_guard import RuntimeSafetyError
 
 logger = logging.getLogger("rd6018.startup_authority")
 

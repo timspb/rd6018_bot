@@ -1,0 +1,66 @@
+# RD6018 observer — activation and guard-read fix — 2026-11-10
+
+Run: rd6018-observer-activation-guard-read-fix-20261110-01
+
+## Deployment
+
+- Existing Gateway producer token was read only in memory from VM110's protected environment and streamed over the already-pinned D061 SSH connection to node104.
+- /etc/rd6018-wake-observer.env is root:root, mode 0600; contains only Gateway URL and the existing producer credential. Token value is not recorded.
+- rd6018-wake-observer.service enabled and active; latest MainPID 244494, NRestarts 0.
+- Gateway private endpoint 192.168.1.110:8765 reachable from node104; /healthz HTTP 200.
+- No charger service, controller, ESP, HA, Output, setpoint, protection, lease or battery/session control was changed.
+
+## Discovered defect and repair
+
+The observer ran with an empty capability set while the protected quarantine journal was owned by rd6018:rd6018 and mode 0600. It therefore could not read the journal. The old snapshot code silently omitted guard state, and the event policy interpreted missing state as not-quarantined, producing a false charger.guard_recovered event.
+
+Repair:
+- systemd now grants only CAP_DAC_READ_SEARCH (AmbientCapabilities and CapabilityBoundingSet); no write-bypass capability is granted.
+- An unreadable/missing quarantine journal now yields explicit guard_state=unknown, never ok.
+- Guard policy is tri-state: unknown emits one warning and never clears an active quarantine; recovery is emitted only on an explicit readable ok state.
+- Snapshot carries the incident timestamp/ID for identity.
+- Existing already-queued critical event for the same fault code and incident start suppresses a duplicate on observer reconciliation.
+- New regression tests cover unknown guard state, no false recovery, and no duplicate alert for an already queued incident.
+
+## Verification
+
+- test_observer + test_connector: 33 PASS.
+- Python compile: PASS.
+- systemd-analyze verify on deployed unit: PASS.
+- After restart, observer live snapshot reads the protected quarantine correctly:
+  - guard_state=quarantined
+  - fault_code=guard_readback_fault
+  - freshness_known=true, age 21.4 s at verification
+  - voltage ~0.01 V, current 0 A, external temperature 29 C
+  - mode pb_managed, charger service running
+- Persisted observer state now has quarantine_active=true and guard_state_status=quarantined.
+- No second critical event was emitted for the already queued incident.
+- Gateway outbox acceptance: existing critical fault event and subsequent observer events were accepted by Gateway.
+
+## Active charger fault
+
+Current protected quarantine record:
+- incident acb9302c-8925-47b1-be48-15a38dc01b4a
+- incident time 2026-11-10T05:09:53.917914+00:00
+- reason postflight_guard_ack_rejected:programmed_current_readback_mismatch
+- fault code guard_readback_fault
+
+The observer is now accurately reporting the current quarantine. It does not attempt recovery or issue control commands.
+
+## R7.2 delivery status — HOLD, no ACK
+
+Current chat route confirmed by trusted inspector: e4df14fbac534f2086fa70fa7dc16c62; latest last_ack=null.
+
+R7.2 read-only queue inspection:
+- Critical event ff08116a-5f98-5ae1-a211-6224780c8ebd: quarantined, reason unknown_host_receipt, attempted=1. Do not replay.
+- Other initial observer events are also quarantined/unknown_host_receipt; these include the false recovery event generated before the guard-read fix. Do not replay.
+- Telemetry recovery event c8063906-6f88-591b-999d-8465fda25f04: entered sending, attempted=1, submitted_at=null; its 300-second lease deadline was 2026-11-10T14:27:50Z. At final inspection time 14:29:18Z the lease was past deadline; normal R7.2 reap should quarantine it. No manual poll, ACK, lease mutation or replay was attempted.
+- New heartbeat event 2f026c52-5aa5-55ac-a60e-631d7e7eda74: queued, attempted=0.
+- R7.2 UI send path uses window.openai.sendFollowUpMessage; host send receipt has not been established. This is a ChatGPT host-turn compatibility boundary, not a Gateway connectivity or token failure. The app send attempt did not reach submitted; do not claim host receipt or ACK.
+
+## Next
+
+- Keep the observer active; retain 20-second local sampling, urgent state transitions immediately, mode changes immediately, routine heartbeat no more than every 1800 seconds.
+- Do not replay any sending, submitted or quarantined/unknown_host_receipt event.
+- Resolve host-send compatibility through the existing R7.2 panel in a compatible ChatGPT turn. Then accept only a new, naturally occurring event with exact matching current-chat route, event ID, attempts and ACK timestamp.
+- Continue monitoring the current quarantine read-only. No charger actuation is authorized by this observer task.

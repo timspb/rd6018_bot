@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import ast
+import subprocess
 from pathlib import Path
+from source_audit_inventory import production_python_sources
 import unittest
 
 
@@ -16,12 +18,7 @@ EXPECTED_CONTROLLER_CONSTANTS = {
 
 
 def _production_python_paths() -> list[Path]:
-    return [
-        path for path in ROOT.rglob("*.py")
-        if "tests" not in path.parts
-        and ".git" not in path.parts
-        and "__pycache__" not in path.parts
-    ]
+    return [path for _relative, path in production_python_sources(ROOT)]
 
 
 class L003InheritedDependencyInventoryTests(unittest.TestCase):

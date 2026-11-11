@@ -13,6 +13,7 @@ from runtime.config.models import PhysicalTransportConfig, RDConfig
 from runtime.output.bridge import HardwareCapability, HardwareSnapshot
 
 from .base import ReadOnlyTransport
+from .esp128_callback_coherence import REQUIRED_NATIVE_CALLBACKS, native_batch_complete
 
 
 class ESPHomeTransport(ReadOnlyTransport):
@@ -332,11 +333,18 @@ class ESPHomeTransport(ReadOnlyTransport):
                 return "NumberInfo" if "NumberInfo" in kinds else "SensorInfo"
             return None
         def value(name):
-            expected = "SensorInfo" if name in {
+            if name == "control_output":
+                expected = "SwitchInfo"
+            elif name in {"autonomous_mode", "take_ok", "take_out", "boot_power"}:
+                expected = "BinarySensorInfo"
+            elif name in {
                 "voltage", "current", "temperature", "output_state", "protection_code",
                 "battery_voltage", "temp_int", "temp_ext", "power",
                 "configured_voltage", "configured_current", "ovp", "ocp",
-            } else "BinarySensorInfo" if name == "autonomous_mode" else "NumberInfo"
+            }:
+                expected = "SensorInfo"
+            else:
+                expected = "NumberInfo"
             object_id = self.config.entities.get(name)
             return self._read_subscribed_state(object_id, expected_type(name, object_id) or expected)
 
@@ -348,24 +356,12 @@ class ESPHomeTransport(ReadOnlyTransport):
             # initial callback batch may need a full Modbus poll (more than
             # 0.5s). Do not expose a half-populated cache to the existing
             # safety guard when the link has just been re-established.
-            required = (
-                "output_state", "voltage", "current", "battery_voltage",
-                "configured_voltage", "configured_current", "ovp", "ocp",
-                "temp_int", "temp_ext",
-            )
             for _ in range(40):  # at most 8s; never a safety bypass
-                ready = True
-                for name in required:
-                    if name not in self.config.entities:
-                        continue
-                    reading, meta = value(name)
-                    age = meta.get("age_s")
-                    if (reading is None or meta.get("status") != "ok"
-                            or not isinstance(age, (int, float))
-                            or isinstance(age, bool) or not 0 <= age <= 8):
-                        ready = False
-                        break
-                if ready:
+                callback_reads = {
+                    name: value(name) for name in REQUIRED_NATIVE_CALLBACKS
+                    if name in self.config.entities
+                }
+                if native_batch_complete(self.config.entities, callback_reads):
                     break
                 await asyncio.sleep(0.2)
             self._reconnecting_subscription = False
@@ -410,11 +406,18 @@ class ESPHomeTransport(ReadOnlyTransport):
         for name, item in result.items():
             source = aliases.get(name, name)
             object_id = self.config.entities.get(source)
-            expected = "SensorInfo" if source in {
+            if source == "control_output":
+                expected = "SwitchInfo"
+            elif source in {"autonomous_mode", "take_ok", "take_out", "boot_power"}:
+                expected = "BinarySensorInfo"
+            elif source in {
                 "voltage", "current", "temperature", "output_state", "protection_code",
                 "battery_voltage", "temp_int", "temp_ext", "power",
                 "configured_voltage", "configured_current", "ovp", "ocp",
-            } else "BinarySensorInfo" if source == "autonomous_mode" else "NumberInfo"
+            }:
+                expected = "SensorInfo"
+            else:
+                expected = "NumberInfo"
             expected = expected_type(source, object_id) or expected
             entity = next((candidate for candidate in self.entities
                            if str(candidate.object_id) == str(object_id)
@@ -452,17 +455,7 @@ class ESPHomeTransport(ReadOnlyTransport):
         result["_meta"] = meta
         if self._native_link_outage_since is not None:
             # Retain the original connection-loss epoch across partial callbacks.
-            required = ("output_state", "voltage", "current", "battery_voltage",
-                        "configured_voltage", "configured_current", "ovp", "ocp",
-                        "temp_int", "temp_ext")
-            complete = all(
-                name not in self.config.entities
-                or (result.get(name) is not None
-                    and meta.get(name, {}).get("status") == "ok"
-                    and isinstance(meta[name].get("age_s"), (int, float))
-                    and 0 <= meta[name]["age_s"] <= 8)
-                for name in required
-            )
+            complete = native_batch_complete(self.config.entities, reads)
             if complete:
                 self._native_link_outage_since = None
             else:

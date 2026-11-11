@@ -75,7 +75,11 @@ def apply_main_authority_tick(
         intent=host._v2_intent,
         first_stage=first_stage,
         policy_decision=record.decision.decision,
-        seconds_since_current_min=record.analysis.metrics.seconds_since_current_min,
+        seconds_since_current_min=(
+            record.analysis.metrics.main_stable_hold_s
+            if getattr(record.analysis.metrics, "main_stable_hold_s", None) is not None
+            else 0.0
+        ),
         required_tail_hold_s=required_hold,
         agm_stage_idx=host._agm_stage_idx,
         agm_stage_count=len(AGM_STAGE_VOLTAGES_V.default),
@@ -121,6 +125,15 @@ def apply_main_authority_tick(
             host, reason=decision.reason, now_s=timestamp_s, ah=ah,
             voltage_v=voltage, current_a=current, temperature_c=temp,
             target_voltage_v=target_v, target_current_a=target_i,
+            transition_evidence={
+                "mode": "CV" if is_cv else ("CC" if bool(getattr(getattr(record.analysis, "sample", None), "is_cc", False)) else "unknown"),
+                "main_imin_a": getattr(record.analysis.metrics, "current_min_a", None),
+                "main_hold_age_s": getattr(record.analysis.metrics, "main_stable_hold_s", None),
+                "main_hold_required_s": required_hold,
+                "main_delta_a": getattr(record.analysis.metrics, "delta_current_from_min_a", None),
+                "main_required_delta_a": getattr(record.analysis.metrics, "reversal_threshold_a", None),
+                "temperature_c": temp,
+            },
             actions=actions,
         )
     elif decision.action == AuthorityAction.COMPLETE_NORMAL:

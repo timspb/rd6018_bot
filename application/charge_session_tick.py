@@ -367,6 +367,8 @@ async def _run_charge_session_tick_body(
                 main_stage=host.STAGE_MAIN,
                 mix_stage=host.STAGE_MIX,
                 previous_current_min_a=prior_current_min,
+                is_cv=bool(is_cv),
+                is_cc=(is_cc is True),
             )
             if milestone:
                 actions.setdefault("log_event_sub", milestone)

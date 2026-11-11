@@ -17,7 +17,7 @@ from rd6018_telemetry import (
     _parse_iso_timestamp,
     canonical_programmed_readback,
 )
-from safe_output import SafetyPolicy
+from runtime.safety.output_policy import SafetyPolicy
 
 
 logger = logging.getLogger("rd6018")
@@ -555,10 +555,23 @@ class RuntimeSafetyGuard:
             raise RuntimeSafetyError(reason)
         return False
 
+    async def _protection_disable_off_confirmed(self) -> bool:
+        """Zero-register writes require a fresh authoritative OFF observation."""
+        evidence = self._output_evidence(await self._raw_live())
+        if evidence.state is not False or evidence.heartbeat_epoch is None:
+            return False
+        age_s = time.time() - evidence.heartbeat_epoch
+        return -1.0 <= age_s <= 300.0
+
     async def set_ovp(self, value: float) -> bool:
         requested = _finite(value)
         output_state = await self._output_state_raw()
-        if requested is None or requested <= 0 or requested > self.policy.absolute_ovp_ceiling_v:
+        # RD60xx represents disabled OVP as zero on supported firmware.
+        # Permit that register write only with positively confirmed Output OFF;
+        # never remove protection from a running managed charge stage.
+        if (requested is None or requested < 0 or requested > self.policy.absolute_ovp_ceiling_v
+                or (requested == 0 and (output_state is not False
+                                        or not await self._protection_disable_off_confirmed()))):
             return await self._setter_failed("OVP", float(value), output_state)
         ok = bool(await self._raw_set_ovp(requested))
         if not ok:
@@ -572,7 +585,11 @@ class RuntimeSafetyGuard:
     async def set_ocp(self, value: float) -> bool:
         requested = _finite(value)
         output_state = await self._output_state_raw()
-        if requested is None or requested <= 0 or requested > self.policy.absolute_ocp_ceiling_a:
+        # Zero is a firmware-dependent OCP disable request: never allow it
+        # unless an independent physical Output OFF observation is positive.
+        if (requested is None or requested < 0 or requested > self.policy.absolute_ocp_ceiling_a
+                or (requested == 0 and (output_state is not False
+                                        or not await self._protection_disable_off_confirmed()))):
             return await self._setter_failed("OCP", float(value), output_state)
         ok = bool(await self._raw_set_ocp(requested))
         if not ok:

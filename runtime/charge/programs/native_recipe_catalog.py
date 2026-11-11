@@ -33,7 +33,7 @@ STAGE_OWNERS = (
     ("DESULFATION", "runtime.charge.runtime.recovery_scaffold"),
     ("RECOVERY_SAFE_WAIT", "runtime.charge.runtime.recovery_scaffold"),
     ("MIX", "runtime.charge.runtime.mix_scaffold"),
-    ("FINAL_SAFE_WAIT", "runtime.charge.runtime.mix_scaffold"),
+    ("FINAL_SAFE_WAIT", "runtime.charge.runtime.final_safe_wait_authority"),
     ("COOLING", "runtime.charge.runtime.residual_scaffold"),
     ("DONE", "runtime.charge.runtime.residual_scaffold"),
 )

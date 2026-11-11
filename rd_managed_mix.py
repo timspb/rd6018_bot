@@ -23,7 +23,7 @@ from rd_managed_adoption import (
     ManagedLiveAdoptionCoordinator,
 )
 from recipe_engine import POLICIES
-from runtime_safety import RuntimeSafetyError, _binary
+from runtime.safety.runtime_guard import RuntimeSafetyError, _binary
 from signal_analyzer import SignalAnalyzer, SignalEvent, SignalSample
 
 

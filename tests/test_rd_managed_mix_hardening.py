@@ -15,8 +15,8 @@ from rd_managed_mix import (
     PriorMixAge,
     PriorMixAgeSource,
 )
-from runtime_safety import RuntimeSafetyError
-from safe_output import SafetyPolicy
+from runtime.safety.runtime_guard import RuntimeSafetyError
+from runtime.safety.output_policy import SafetyPolicy
 
 
 class Clock:
