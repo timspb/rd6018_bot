@@ -48,7 +48,21 @@ class ObserverTests(unittest.TestCase):
             state=tick(self.box,state,NOW+offset,"running",bad,[(NOW+offset,"setpoint_ack_rejected")])
         types=[e.event_type for e in self.box.pending(100)]
         self.assertEqual(types.count("charger.guard_fault"),1)
-        self.assertEqual(types.count("charger.fault"),1)
+        self.assertEqual(types.count("charger.fault"),0)
+        self.assertEqual(types.count("charger.heartbeat"),0)
+
+    def test_quarantine_suppresses_periodic_heartbeat_until_recovered(self):
+        bad={**self.sample,"guard_state":"quarantined","fault_code":"guard_readback_fault"}
+        state=tick(self.box,{},NOW,"running",bad,[(NOW,"setpoint_ack_rejected")])
+        for offset in range(20,5500,20):
+            state=tick(self.box,state,NOW+offset,"running",bad,[])
+        events=self.box.pending(100)
+        self.assertEqual(sum(e.event_type=="charger.guard_fault" for e in events),1)
+        self.assertEqual(sum(e.event_type=="charger.fault" for e in events),0)
+        self.assertEqual(sum(e.event_type=="charger.heartbeat" for e in events),0)
+        good={**self.sample,"guard_state":"ok"}
+        state=tick(self.box,state,NOW+5520,"running",good,[])
+        self.assertEqual(sum(e.event_type=="charger.guard_recovered" for e in self.box.pending(100)),1)
 
     def test_service_down_and_recovery_urgent(self):
         state=tick(self.box,{},NOW,"down",self.sample,[])

@@ -25,7 +25,8 @@ MAX_CONTINUOUS_SAMPLE_GAP_S = 90.0
 CURRENT_HEADROOM_A = 1.0
 # Backwards-compatible strategy name for the shared hardware tolerance.
 READBACK_TOLERANCE_A = CURRENT_SETPOINT_READBACK_TOLERANCE_A
-ACK_TIMEOUT_S = 120.0
+# Include setter latency and the full 120-second postwrite confirmation window.
+ACK_TIMEOUT_S = 180.0
 
 
 class GuardError(ValueError):

@@ -240,6 +240,11 @@ def tick(box,previous,now,service,samples,error_stream,summary_interval_s=MIN_SU
     last_errors=state.get("error_last_seen",{})
     last_errors=dict(last_errors) if isinstance(last_errors,dict) else {}
     for ts,code in error_stream:
+        # Guard transition already emits the incident; do not send a second
+        # critical alert for the same rejected MAIN Iset transaction.
+        if guard_state=="quarantined" and code=="setpoint_ack_rejected":
+            last_errors[code]=ts
+            continue
         prior=last_errors.get(code,0)
         if not isinstance(prior,(float,int)) or ts-prior>1800:
             emit(box,"charger.fault","log:"+code+":"+str(ts),ts,
@@ -248,8 +253,11 @@ def tick(box,previous,now,service,samples,error_stream,summary_interval_s=MIN_SU
     state["error_last_seen"]={k:v for k,v in last_errors.items() if now-v<=1800}
     last_summary=state.get("last_summary_at",0)
     if now-last_summary>=summary_interval_s:
-        slot=int(now//summary_interval_s)
-        emit(box,"charger.heartbeat","summary:"+str(slot),now,samples)
+        # Quarantine has its own urgent alert. Suppress fault-bearing summaries
+        # until recovery; routine healthy summaries remain every 30 minutes.
+        if guard_state!="quarantined":
+            slot=int(now//summary_interval_s)
+            emit(box,"charger.heartbeat","summary:"+str(slot),now,samples)
         state["last_summary_at"]=now
     state["last_journal_at"]=now-1
     return state

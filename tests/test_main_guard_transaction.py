@@ -2,6 +2,7 @@
 import asyncio
 from dataclasses import replace
 import unittest
+from unittest.mock import patch
 
 from application.execution_port import ExecutionPort
 from application.guard_execution_owner_lock import GuardExecutionOwnerLock
@@ -65,6 +66,11 @@ def pending():
 
 class MainGuardTransactionTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
+        # Avoid waiting the production 120-second convergence deadline on
+        # deliberately unacknowledged fake hardware in unit tests.
+        timer=patch("application.main_guard_transaction.POSTWRITE_CONVERGENCE_S",0.01)
+        timer.start()
+        self.addCleanup(timer.stop)
         self.owner = FakeOwner()
         self.port = ExecutionPort(self.owner)
         self.guard, self.proposal = pending()

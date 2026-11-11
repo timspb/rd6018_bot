@@ -17,8 +17,9 @@ from runtime.charge.strategy.main_current_guard import (
 SaveSnapshot = Callable[[dict[str, Any]], Awaitable[None]]
 Now = Callable[[], float]
 MAX_READBACK_AGE_S = 10.0
-# ESP Native setter completion may precede its independent sensor callback.
-POSTWRITE_CONVERGENCE_S = 5.0
+# MAIN current ceiling reduction is not an emergency trip: allow two minutes
+# for independent ESP Native readback convergence after the setter completes.
+POSTWRITE_CONVERGENCE_S = 120.0
 POSTWRITE_POLL_S = 0.25
 # Measured output current must still be effectively zero when Output is OFF.
 # Keep this separate from the wider Iset register acknowledgement tolerance.
