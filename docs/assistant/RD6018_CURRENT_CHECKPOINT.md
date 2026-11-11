@@ -1,5 +1,25 @@
 # RD6018 — CURRENT CHECKPOINT (2026-11-11)
 
+## 2026-11-11 — Wake observer START report after confirmed Output ON
+
+Source commit `1aad40c`; only separate observer/connector files deployed on node104.
+Files: `/opt/rd6018-wake-observer/observer.py` SHA256
+`4b109bad952594ab768773b415e9e0f62a99c1be65595d090f87ec19fec018e3`,
+`connector.py` SHA256
+`544fafcfe3e90ecd40a4a2f1960f73eae8f4af9cb92b33cec50ffee469b0bc60`.
+Observer PID 256053 ActiveState=active NRestarts=0; charging bot preserved PID
+255365 (no restart). Source uses recovery_trace_points timestamp_s for
+`output_observed_at` and sensor_history freshness; active false→true waits for
+fresh post-start Output ON, then sends single `charger.start_confirmed` event.
+Warning `charger.start_output_unconfirmed` only on 120 s timeout or interrupted
+START. During waiting period suppress routine heartbeat; faults remain immediate.
+40 observer/connector tests PASS in WSL. Read-only root snapshot after install:
+Main Charge, program_active=true, Output=true, 14.85 V, 0.26 A, Guard OK,
+service running. Restarting observer mid-charge does not synthesize a START.
+Backups and remote upload files removed (`DEPLOY_CLEANUP_PASS`); disk free
+5.3 GiB of 7.7 GiB, 28% occupied. No physical new START done to test the event
+end-to-end; live delivery of next start-confirmation remains to be observed.
+
 ## 2026-11-11 — node104 release slot21 COMMITTED + full postrelease cleanup
 
 Installed SHA `955985968205224ee7e550e422b652880e0ad65c`, D144 slot21,
