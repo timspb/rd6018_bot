@@ -7,6 +7,8 @@ is retained only as a compatibility import facade during ERADICATION-09.
 from __future__ import annotations
 
 import html
+import json
+from pathlib import Path
 from functools import wraps
 from types import SimpleNamespace
 from typing import Any
@@ -32,6 +34,56 @@ def _intent_label(intent: Any) -> str:
 
 
 INITIAL_MAIN_THRESHOLD_V = 12.0
+
+
+def retire_previous_guard_for_start(controller: Any, *, session_file: Path = Path("charge_session.json"),
+                                    quarantine_file: Path = Path("session_recovery_quarantine.json")) -> bool:
+    """Retire memory only when an exact previous-session tombstone proves OFF.
+
+    Called by the serialized START owner after independent physical Output-OFF
+    preflight. A conflicting, active or unreadable journal fails closed.
+    """
+    guard = getattr(controller, "_main_current_guard", None)
+    if guard is None:
+        return True
+    try:
+        if session_file.is_symlink() or quarantine_file.is_symlink():
+            return False
+        if session_file.exists():
+            if not session_file.is_file() or session_file.stat().st_size > 65536:
+                return False
+            doc = json.loads(session_file.read_text(encoding="utf-8"))
+            proven=(isinstance(doc, dict)
+                    and doc.get("owner") == "runtime.charge.persistence"
+                    and doc.get("schema_version") == 1 and doc.get("state") == "retired"
+                    and doc.get("stage") == "RETIRED"
+                    and doc.get("retirement_kind") == "operator_recovery_clearance"
+                    and doc.get("output_intent") == "verified_off"
+                    and bool(doc.get("verified_off_transaction_id"))
+                    and doc.get("session_id") == guard.session_id
+                    and doc.get("battery_id") == guard.battery_id)
+        else:
+            # A failed new START can remove the retired session document.
+            # The canonical operator-clearance journal retains its verified
+            # retirement identity; never infer clearance from absence alone.
+            if not quarantine_file.is_file() or quarantine_file.stat().st_size > 65536:
+                return False
+            doc = json.loads(quarantine_file.read_text(encoding="utf-8"))
+            retired=doc.get("retirement", {}) if isinstance(doc, dict) else {}
+            proven=(isinstance(retired, dict)
+                    and doc.get("owner") == "runtime.charge.recovery_quarantine_journal"
+                    and doc.get("schema_version") == 2 and doc.get("state") == "retired"
+                    and doc.get("quarantined") is False
+                    and bool(retired.get("confirmed_off_evidence"))
+                    and retired.get("session_id") == guard.session_id
+                    and retired.get("battery_id") == guard.battery_id)
+    except (OSError, ValueError, UnicodeError, TypeError):
+        return False
+    if not proven:
+        return False
+    controller._main_current_guard = None
+    controller._main_current_guard_revision = None
+    return True
 
 
 def _execution_identity(app: Any, event: Any, pending: Any, *, mode: str) -> Any:
@@ -280,6 +332,12 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
     # A selected native-recipe snapshot belongs only to its original session.
     # A new START must not inherit a previous session's draft overrides.
     app.charge_controller._native_recipe_session_selection = None
+    if not retire_previous_guard_for_start(app.charge_controller):
+        await message.answer(
+            "START запрещён: прежний MAIN Guard не соответствует "
+            "подтверждённой завершённой сессии. Выход остаётся OFF."
+        )
+        return False
     app.charge_controller.configure_recovery_context(
         battery_id=pending.battery_id,
         intent=pending.intent,

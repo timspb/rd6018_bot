@@ -1,5 +1,26 @@
 # RD6018 — CURRENT CHECKPOINT (2026-11-11)
 
+## 2026-11-11 — EFB 65 Ah START rejected by stale in-memory MAIN Guard
+
+At 05:58:56–05:58:58 UTC, node104's `v2_quick_start` for EFB 65 Ah recovery
+failed before Output ON with `main_guard_identity_or_ceiling_disagrees`.
+The controller reset the program but retained the prior session's in-memory
+MAIN Guard. At new direct-MAIN target calculation, the old Guard identity
+was compared against new session/capacity and rejected.
+
+Source-only repair in `application/start_transaction_service.py`: under the
+serialized START owner lock, after OFF preflight and before creating a new
+session, release old in-memory Guard only if exact session/battery identity
+matches a canonical operator clearance tombstone with verified OFF evidence.
+If failed START removed the retired session file, accept instead only the
+separate retired schema-2 quarantine journal with matching identity and OFF
+receipt. Active/unknown/mismatched evidence fails closed. No Output commands
+from this helper. New regression `tests/test_retired_guard_fresh_start.py`;
+29 PASS, 25 subtests PASS in focused WSL cohort. **NOT YET DEPLOYED.**
+Production remains D144 slot20 `04191c9`; D138 `5d0a215` staged only.
+
+# RD6018 — CURRENT CHECKPOINT (2026-11-11)
+
 ## 2026-11-11 — node104 observer QUIET_IDLE installed
 
 The separate read-only `rd6018-wake-observer.service` was updated on node104 with
