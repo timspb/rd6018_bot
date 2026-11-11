@@ -20,6 +20,7 @@ MIN_SUMMARY_S = 1800
 POLL_S = 20
 STALE_S = 300
 START_OUTPUT_CONFIRM_TIMEOUT_S = 120
+TELEGRAM_OUTAGE_WARNING_S = 300
 STATE = Path("/opt/services/rd6018-bot/state")
 DB = STATE / "rd6018.db"
 QUARANTINE = STATE / "session_recovery_quarantine.json"
@@ -144,7 +145,11 @@ def journal_errors(since, now):
         if ts<=since or not isinstance(msg,str) or len(msg)>8192:continue
         lower=msg.lower()
         if "session recovery quarantine remains active" in lower:continue
-        if "soft watchdog timeout" in lower or "watchdog" in lower and ("timeout" in lower or "fatal" in lower):
+        if "aiogram.dispatcher" in lower and "failed to fetch updates" in lower and "telegramnetworkerror" in lower:
+            code="telegram_poll_failed"
+        elif "aiogram.dispatcher" in lower and "connection established" in lower:
+            code="telegram_poll_recovered"
+        elif "soft watchdog timeout" in lower or "watchdog" in lower and ("timeout" in lower or "fatal" in lower):
             code="watchdog_timeout"
         elif "battery voltage is implausible" in lower:
             code="battery_voltage_implausible"
@@ -283,6 +288,18 @@ def tick(box,previous,now,service,samples,error_stream,summary_interval_s=MIN_SU
     last_errors=state.get("error_last_seen",{})
     last_errors=dict(last_errors) if isinstance(last_errors,dict) else {}
     for ts,code in error_stream:
+        if code=="telegram_poll_failed":
+            if "telegram_outage_since" not in state:
+                state["telegram_outage_since"]=ts
+                state["telegram_outage_warned"]=False
+            continue
+        if code=="telegram_poll_recovered":
+            if state.get("telegram_outage_warned"):
+                emit(box,"charger.telegram_recovered","telegram-recovered:"+str(int(ts)),ts,
+                     {**samples,"fault_code":"telegram_poll_recovered"})
+            state.pop("telegram_outage_since",None)
+            state.pop("telegram_outage_warned",None)
+            continue
         # Guard transition already emits the incident; do not send a second
         # critical alert for the same rejected MAIN Iset transaction.
         if guard_state=="quarantined" and code=="setpoint_ack_rejected":
@@ -293,6 +310,12 @@ def tick(box,previous,now,service,samples,error_stream,summary_interval_s=MIN_SU
             emit(box,"charger.fault","log:"+code+":"+str(ts),ts,
                  {**samples,"fault_code":code},"critical")
         last_errors[code]=ts
+    outage_since=state.get("telegram_outage_since")
+    if (isinstance(outage_since,(int,float)) and not state.get("telegram_outage_warned")
+            and now-outage_since>=TELEGRAM_OUTAGE_WARNING_S):
+        emit(box,"charger.telegram_unavailable","telegram-outage:"+str(int(outage_since)),now,
+             {**samples,"fault_code":"telegram_poll_unavailable"},"warning")
+        state["telegram_outage_warned"]=True
     state["error_last_seen"]={k:v for k,v in last_errors.items() if now-v<=1800}
     last_summary=state.get("last_summary_at",0)
     quiet_idle=(samples.get("program_active") is False

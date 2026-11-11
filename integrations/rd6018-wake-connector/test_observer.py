@@ -6,7 +6,7 @@ import urllib.error
 from pathlib import Path
 from unittest.mock import patch
 from connector import Outbox, EventEnvelope
-from observer import GatewayClient, MIN_SUMMARY_S, tick
+from observer import GatewayClient, MIN_SUMMARY_S, tick, journal_errors
 
 NOW=1794300000
 
@@ -130,6 +130,43 @@ class ObserverTests(unittest.TestCase):
         good={**self.sample,"guard_state":"ok"}
         state=tick(self.box,state,NOW+5520,"running",good,[])
         self.assertEqual(sum(e.event_type=="charger.guard_recovered" for e in self.box.pending(100)),1)
+
+    def test_telegram_timeout_then_recovered_no_alarm(self):
+        state=tick(self.box,{},NOW,"running",self.sample,[(NOW,"telegram_poll_failed")])
+        state=tick(self.box,state,NOW+12,"running",self.sample,[(NOW+12,"telegram_poll_recovered")])
+        types=[e.event_type for e in self.box.pending(100)]
+        self.assertNotIn("charger.fault",types)
+        self.assertNotIn("charger.telegram_unavailable",types)
+
+    def test_long_telegram_outage_warns_once_and_recovers(self):
+        state=tick(self.box,{},NOW,"running",self.sample,[(NOW,"telegram_poll_failed")])
+        for dt in (100,300,320,500):
+            state=tick(self.box,state,NOW+dt,"running",self.sample,[])
+        state=tick(self.box,state,NOW+520,"running",self.sample,[(NOW+520,"telegram_poll_recovered")])
+        events=self.box.pending(100)
+        self.assertEqual(sum(e.event_type=="charger.telegram_unavailable" for e in events),1)
+        self.assertEqual(sum(e.event_type=="charger.telegram_recovered" for e in events),1)
+        self.assertEqual(sum(e.event_type=="charger.fault" for e in events),0)
+        self.assertEqual(next(e for e in events if e.event_type=="charger.telegram_unavailable").severity,"warning")
+
+    def test_telegram_fail_does_not_mask_watchdog(self):
+        tick(self.box,{},NOW,"running",self.sample,
+             [(NOW,"telegram_poll_failed"),(NOW+1,"watchdog_timeout")])
+        self.assertEqual(sum(e.event_type=="charger.fault" for e in self.box.pending(100)),1)
+
+    def test_real_aiogram_journal_error_classification(self):
+        import subprocess
+        def entry(ts,msg):
+            return json.dumps({"__REALTIME_TIMESTAMP":int(ts*1e6),"MESSAGE":msg})
+        lines=[
+            entry(NOW+10,"[07:56:39] ERROR: aiogram.dispatcher - Failed to fetch updates - TelegramNetworkError: HTTP Client says - Request timeout error"),
+            entry(NOW+22,"[07:56:51] INFO: aiogram.dispatcher - Connection established (tryings = 1, bot id = 1)"),
+            entry(NOW+25,"[07:56:54] ERROR: rd6018 - soft watchdog timeout")]
+        fake=subprocess.CompletedProcess([],0,stdout="\n".join(lines))
+        with patch("subprocess.run",return_value=fake):
+            got=journal_errors(NOW,NOW+40)
+        self.assertEqual([code for _,code in got],
+                         ["telegram_poll_failed","telegram_poll_recovered","watchdog_timeout"])
 
     def test_service_down_and_recovery_urgent(self):
         state=tick(self.box,{},NOW,"down",self.sample,[])

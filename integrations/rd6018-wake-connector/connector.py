@@ -24,6 +24,7 @@ EVENT_TYPES = frozenset({
     "charger.telemetry_unknown", "charger.telemetry_recovered",
     "charger.guard_fault", "charger.guard_state_unknown", "charger.service_down", "charger.service_recovered",
     "charger.heartbeat", "charger.start_confirmed", "charger.start_output_unconfirmed",
+    "charger.telegram_unavailable", "charger.telegram_recovered",
 })
 SEVERITIES = frozenset({"info", "warning", "critical"})
 PAYLOAD_FIELDS = frozenset({

@@ -52,6 +52,7 @@ class ConnectorTests(unittest.TestCase):
             "charger.telemetry_stale", "charger.telemetry_unknown", "charger.telemetry_recovered", "charger.guard_fault",
             "charger.guard_state_unknown", "charger.service_down", "charger.service_recovered", "charger.heartbeat",
             "charger.start_confirmed", "charger.start_output_unconfirmed",
+            "charger.telegram_unavailable", "charger.telegram_recovered",
             }))
 
     def test_normalization_emits_rd6018_semantics_and_filters_payload(self):

@@ -1,5 +1,15 @@
 # RD6018 Bot V3 Project Runbook
 
+## Wake observer Telegram network error isolation — 2026-11-11
+
+`aiogram.dispatcher` polling network timeout is an external transport error,
+not `charger.fault` and never critical. Brief failures and recovery are silent.
+Continuous polling outage of at least 300 seconds emits one
+`charger.telegram_unavailable` warning; recovery after warning sends
+`charger.telegram_recovered` info. Watchdog, MAIN Guard and hardware faults
+remain immediate. The observer is deployed independently, without restarting
+the charging bot; temporary installer files must be removed after verification.
+
 ## Wake observer START event contract — 2026-11-11
 
 When `program_active` transitions from false to true, suppress the pending
