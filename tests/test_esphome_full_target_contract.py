@@ -86,7 +86,7 @@ class EspHomeFullTargetContractTests(unittest.TestCase):
         workflow = pathlib.Path(".github/workflows/esphome.yml").read_text(
             encoding="utf-8"
         )
-        self.assertIn("ESPHOME_VERSION=\"${ESPHOME_VERSION:-2026.8.2}\"", build)
+        self.assertIn("ESPHOME_VERSION=\"${ESPHOME_VERSION:-2026.9.1}\"", build)
         self.assertIn('TARGET="$ESPHOME_DIR/rd6018.yaml"', build)
         self.assertIn("./esphome/build_firmware.sh", workflow)
         self.assertIn("ESPHOME_SECRETS_MODE: example", workflow)
