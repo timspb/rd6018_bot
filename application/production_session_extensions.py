@@ -293,6 +293,9 @@ def runtime_signal_snapshot(host: Any) -> Dict[str, Any]:
         "analyzer_target_voltage_v": analyzer.target_voltage_v,
         "current_min_a": analyzer._current_min_a,
         "current_min_time_s": analyzer._current_min_time_s,
+        "main_hold_since_s": analyzer._main_hold_since_s,
+        "main_last_sample_s": analyzer._main_last_sample_s,
+        "main_high_count": analyzer._main_high_count,
         "voltage_max_v": analyzer._voltage_max_v,
         "voltage_max_time_s": analyzer._voltage_max_time_s,
         "reversal_confirmations": analyzer._reversal_confirmations,
@@ -316,6 +319,12 @@ def restore_runtime_signal_snapshot(host: Any, state: Dict[str, Any]) -> None:
     analyzer.reset_stage(state.get("analyzer_stage_name"), target_voltage_v=state.get("analyzer_target_voltage_v"))
     analyzer._current_min_a = state.get("current_min_a")
     analyzer._current_min_time_s = state.get("current_min_time_s")
+    # Legacy snapshots cannot prove uninterrupted minimum hold.
+    # A restored snapshot is not continuous physical observation: preserve
+    # the accepted Imin, but restart MAIN hold on the next fresh CV sample.
+    analyzer._main_hold_since_s = None
+    analyzer._main_last_sample_s = None
+    analyzer._main_high_count = 0
     analyzer._voltage_max_v = state.get("voltage_max_v")
     analyzer._voltage_max_time_s = state.get("voltage_max_time_s")
     analyzer._reversal_emitted = bool(state.get("reversal_emitted", False))

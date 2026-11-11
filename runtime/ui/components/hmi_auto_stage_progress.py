@@ -70,6 +70,16 @@ def auto_stage_progress(
                     elapsed = max(0, int(current_time - hold_epoch))
                     clock_available = True
                 if stage == "Main Charge":
+                    stable_age = _finite(metrics.get("main_stable_hold_s"))
+                    stability = metrics.get("main_stability_status")
+                    if stability is not None:
+                        elapsed = max(0, int(stable_age or 0))
+                        clock_available = stable_age is not None and stable_age >= 0
+                        stable_since = _finite(metrics.get("main_stable_since_s"))
+                        if stability in {"holding", "candidate"} and stable_since is not None and 0 < stable_since <= current_time:
+                            elapsed = max(0, int(current_time - stable_since))
+                        else:
+                            elapsed = 0
                     from runtime.charge.evidence.first_stage import tail_current_threshold_a
                     from runtime.charge.evidence.first_stage_variables import NEAR_TARGET_MARGIN_V
                     from runtime.charge.programs.native_recipe_session import native_target_parameters
@@ -103,6 +113,11 @@ def auto_stage_progress(
                         intent=str(snapshot.get("intent") or ""),
                         chemistry=battery_type,
                     )
+                    if stability in {"away_from_minimum", "rise_pending", "searching"}:
+                        stage_status = (
+                            f"Imin {minimum:.2f} A — выдержка 00:00; "
+                            "ожидается устойчивое возвращение к минимуму"
+                        )
                 elif in_mix:
                     actual = _finite(metrics.get("delta_current_from_min_a"))
                     required = _finite(metrics.get("reversal_threshold_a"))

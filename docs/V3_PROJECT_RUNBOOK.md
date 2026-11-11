@@ -2184,3 +2184,34 @@ The allow-listed operator issued `/recovery_clear` twice. Telegram returned `ses
 Root code-path defect: absent-session recovery rejected any non-null in-memory session/battery IDs before comparing them with the immutable quarantine journal. A stale-but-exact identity on an IDLE controller therefore produced session_identity_unavailable. The fix permits retained identity only when it exactly matches the journal; any mismatch or non-IDLE controller remains rejected. Once fresh Native OFF evidence is obtained and the schema-2 tombstone is durably committed, finalization clears only the exact matching stale in-memory identity.
 
 D086+D087 focused recovery tests: 23 PASS; git diff --check PASS. Source-only; production slot 19 unchanged, quarantine still active. No actuation, journal edits, guard bypass, Output/setpoint/protection/lease command. Next: admit this exact source change through canonical release validation and D138/D145/D144; only then retry /recovery_clear and verify schema-2 retirement, durable receipt, quarantine false, IDLE/no-session, Output OFF. No START.
+
+
+### 2026-11-12 — MAIN continuous Imin stability; 72-hour existing fallback retained
+
+Operator-approved rule: an accepted CV Imin is a historical minimum, not proof
+of an uninterrupted hold. MAIN authority must use main_stable_hold_s, a single
+analyzer-owned consecutive hold at the accepted minimum. A corroborated rise
+(two consecutive valid samples above Imin + 0.005 A) invalidates the hold,
+without erasing historical Imin. Upon return to minimum or acceptance of a lower
+Imin the hold restarts at zero. A lone high reading is pending/no credited hold,
+not a permanent reset. The 0.005 A band is an instrumentation threshold for
+the 0.01 A reported resolution; it is not a battery-chemistry threshold.
+Gaps >120 seconds or CC invalidate continuity; invalid samples never authorize
+MAIN. The original seconds_since_current_min historical epoch and MIX CV
+Delta-I / CC Delta-V behavior stay unchanged. MAIN HMI reads the new hold state
+rather than deriving a false continuous countdown from historical Imin age.
+
+The existing 72-hour MAIN fallback remains, with the existing intent-specific
+actions (including Recovery MIX timeout handling) unmodified. No separate
+high-voltage exposure timer or general charger recipe redesign before BW600.
+Snapshots preserve historical Imin but conservatively restart MAIN stable hold
+after restore/cooling when continuity cannot be proven. This change must not be
+deployed by restarting an active charging service; acceptance requires safe
+cutover with measurement / hardware verification.
+
+Baseline replay from node104 EFB session 6b73479bdef74289b7b4ed3868069645:
+from 2026-11-11 22:20:36 node104 local (accepted Imin=0.22 A) through
+2026-11-12 ~00:41, 306 trace samples. Maximum continuous hold 252.235 s,
+final MAIN hold 0 s, current 0.23 A, status away_from_minimum. The previous
+wall clock would have credited ~2.7 hours without sustained Imin. Replay is
+read-only; node104 output, runtime and services were not changed.
