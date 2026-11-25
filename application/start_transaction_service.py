@@ -14,6 +14,10 @@ from typing import Any
 from application.execution_intent.models import ExecutionIntent, SafetyContext
 from application.execution_port import get_or_create_execution_port
 from application.recipe_policy import chemistry_for_profile
+from application.start_recipe_selection import (
+    resolve_native_recipe_copy,
+    resolve_user_step_recipe,
+)
 from pb_domain import BatteryIdentity, ChargeContext
 from recipe_engine import select_recipe_envelope
 from safe_output import snapshot_from_live
@@ -196,54 +200,25 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
 
     # The existing profile START energizes Output before the recipe runner
     # receives its first step. OFF/WAIT-first drafts must never take that path.
-    selected_recipe = None
-    if getattr(pending, "recipe_id", None) is not None:
-        try:
-            catalog = app._user_recipe_catalog
-            selected = catalog.library.load(
-                str(pending.recipe_id), int(pending.recipe_version)
-            )
-            from runtime.charge.programs.recipe_preflight import inspect_recipe
-            report = inspect_recipe(selected)
-            if not report.admissible_structure:
-                raise ValueError("; ".join(report.problems))
-            if selected.steps[0]["action"] != "set":
-                raise ValueError(
-                    "Для START первый шаг пользовательского рецепта должен быть SET. "
-                    "Черновик OFF не запускается и не включает Output."
-                )
-            selected_recipe = selected
-        except (AttributeError, TypeError, ValueError, OSError) as exc:
-            await message.answer(
-                "❌ Рецепт не готов к START: " + html.escape(str(exc)),
-                parse_mode=app.ParseMode.HTML,
-            )
-            return False
-
-    # Resolve the exact native copy before any physical START. The original
-    # dynamic algorithm remains the owner; only its accepted settings differ.
-    selected_native = None
-    native_name = getattr(pending, "native_recipe_name", None)
-    if native_name is not None:
-        try:
-            if selected_recipe is not None:
-                raise ValueError("native and user step recipes are mutually exclusive")
-            from runtime.charge.programs.native_recipe_draft_library import NativeRecipeDraftLibrary
-            from runtime.charge.programs.native_recipe_session import select_native_recipe_version
-            catalog = app._user_recipe_catalog
-            library = NativeRecipeDraftLibrary(
-                catalog.library.root.parent / "native_recipe_drafts")
-            selected_native = select_native_recipe_version(
-                library, str(native_name),
-                int(getattr(pending, "native_recipe_version")),
-                profile=pending.profile, intent=pending.intent,
-            )
-        except (AttributeError, TypeError, ValueError, KeyError, OSError) as exc:
-            await message.answer(
-                "❌ Копия штатного рецепта не готова к START: "
-                + html.escape(str(exc)), parse_mode=app.ParseMode.HTML,
-            )
-            return False
+    # Select mutually-exclusive recipe forms before physical START. Keep the
+    # two established error-feedback paths and their validation order intact.
+    try:
+        selected_recipe = resolve_user_step_recipe(app, pending)
+    except (AttributeError, TypeError, ValueError, OSError) as exc:
+        await message.answer(
+            "❌ Рецепт не готов к START: " + html.escape(str(exc)),
+            parse_mode=app.ParseMode.HTML,
+        )
+        return False
+    try:
+        selected_native = resolve_native_recipe_copy(
+            app, pending, selected_recipe)
+    except (AttributeError, TypeError, ValueError, KeyError, OSError) as exc:
+        await message.answer(
+            "❌ Копия штатного рецепта не готова к START: "
+            + html.escape(str(exc)), parse_mode=app.ParseMode.HTML,
+        )
+        return False
 
     battery_v = snapshot.battery_voltage_v
     current = snapshot.current_a

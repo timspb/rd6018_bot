@@ -1,5 +1,26 @@
 # RD6018 Bot V3 Project Runbook
 
+## 2026-11-26 B973 — START recipe selection owner extraction
+
+The START transaction delegates pure selection of the mutually exclusive
+user SET/OFF recipe and native recipe copy to
+`application/start_recipe_selection.py`. It reuses the existing recipe
+library/preflight and native draft/session selectors. First-SET enforcement
+remains mandatory because the existing transactional START enables Output
+before the recipe runner's first tick. The START service retains operator
+feedback, error-class handling, recipe envelope/current checks, physical
+enable/rollback, session snapshot pinning, and the existing boolean contract.
+No control policy, setpoint programming, lease behavior, or physical state was
+changed. This is an uncommitted source decomposition at base code HEAD
+`717a58b186ad6ff98df9387dd8d1659b9276795a`.
+
+Fake-only focused acceptance: **33 PASS** across START service, native recipe
+selection/metadata, production START runner, and selection boundary tests;
+`py_compile` and `git diff --check` PASS. The first package-qualified loader
+attempt failed on the tests' sibling import path; rerun with `PYTHONPATH=tests`
+passed. No node104/ESP/HA/deployment/physical check was performed, so no live
+ownership or deployment claim is made. P0–P9 remains **97/103**.
+
 ## ОБЯЗАТЕЛЬНО: актуальные физические данные — напрямую с ESP Native API
 
 **БРАТЬ АКТУАЛЬНЫЕ ДАННЫЕ С ESP, А НЕ ИЗ HA, СТАРОГО ОТЧЁТА ИЛИ КЭША.**

@@ -1,5 +1,34 @@
 # RD6018 — CURRENT CHECKPOINT (2026-11-03)
 
+## 2026-11-26 B973 — START recipe selection decomposition
+
+At code HEAD `717a58b186ad6ff98df9387dd8d1659b9276795a` (inherited branch
+`codex/rd6018-p9-main-graph-hmi-20261126`, upstream comparison 0 ahead / 0
+behind), extracted combined user-step/native-copy selection from
+`application/start_transaction_service.py` into
+`application/start_recipe_selection.py`. The service now delegates actual
+catalog loading, preflight, first-SET admission, native selection and mutual
+exclusion while retaining the prior exception classes and Russian feedback.
+Physical programming, envelope checks, ExecutionPort enable/rollback, native
+session snapshot pinning, and the boolean START contract remain in their
+existing owners. Three fake-only cases cover valid selection, OFF-first
+rejection, and mutual exclusion.
+
+Focused run with `/home/home-pc/.venvs/pcp-test/bin/python` and inert
+`TG_TOKEN`: START service, native selection, native metadata, production START
+runner, and new selection tests: **33 PASS**. `py_compile` and `git diff
+--check` PASS. An initial package-qualified unittest invocation had a sibling
+import-path error (31 tests attempted); the same cohorts passed with
+`PYTHONPATH=tests`, and the loader error is not counted as implementation
+acceptance. No full suite, node104, Native ESP, HA, deployment, service,
+Telegram, or physical action was performed. Therefore HANDS_OFF/deployment
+state was not freshly inspected; retain the prior documented state only as
+historical evidence, not current status. Local source delta is uncommitted;
+there is no local/upstream commit gap. P0–P9 remains **97/103**, unchanged.
+Remaining work: controller review of the diff/report, then continue recipe
+decomposition/wiring within the existing owners. Visual editor prototype
+remains deferred and untouched.
+
 ## 2026-11-26 B969 — bounded Manual OFF-condition HMI projection
 
 At source base/code HEAD `70074de154b4c6f44614f2b4cfddf6ac77c55fbb`
