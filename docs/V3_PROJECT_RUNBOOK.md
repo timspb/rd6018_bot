@@ -1,5 +1,37 @@
 # RD6018 Bot V3 Project Runbook
 
+## 2026-11-26 B976 — initial START stage entry moved to stage authority
+
+At supplied code HEAD `1dedf6a4676b49d6d9bd7cb63ce61171a0444eb1`, moved the
+initial PREP/MAIN selection and MAIN-stage state entry from
+`application/start_transaction_service.py` into the existing
+`runtime/charge/runtime/stage_authority.py::select_initial_auto_target` owner.
+The 12.0 V boundary and mutation order are preserved: below threshold only the
+PREP target is selected; at/above threshold MAIN receives the app clock
+timestamp and current Ah for both phase clocks, restored targets are cleared,
+delta/blanking reset runs, main sample evidence resets, then the MAIN target
+and compatibility target fields are updated. Skipped-PREP event and message
+remain in START. The service's production body is reduced by 39 lines (net
+7 added / 45 removed); Output enable, the single app-scoped ExecutionPort,
+transaction serialization and fail-closed containment remain in START.
+
+Focused fake-only command with the requested interpreter and inert token:
+`TG_TOKEN=inert PYTHONPATH=tests /home/home-pc/.venvs/pcp-test/bin/python -m unittest test_start_transaction_service test_start_preflight test_d123_p3_prep_completion_effect`.
+Result: **32 PASS**. Coverage asserts PREP below threshold, MAIN at the
+threshold, stage clocks, restored-target/blanking/sample resets, target values,
+skipped-PREP behavior, and that START invokes the extracted owner. Requested
+`py_compile` and `git diff --check` pass. The known stale
+`test_initial_set_is_used_by_physical_enable_not_profile` expectation of
+`ovp_v == 13.9` was not run or changed; physical OVP and its test were left
+untouched. No full suite.
+
+Uncommitted changes are in the isolated B976 checkout. Code HEAD remains
+`1dedf6a4676b49d6d9bd7cb63ce61171a0444eb1`; local/upstream commit count is 0/0
+against the existing tracking ref. No commit/push, hardware, ESP/HA, node104,
+lease, deployment, network, or real Output action occurred. Current node
+hands_off/deployment status was not inspected and is not claimed. P0–P9
+remains **97/103**. Evidence: `B976_REPORT.md`. Next: controller review.
+
 ## 2026-11-26 B975 — reuse START's selected immutable recipe
 
 At base code HEAD `fdf74592949fa17231875340a5bb2df8dcfa22de`, START now passes

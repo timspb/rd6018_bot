@@ -8,6 +8,43 @@ from runtime.charge.decisions import AuthorityDecision
 from runtime.charge.evidence.first_stage import FirstStageAssessment
 
 
+INITIAL_MAIN_THRESHOLD_V = 12.0
+
+
+def select_initial_auto_target(
+    host: Any,
+    *,
+    battery_v: float,
+    temp_ext: float,
+    ah_now: float,
+    now: float,
+) -> tuple[float, float, bool]:
+    """Enter the initial PREP or MAIN stage and return its first target."""
+    if float(battery_v) < INITIAL_MAIN_THRESHOLD_V:
+        target_v, target_i = host._prep_target(temp_ext)
+        return float(target_v), float(target_i), False
+
+    host.current_stage = host.STAGE_MAIN
+    host.stage_start_time = float(now)
+    host._stage_start_ah = float(ah_now)
+    host._start_ah = float(ah_now)
+    clear_restored = getattr(host, "_clear_restored_targets", None)
+    if callable(clear_restored):
+        clear_restored()
+    reset_blanking = getattr(host, "_reset_delta_and_blanking", None)
+    if callable(reset_blanking):
+        reset_blanking(float(now))
+    main_sample_evidence = getattr(host, "_main_sample_evidence", None)
+    if main_sample_evidence is not None:
+        main_sample_evidence.reset()
+    target_v, target_i = host._main_target(temp_ext)
+    if hasattr(host, "_v2_target_voltage_v"):
+        host._v2_target_voltage_v = float(target_v)
+    if hasattr(host, "_v2_last_stage"):
+        host._v2_last_stage = host.STAGE_MAIN
+    return float(target_v), float(target_i), True
+
+
 def is_authoritative_charge_stage(host: Any, stage: str) -> bool:
     """Return whether this modular stage has an admitted authority owner."""
     return (
@@ -106,4 +143,9 @@ def apply_authoritative_stage_tick(
     return None
 
 
-__all__ = ["apply_authoritative_stage_tick", "is_authoritative_charge_stage"]
+__all__ = [
+    "INITIAL_MAIN_THRESHOLD_V",
+    "apply_authoritative_stage_tick",
+    "is_authoritative_charge_stage",
+    "select_initial_auto_target",
+]

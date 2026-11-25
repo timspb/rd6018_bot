@@ -21,6 +21,10 @@ from application.start_recipe_selection import (
 from pb_domain import BatteryIdentity, ChargeContext
 from recipe_engine import select_recipe_envelope
 from safe_output import snapshot_from_live
+from runtime.charge.runtime.stage_authority import (
+    INITIAL_MAIN_THRESHOLD_V,
+    select_initial_auto_target,
+)
 
 _START_INTENT_LABELS = {
     "normal": "Обычный заряд",
@@ -33,9 +37,6 @@ _START_INTENT_LABELS = {
 def _intent_label(intent: Any) -> str:
     value = str(getattr(intent, "value", intent))
     return _START_INTENT_LABELS.get(value, value)
-
-
-INITIAL_MAIN_THRESHOLD_V = 12.0
 
 
 def _execution_identity(app: Any, event: Any, pending: Any, *, mode: str) -> Any:
@@ -92,46 +93,6 @@ async def _confirm_failed_start_is_off(app: Any, *, identity: Any, mode: str) ->
         return bool(result.verified)
     except Exception:
         return False
-
-
-def _select_initial_auto_target(
-    app: Any,
-    *,
-    battery_v: float,
-    temp_ext: float,
-    ah_now: float,
-) -> tuple[float, float, bool]:
-    """Atomically choose PREP or Main before the first Output ON.
-
-    V1 could expose one tick where logical stage=PREP while physical setpoints already
-    belonged to Main. V2 removes that split: <12.0 V remains PREP at ~0.01C; >=12.0 V
-    starts directly in Main and records the skipped PREP as an audit event.
-    """
-    controller = app.charge_controller
-    if float(battery_v) < INITIAL_MAIN_THRESHOLD_V:
-        target_v, target_i = controller._prep_target(temp_ext)
-        return float(target_v), float(target_i), False
-
-    now = float(app.time.time())
-    controller.current_stage = controller.STAGE_MAIN
-    controller.stage_start_time = now
-    controller._stage_start_ah = float(ah_now)
-    controller._start_ah = float(ah_now)
-    clear_restored = getattr(controller, "_clear_restored_targets", None)
-    if callable(clear_restored):
-        clear_restored()
-    reset_blanking = getattr(controller, "_reset_delta_and_blanking", None)
-    if callable(reset_blanking):
-        reset_blanking(now)
-    main_sample_evidence = getattr(controller, "_main_sample_evidence", None)
-    if main_sample_evidence is not None:
-        main_sample_evidence.reset()
-    target_v, target_i = controller._main_target(temp_ext)
-    if hasattr(controller, "_v2_target_voltage_v"):
-        controller._v2_target_voltage_v = float(target_v)
-    if hasattr(controller, "_v2_last_stage"):
-        controller._v2_last_stage = controller.STAGE_MAIN
-    return float(target_v), float(target_i), True
 
 
 def _serialized_charge_start(operation):
@@ -274,11 +235,12 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
     prep_skipped = False
     enable_attempted = False
     try:
-        target_v, target_i, prep_skipped = _select_initial_auto_target(
-            app,
+        target_v, target_i, prep_skipped = select_initial_auto_target(
+            app.charge_controller,
             battery_v=battery_v,
             temp_ext=temp_ext,
             ah_now=ah_now,
+            now=float(app.time.time()),
         )
 
         identity = BatteryIdentity(

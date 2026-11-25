@@ -1,5 +1,33 @@
 # RD6018 — CURRENT CHECKPOINT (2026-11-03)
 
+## 2026-11-26 B976 — START initial stage-entry ownership
+
+At supplied code HEAD `1dedf6a4676b49d6d9bd7cb63ce61171a0444eb1`, relocated
+the exact initial PREP/MAIN decision and MAIN stage-entry state mutations from
+`application/start_transaction_service.py` to the existing
+`runtime/charge/runtime/stage_authority.py`. Threshold 12.0 V, app timestamp,
+Ah phase clocks, restored-target clear, delta/blanking and main-sample resets,
+target methods/values, compatibility target fields and skipped PREP logging
+remain equivalent and in their prior order. START still solely owns physical
+Output enable, transaction serialization, the app-scoped ExecutionPort and
+verified-OFF failure containment. The service shrank by 39 lines net.
+
+Requested focused command (`TG_TOKEN=inert`, `PYTHONPATH=tests`,
+`/home/home-pc/.venvs/pcp-test/bin/python`): START transaction service,
+START preflight and existing PREP-completion effect tests: **32 PASS**.
+`py_compile` and `git diff --check` pass. Fake tests cover PREP below 12.0 V,
+MAIN at exactly 12.0 V, phase clocks, all reset hooks, target values and the
+service delegation call. The known stale `ovp_v == 13.9` test was untouched and
+not run. No broad suite.
+
+This source/test/doc delta is uncommitted in the isolated checkout. Exact code
+HEAD remains `1dedf6a4676b49d6d9bd7cb63ce61171a0444eb1`; branch tracking count
+0/0 against the existing ref. No node104 hands_off/deployment read was made,
+so current operational status is not claimed. No node, ESP/HA, network,
+physical output, lease, deployment, commit or push action occurred. P0–P9
+remains **97/103**. Evidence and exact command: `B976_REPORT.md`. Next:
+controller review of this working tree.
+
 ## 2026-11-26 B975 — remove duplicate START recipe load
 
 At base code HEAD `fdf74592949fa17231875340a5bb2df8dcfa22de`,

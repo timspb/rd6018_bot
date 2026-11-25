@@ -1,5 +1,6 @@
 import types
 import unittest
+from unittest.mock import patch
 
 from aiogram.enums import ParseMode
 
@@ -34,6 +35,11 @@ class FakeController:
         self._v2_target_voltage_v = None
         self._v2_last_stage = None
         self.reset_blanking_at = None
+        self.restored_targets_cleared = 0
+        self.main_samples_reset = 0
+        self._main_sample_evidence = types.SimpleNamespace(
+            reset=lambda: setattr(self, "main_samples_reset", self.main_samples_reset + 1)
+        )
 
     def configure_recovery_context(self, **kwargs):
         self.context = kwargs
@@ -52,7 +58,7 @@ class FakeController:
         return 14.8, 7.0
 
     def _clear_restored_targets(self):
-        pass
+        self.restored_targets_cleared += 1
 
     def _reset_delta_and_blanking(self, now):
         self.reset_blanking_at = now
@@ -167,10 +173,19 @@ class V2StartupTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_initial_voltage_at_or_above_12_starts_main_atomically(self):
         app = FakeApp(EnableResult(enabled=True))
+        app.hass.live["battery_voltage"] = 12.0
         message = FakeMessage()
         ok = await start_profile_transactional(app, message, PENDING)
         self.assertTrue(ok)
         self.assertEqual(app.charge_controller.current_stage, app.charge_controller.STAGE_MAIN)
+        self.assertEqual(app.charge_controller.stage_start_time, 1000.0)
+        self.assertEqual(app.charge_controller._stage_start_ah, 0.0)
+        self.assertEqual(app.charge_controller._start_ah, 0.0)
+        self.assertEqual(app.charge_controller.reset_blanking_at, 1000.0)
+        self.assertEqual(app.charge_controller.restored_targets_cleared, 1)
+        self.assertEqual(app.charge_controller.main_samples_reset, 1)
+        self.assertEqual(app.charge_controller._v2_target_voltage_v, 14.8)
+        self.assertEqual(app.charge_controller._v2_last_stage, app.charge_controller.STAGE_MAIN)
         self.assertAlmostEqual(app.hass.enable_kwargs["voltage_v"], 14.8)
         self.assertAlmostEqual(app.hass.enable_kwargs["current_a"], 7.0)
         self.assertIn("PREP_SKIPPED_INITIAL_VOLTAGE", app.events[-1][-1])
@@ -183,9 +198,36 @@ class V2StartupTests(unittest.IsolatedAsyncioTestCase):
         ok = await start_profile_transactional(app, message, PENDING)
         self.assertTrue(ok)
         self.assertEqual(app.charge_controller.current_stage, app.charge_controller.STAGE_PREP)
+        self.assertEqual(app.charge_controller.stage_start_time, 0.0)
+        self.assertEqual(app.charge_controller._stage_start_ah, 0.0)
+        self.assertEqual(app.charge_controller._start_ah, 0.0)
+        self.assertEqual(app.charge_controller.restored_targets_cleared, 0)
+        self.assertEqual(app.charge_controller.main_samples_reset, 0)
         self.assertAlmostEqual(app.hass.enable_kwargs["voltage_v"], 12.0)
         self.assertAlmostEqual(app.hass.enable_kwargs["current_a"], 0.7)
         self.assertIn("PREP_REQUIRED", app.events[-1][-1])
+
+    async def test_start_delegates_initial_stage_entry_to_stage_authority(self):
+        from application import start_transaction_service
+        from runtime.charge.runtime import stage_authority
+
+        app = FakeApp(EnableResult(enabled=True))
+        message = FakeMessage()
+        with patch.object(
+            start_transaction_service,
+            "select_initial_auto_target",
+            wraps=stage_authority.select_initial_auto_target,
+        ) as select_target:
+            ok = await start_profile_transactional(app, message, PENDING)
+
+        self.assertTrue(ok)
+        select_target.assert_called_once_with(
+            app.charge_controller,
+            battery_v=12.6,
+            temp_ext=25.0,
+            ah_now=0.0,
+            now=1000.0,
+        )
 
     async def test_success_uses_recipe_aware_safe_enable(self):
         app = FakeApp(EnableResult(enabled=True))
