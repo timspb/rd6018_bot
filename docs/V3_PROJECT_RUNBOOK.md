@@ -1,5 +1,30 @@
 # RD6018 Bot V3 Project Runbook
 
+## 2026-11-26 B979 — free-text AI dialog integration owner
+
+At supplied code HEAD `6890ffaec0455278384b35f025a087ba5759bcfb`, moved the
+legacy free-text AI prompt construction, read-only request context assembly,
+thinking message lifecycle and Telegram response delivery from
+`runtime.production_runtime.handle_dialog_mode` to optional
+`integrations.ai.telegram_dialog`. The production handler delegates and
+supplies its existing context functions, controller snapshot and recent-event
+providers, AI callable, prompt, sanitizer and logger. The integration imports
+no runtime, HA, charge or physical modules and gains no actuator or AI
+authority.
+
+The prompt wording, user text trimming, disabled-key/empty-input behavior,
+payload values, response order, success HTML escaping and LF formatting, and
+raw `ERROR:` edit path are preserved. Fake-only focused run with the requested
+venv, inert syntactically valid `TG_TOKEN`, and `PYTHONPATH=tests`:
+`test_ai_telegram_dialog test_ai_dialog_context` — **7 PASS**. `py_compile`
+and `git diff --check` pass. No HTTP was made and no full suite was run.
+
+The source/docs delta is uncommitted at the supplied base code HEAD; commit
+counts against the existing upstream ref are `0 0`. No current node104
+hands_off/deployment status was checked. No node, ESP/HA, hardware, network,
+production, deployment, commit or push action occurred. P0–P9 remains
+**97/103**. Evidence: `B979_REPORT.md`. Next: independent controller review.
+
 ## 2026-11-26 B978 — START operator feedback presentation boundary
 
 At supplied source HEAD `0b4e0f24d34ed7b602196058760bff640e29f803`, moved

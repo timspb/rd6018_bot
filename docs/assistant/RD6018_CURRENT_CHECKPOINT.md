@@ -1,5 +1,32 @@
 # RD6018 — CURRENT CHECKPOINT (2026-11-03)
 
+## 2026-11-26 B979 — legacy free-text AI dialog moved to optional integration
+
+At supplied code HEAD `6890ffaec0455278384b35f025a087ba5759bcfb`, extracted
+the free-text AI dialog prompt, read-only LLM payload assembly, thinking
+message lifecycle and Telegram delivery into
+`integrations/ai/telegram_dialog.py`. `runtime.production_runtime` now
+delegates and supplies existing `get_ai_context`, `get_ai_context_dict`,
+controller snapshot and recent-event providers. The optional integration
+imports no runtime/HA/charge/physical modules and has no actuator or AI
+authority. Existing `ai_engine` remains in use.
+
+Preserved user prompt directions and formatting, key-disabled and empty-input
+behavior, read/provider/LLM/delivery order, success HTML sanitizer behavior
+and LF newlines, and raw `ERROR:` response editing without sanitizer or parse
+mode. Fake-only requested invocation used the inert syntactically valid
+`TG_TOKEN`, `PYTHONPATH=tests`, and
+`/home/home-pc/.venvs/pcp-test/bin/python`:
+`test_ai_telegram_dialog test_ai_dialog_context` — **7 PASS**.
+`py_compile` and `git diff --check` pass. No HTTP request or full suite.
+
+Source and docs remain uncommitted; code HEAD remains the supplied SHA and
+commit-count gap against the existing upstream ref is 0/0. No node104
+hands_off/deployment status was inspected, so neither is claimed. No ESP
+Native/HA, hardware, production, network, deployment, commit or push action
+occurred. P0–P9 remains **97/103**. Evidence: `B979_REPORT.md`. Next:
+independent controller review.
+
 ## 2026-11-26 B978 — START operator reply presentation moved to UI component
 
 At supplied code HEAD `0b4e0f24d34ed7b602196058760bff640e29f803`, moved the

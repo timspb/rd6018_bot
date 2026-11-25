@@ -3305,63 +3305,25 @@ async def handle_ah_input(message: Message, profile: str, user_id: int) -> None:
 
 
 async def handle_dialog_mode(message: Message) -> None:
-    """v2.6 Режим диалога: отправка сообщения пользователя в LLM с текущим контекстом."""
-    if not DEEPSEEK_API_KEY:
-        await message.answer("🤖 AI-консультант недоступен (не настроен API ключ)")
+    """Delegate read-only free-text AI dialog presentation to its optional owner."""
+    from integrations.ai import handle_dialog_delivery
 
-        return
-    
-    user_question = (message.text or "").strip()
-    if not user_question:
-        return
-    
-    # Показываем что бот думает
-    thinking_msg = await message.answer("🤖 Анализирую данные...")
-    
-    try:
-        # Получаем полный слепок данных RD6018
-        context = await get_ai_context()
-        
-        # Системный промпт для эксперта-аккумуляторщика (из ai_system_prompt.py)
-        system_prompt = AI_CONSULTANT_SYSTEM_PROMPT
-
-        user_prompt = f"""=== ПОЛНЫЙ СЛЕПОК RD6018 ===
-{context}
-
-=== ВОПРОС ПОЛЬЗОВАТЕЛЯ ===
-{user_question}
-
-=== КАК ОТВЕЧАТЬ ===
-1. Сначала дай прямой ответ на вопрос.
-2. Если вопрос про текущий этап, время на минимальном токе или переход, используй только факты из контекста, hold-снимка и таймеров.
-3. Не называй ток "минимальным", если hold-снимок не активен или rule_met = NO.
-4. Не делай общих прогнозов и не уходи в рассуждения.
-5. Если данных не хватает, скажи это прямо."""
-        ai_response = await ask_deepseek({
-            "times": [],
-            "voltages": [],
-            "currents": [],
-            "ai_context": await get_ai_context_dict(),
-            "controller_snapshot": charge_controller.get_snapshot() if hasattr(charge_controller, 'get_snapshot') else {},
-            "recent_events": get_recent_events(8),
-            "trend_summary": "",
-            "user_question": user_question,
-            "system_prompt_override": system_prompt,
-            "user_prompt_override": user_prompt,
-        })
-        
-        if ai_response.startswith("ERROR:"):
-            await thinking_msg.edit_text(f"🤖 {ai_response}")
-        else:
-            safe_ai_response = _sanitize_telegram_html(ai_response)
-            await thinking_msg.edit_text(
-                f"🤖 <b>AI-Консультант:</b>\n\n{safe_ai_response}",
-                parse_mode=ParseMode.HTML
-            )
-
-    except Exception as ex:
-        logger.error("handle_dialog_mode: %s", ex)
-        await thinking_msg.edit_text("🤖 Ошибка при обращении к AI-консультанту.")
+    await handle_dialog_delivery(
+        message,
+        ai_available=bool(DEEPSEEK_API_KEY),
+        get_context=get_ai_context,
+        get_ai_context_dict=get_ai_context_dict,
+        get_controller_snapshot=lambda: (
+            charge_controller.get_snapshot()
+            if hasattr(charge_controller, "get_snapshot") else {}
+        ),
+        get_recent_events=get_recent_events,
+        ask=ask_deepseek,
+        system_prompt=AI_CONSULTANT_SYSTEM_PROMPT,
+        sanitize=_sanitize_telegram_html,
+        parse_mode=ParseMode.HTML,
+        logger=logger,
+    )
 
 
 
