@@ -11,6 +11,7 @@ import os
 import re
 import sys
 import time
+from types import SimpleNamespace
 
 import aiohttp
 from datetime import datetime, timedelta
@@ -96,6 +97,7 @@ import html
 from application.intents import OperatorIntent, OperatorIntentKind
 from pb_domain import BatteryCondition, ChargeIntent
 from manual_mode import ManualUIIntent
+from runtime.ui.components.off_condition_status import format_operator_off_conditions
 
 logging.basicConfig(
     level=logging.INFO,
@@ -684,46 +686,15 @@ def _format_manual_off_for_dashboard() -> str:
     global manual_off_voltage, manual_off_voltage_le, manual_off_current, manual_off_current_ge, manual_off_time_sec, manual_off_start_time
     if not _has_manual_off_condition():
         return ""
-    parts = []
-    # «Достигли» V: оба порога равны
-    if (
-        manual_off_voltage is not None
-        and manual_off_voltage_le is not None
-        and abs(manual_off_voltage - manual_off_voltage_le) < 0.01
-    ):
-        parts.append(f"при достижении V {manual_off_voltage:.2f} В")
-    else:
-        if manual_off_voltage is not None:
-            parts.append(f"при V≥{manual_off_voltage:.1f} В")
-        if manual_off_voltage_le is not None:
-            parts.append(f"при V≤{manual_off_voltage_le:.1f} В")
-    # «Достигли» I: оба порога равны
-    if (
-        manual_off_current is not None
-        and manual_off_current_ge is not None
-        and abs(manual_off_current - manual_off_current_ge) < 0.01
-    ):
-        parts.append(f"при достижении I {manual_off_current:.2f} А")
-    else:
-        if manual_off_current is not None:
-            parts.append(f"при I≤{manual_off_current:.2f} А")
-        if manual_off_current_ge is not None:
-            parts.append(f"при I≥{manual_off_current_ge:.2f} А")
-    remaining_sec = 0.0
-    if manual_off_time_sec is not None:
-        remaining_sec = manual_off_start_time + manual_off_time_sec - time.time()
-        if remaining_sec <= 0:
-            parts.append("таймер истёк")
-        else:
-            h = int(manual_off_time_sec // 3600)
-            m = int((manual_off_time_sec % 3600) // 60)
-            parts.append(f"таймер {h}:{m:02d}")
-    line = "⏹ ВЫКЛ ПО УСЛОВИЮ: " + ", ".join(parts)
-    if manual_off_time_sec is not None and remaining_sec > 0:
-        h = int(remaining_sec // 3600)
-        m = int((remaining_sec % 3600) // 60)
-        line += f" | осталось до выкл: {h}:{m:02d}"
-    return line
+    state = SimpleNamespace(
+        voltage_ge=manual_off_voltage,
+        voltage_le=manual_off_voltage_le,
+        current_le=manual_off_current,
+        current_ge=manual_off_current_ge,
+        time_sec=manual_off_time_sec,
+        start_time=manual_off_start_time,
+    )
+    return format_operator_off_conditions(state, now_s=time.time())
 
 
 def _stage_label(raw_stage: str, short: bool = True) -> str:

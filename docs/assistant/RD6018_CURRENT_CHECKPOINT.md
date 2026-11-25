@@ -1,5 +1,23 @@
 # RD6018 — CURRENT CHECKPOINT (2026-11-03)
 
+## 2026-11-26 B969 — bounded Manual OFF-condition HMI projection
+
+At source base/code HEAD `70074de154b4c6f44614f2b4cfddf6ac77c55fbb`
+(`origin/main` comparison: 0 ahead / 0 behind), moved only the existing
+read-only Manual OFF-condition dashboard formatter into
+`runtime/ui/components/off_condition_status.py`. The legacy production adapter
+still supplies the same Manual OFF fields and current `time.time()` value; the
+existing dashboard and V3 OFF screen call graph is unchanged. New unit cases
+cover empty state, paired threshold wording, the 0.01 boundary, timer display,
+and expiry. Focused Linux venv run: 23 tests PASS; `py_compile` PASS;
+`git diff --check` PASS. This remains source/fake acceptance only. No fresh
+node104, Native ESP, HA, deployment, service or physical evidence was collected;
+no such action was performed. Working changes are uncommitted and limited to
+this checkpoint, `runtime/production_runtime.py`, the new projection module,
+and its test. Full suite/version matrix and live Telegram acceptance remain
+unverified. Next: independent review of the B969 diff/report before any later
+integration decision.
+
 Read this file first when resuming RD6018 work, then AGENTS.md and docs/V3_PROJECT_RUNBOOK.md. Older September handoffs are historical and may describe retired architectures.
 
 ## Current objective
