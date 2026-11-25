@@ -8,15 +8,17 @@ from __future__ import annotations
 
 import html
 from functools import wraps
-from types import SimpleNamespace
 from typing import Any
 
-from application.execution_intent.models import ExecutionIntent, SafetyContext
 from application.execution_port import get_or_create_execution_port
 from application.recipe_policy import chemistry_for_profile
 from application.start_recipe_selection import (
     resolve_native_recipe_copy,
     resolve_user_step_recipe,
+)
+from application.start_event_context import (
+    build_start_execution_identity,
+    build_start_execution_intent,
 )
 from pb_domain import BatteryIdentity, ChargeContext
 from recipe_engine import select_recipe_envelope
@@ -39,46 +41,10 @@ def _intent_label(intent: Any) -> str:
     return _START_INTENT_LABELS.get(value, value)
 
 
-def _execution_identity(app: Any, event: Any, pending: Any, *, mode: str) -> Any:
-    controller_context = getattr(app.charge_controller, "recovery_trace_context", {})
-    if not isinstance(controller_context, dict):
-        controller_context = {}
-    event_context = getattr(event, "context", None)
-    trace_id = str(getattr(event_context, "trace_id", "") or "")
-    session_id = str(controller_context.get("session_id") or "")
-    if not session_id:
-        session_id = f"{mode.lower()}:{getattr(pending, 'battery_id', 'unbound')}"
-    if not trace_id:
-        trace_id = f"{mode.lower()}:{session_id}"
-    return SimpleNamespace(session_id=session_id, trace_id=trace_id)
-
-
-def _execution_intent(
-    *,
-    voltage_v: float,
-    current_a: float,
-    mode: str,
-    identity: Any,
-    limits_reference: str,
-) -> ExecutionIntent:
-    return ExecutionIntent(
-        requested_voltage_v=float(voltage_v),
-        requested_current_a=float(current_a),
-        requested_mode=mode,
-        source_decision_id=f"{mode.lower()}:{identity.trace_id}",
-        safety_context=SafetyContext(
-            telemetry_state="FRESH",
-            lease_state="V2_PHYSICAL_OWNER",
-            verification_state="REQUIRED",
-            limits_reference=limits_reference,
-        ),
-    )
-
-
 async def _confirm_failed_start_is_off(app: Any, *, identity: Any, mode: str) -> bool:
     """Request shutdown only through the application-scoped execution owner."""
     try:
-        intent = _execution_intent(
+        intent = build_start_execution_intent(
             voltage_v=0.0,
             current_a=0.0,
             mode=f"{mode}_ROLLBACK_OFF",
@@ -225,10 +191,10 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
     # The first PREP/MAIN target and the canonical session writer must already
     # see the same immutable selection. No mid-session live library reads.
     app.charge_controller._native_recipe_session_selection = selected_native
-    execution_identity = _execution_identity(
-        app,
-        event,
-        pending,
+    execution_identity = build_start_execution_identity(
+        event_context=getattr(event, "context", None),
+        recovery_context=getattr(app.charge_controller, "recovery_trace_context", {}),
+        battery_id=getattr(pending, "battery_id", "unbound"),
         mode="AUTO_START",
     )
 
@@ -281,7 +247,7 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
                 port=get_or_create_execution_port(app),
                 identity=RecipeExecutionIdentity(execution_identity.session_id,
                                                  execution_identity.trace_id),
-                safety_context=_execution_intent(
+                safety_context=build_start_execution_intent(
                     voltage_v=float(target_v), current_a=float(app._cap_current(target_i)),
                     mode="AUTO_START", identity=execution_identity,
                     limits_reference="recipe_envelope").safety_context,
@@ -293,7 +259,7 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
             )
 
         requested_i = float(app._cap_current(target_i))
-        execution_intent = _execution_intent(
+        execution_intent = build_start_execution_intent(
             voltage_v=float(target_v),
             current_a=requested_i,
             mode="AUTO_START",

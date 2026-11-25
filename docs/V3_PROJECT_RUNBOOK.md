@@ -1,5 +1,31 @@
 # RD6018 Bot V3 Project Runbook
 
+## 2026-11-26 B977 — START execution mapping moved to its data contract
+
+At code HEAD `1472c92d4df4ccae6fefb65098238c4f1764c784`, moved pure mapping
+for START execution identity and `ExecutionIntent` from
+`application/start_transaction_service.py` into existing
+`application/start_event_context.py`. The service retains all app/controller
+reads, transaction ownership, ExecutionPort/physical actions, recipe-first
+SET behavior and verified-OFF containment. Existing fallback IDs, trace and
+session mapping, modes, decision ID, safety metadata and limits references are
+preserved. The extracted helpers are data-only.
+
+Focused fake-only command: `TG_TOKEN=inert PYTHONPATH=tests
+/home/home-pc/.venvs/pcp-test/bin/python -m unittest
+test_start_event_context_mapping test_start_transaction_service
+test_start_preflight test_start_execution_contract` — **35 PASS**.
+Changed Python files compile and `git diff --check` passes. No broad suite;
+the known stale `ovp_v == 13.9` assertion was not run or changed. Exact
+evidence: `B977_REPORT.md`.
+
+Uncommitted on `codex/rd6018-initial-stage-owner-20261126`; code HEAD is the
+supplied base SHA above and local/upstream commit count is 0/0. No commit,
+push, node104, ESP/HA, network, hardware, production or deployment operation.
+These were explicitly out of scope, so physical and current
+hands_off/deployment state are not claimed. P0–P9 remains **97/103**. Next:
+independent controller review.
+
 ## 2026-11-26 B976 — initial START stage entry moved to stage authority
 
 At supplied code HEAD `1dedf6a4676b49d6d9bd7cb63ce61171a0444eb1`, moved the

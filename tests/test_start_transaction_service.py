@@ -229,6 +229,27 @@ class V2StartupTests(unittest.IsolatedAsyncioTestCase):
             now=1000.0,
         )
 
+    async def test_start_uses_start_context_execution_identity_mapper(self):
+        from application import start_transaction_service
+
+        app = FakeApp(EnableResult(enabled=True))
+        app.charge_controller.recovery_trace_context = {"session_id": "session-42"}
+        message = FakeMessage()
+        with patch.object(
+            start_transaction_service,
+            "build_start_execution_identity",
+            wraps=start_transaction_service.build_start_execution_identity,
+        ) as build_identity:
+            ok = await start_profile_transactional(app, message, PENDING)
+
+        self.assertTrue(ok)
+        build_identity.assert_called_once_with(
+            event_context=None,
+            recovery_context={"session_id": "session-42"},
+            battery_id="efb-70",
+            mode="AUTO_START",
+        )
+
     async def test_success_uses_recipe_aware_safe_enable(self):
         app = FakeApp(EnableResult(enabled=True))
         message = FakeMessage()

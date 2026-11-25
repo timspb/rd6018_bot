@@ -1,5 +1,31 @@
 # RD6018 — CURRENT CHECKPOINT (2026-11-03)
 
+## 2026-11-26 B977 — START execution mapping moved to existing data contract
+
+At supplied code HEAD `1472c92d4df4ccae6fefb65098238c4f1764c784`, moved pure
+execution identity and `ExecutionIntent` mapping to
+`application/start_event_context.py`. `start_transaction_service` continues
+reading app/event/controller state and owns transaction serialization,
+ExecutionPort operations, recipe-first physical enable and verified-OFF
+rollback/containment. Existing fallback IDs, trace/session behavior, mode and
+intent decision ID, safety context fields, limits references and port/lease
+contract remain equivalent; no hardware authority moved.
+
+Focused fake-only START command with `TG_TOKEN=inert` and the requested venv:
+`PYTHONPATH=tests ... -m unittest test_start_event_context_mapping
+test_start_transaction_service test_start_preflight
+test_start_execution_contract`: **35 PASS**. `py_compile` and
+`git diff --check` pass. The known stale OVP assertion was not run or changed.
+No full suite. Details: `B977_REPORT.md`.
+
+Changes are uncommitted in the isolated clone on
+`codex/rd6018-initial-stage-owner-20261126`; code HEAD remains the supplied
+base SHA, with local/upstream commit gap 0/0. No commit/push. No node104,
+ESP/HA, network, deployment, production, or physical operation was performed
+because each is explicitly outside this task; current physical and
+hands_off/deployment status are not claimed. P0–P9 remains **97/103**.
+Next: independent controller review of this worktree.
+
 ## 2026-11-26 B976 — START initial stage-entry ownership
 
 At supplied code HEAD `1dedf6a4676b49d6d9bd7cb63ce61171a0444eb1`, relocated
