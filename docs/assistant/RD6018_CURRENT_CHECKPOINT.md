@@ -1,5 +1,39 @@
 # RD6018 — CURRENT CHECKPOINT (2026-11-03)
 
+## 2026-11-26 B980 — Telegram free-text parser owner
+
+At supplied exact code HEAD `23574b54493cddcc30f4878bf72271d232933837`
+(main-forward accepted B979; local/upstream commit gap 0/0), moved the actual
+OFF-condition, three-value and two-number parsing bodies from
+`runtime/production_runtime.py` into the pure UI owner
+`runtime/ui/telegram/text_input_parser.py`. The runtime's existing named
+functions remain minimal delegators for API/test compatibility and are the
+functions called by `text_message_handler` and `handle_custom_mode_input`.
+The OFF parser receives the runtime-owned `MAX_STAGE_CURRENT` and `time.time`
+callable; it invokes the clock only after recognizing a valid condition, so
+invalid/no-match inputs do not create a start timestamp. Exact grammar quirks,
+result dictionaries, `None` behavior, operator/decimal normalization, unit
+suffixes and condition ordering remain in the extracted bodies.
+
+No handler priority, custom-mode/capacity flow, message content, ExecutionPort
+setter, 0.8 s readback, OFF state write, Output, lease, safety or charging
+path changed. Runtime parser bodies reduced by 146 lines (13-line wrappers
+and import added). Fake-only focused command using the requested inert token,
+`PYTHONPATH=tests` and `/home/home-pc/.venvs/pcp-test/bin/python`:
+`test_telegram_text_input_parser test_auto_manual_off_contract
+test_v3_ui_off_conditions_cutover` — **15 PASS**. Tests include extracted
+owner behavior and patched real production-runtime wrapper calls. One initial
+assertion had an incorrect expected display string for the legacy bare-number
+path; the expectation was corrected to the exact pre-existing output, then
+the complete command passed. `py_compile` for all changed Python files and
+`git diff --check` pass. No broad suite.
+
+Source/docs remain uncommitted at exact base code HEAD above; upstream gap is
+0/0. Node104 hands_off/deployment status was not inspected and is not claimed.
+P0–P9 remains **97/103**. No node, ESP/HA, hardware, network, production,
+deployment, commit or push action occurred. Evidence: `B980_REPORT.md`.
+Next: independent controller acceptance of this isolated worktree.
+
 ## 2026-11-26 B979 — legacy free-text AI dialog moved to optional integration
 
 At supplied code HEAD `6890ffaec0455278384b35f025a087ba5759bcfb`, extracted

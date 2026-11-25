@@ -1,5 +1,28 @@
 # RD6018 Bot V3 Project Runbook
 
+## 2026-11-26 B980 — Telegram free-text parser owner
+
+At exact supplied code HEAD `23574b54493cddcc30f4878bf72271d232933837`
+(accepted main-forward B979; uncommitted worktree, upstream gap 0/0), moved
+the three existing parser bodies into pure
+`runtime/ui/telegram/text_input_parser.py`. The existing functions in
+`runtime/production_runtime.py` are minimal delegators and remain the real
+call path for `text_message_handler` and `handle_custom_mode_input`. OFF
+parsing receives runtime-owned max current and a clock callable, used only on
+a valid match. The handlers and all surrounding priority, validation,
+physical setter, readback, text and OFF-state behavior are unchanged. The
+runtime lost 146 parser-body lines; no facade duplicates a grammar.
+
+Focused fake-only command (`TG_TOKEN=123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi
+PYTHONPATH=tests /home/home-pc/.venvs/pcp-test/bin/python -m unittest
+test_telegram_text_input_parser test_auto_manual_off_contract
+test_v3_ui_off_conditions_cutover`): **15 PASS**. New tests check parser
+outputs/invalid cases and production-runtime delegation. `py_compile` of
+changed Python files and `git diff --check` pass; no full suite. P0–P9 stays
+**97/103**. No node104, ESP/HA, physical, network, production, deployment,
+commit or push action; current hands_off/deployment state is not claimed.
+Details: `B980_REPORT.md`. Next: independent controller acceptance.
+
 ## 2026-11-26 B979 — free-text AI dialog integration owner
 
 At supplied code HEAD `6890ffaec0455278384b35f025a087ba5759bcfb`, moved the
