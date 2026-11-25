@@ -327,6 +327,7 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
                 state_path=(Path(app._user_recipe_catalog.library.root) /
                             '_runs' / execution_identity.session_id.replace(':', '_') /
                             'runner.json'),
+                recipe=selected_recipe,
             )
 
         requested_i = float(app._cap_current(target_i))

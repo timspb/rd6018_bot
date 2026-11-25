@@ -1,5 +1,40 @@
 # RD6018 — CURRENT CHECKPOINT (2026-11-03)
 
+## 2026-11-26 B975 — remove duplicate START recipe load
+
+At base code HEAD `fdf74592949fa17231875340a5bb2df8dcfa22de`,
+`start_transaction_service` now passes the exact immutable object selected by
+`resolve_user_step_recipe` into the existing recipe session owner's
+`prepare_existing_recipe_binding`. The owner verifies supplied recipe
+ID/version, repeats existing structural preflight on that object, and keeps
+the existing identity/safety-context, active voltage-ceiling, and runner
+state existence checks. Its old direct-call behavior remains: callers without
+the optional object load from the catalog. The START target, initial session,
+and persisted runner digest/version now share one object without a second
+catalog parse/load. ExecutionPort, transactional START, verified-OFF failure
+containment, lease, native recipe selection, and physical algorithm are
+unchanged.
+
+Focused fake-only command with the requested interpreter and inert token:
+`TG_TOKEN=inert PYTHONPATH=tests /home/home-pc/.venvs/pcp-test/bin/python -m unittest test_user_recipe_prepare_binding test_recipe_first_set_start_target`.
+Result: **6 passed, 1 known pre-existing error**. New mutation case passes:
+the version file changes to a different digest after its one START load, but
+the selected object is identical to the binding and its digest is saved in
+the initial runner. Existing direct binding tests pass. The one error is the
+known stale `ovp_v == 13.9` assertion (`None` observed), independently
+reproduced at clean predecessor B973 `fdf7459`; it is not a B975 regression
+and physical OVP behavior was not altered. Requested `py_compile` and
+`git diff --check` pass. No broad suite.
+
+Changes remain uncommitted on
+`codex/rd6018-start-recipe-persistence-20261126`; base HEAD is
+`fdf74592949fa17231875340a5bb2df8dcfa22de`, tracked branch delta 0/0. No
+hardware/node104/ESP/HA/runtime/deployment/network/commit/push action was
+performed. Current hands_off/deployment state was not freshly inspected; the
+older 2026-11-03 node evidence is historical only. P0–P9 remains **97/103**.
+Evidence: `B975_REPORT.md`. Next: controller review of this uncommitted
+worktree/report.
+
 ## 2026-11-26 B974 — durable first SET persistence moved to recipe session owner
 
 At exact code HEAD `33c31b982df487332ca2dea958feecd001d62c72` on

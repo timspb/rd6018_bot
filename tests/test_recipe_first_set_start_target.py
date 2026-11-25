@@ -1,3 +1,4 @@
+import json
 import tempfile
 import types
 import unittest
@@ -6,12 +7,14 @@ from pb_domain import BatteryCondition, ChargeIntent
 from safe_output import EnableResult
 from runtime.charge.programs.recipe_catalog import RecipeCatalog
 from runtime.charge.programs.recipe_library import RecipeLibrary
+from runtime.charge.programs.recipe_schema import parse_recipe
 from application.start_transaction_service import start_profile_transactional
 from test_start_transaction_service import FakeApp, FakeMessage
 
 
 class FirstSetAtStartTests(unittest.IsolatedAsyncioTestCase):
-    async def _exercise(self, *, voltage, current, ceiling_v=18.0, ceiling_i=20.0):
+    async def _exercise(self, *, voltage, current, ceiling_v=18.0, ceiling_i=20.0,
+                        mutate_after_selection=False):
         with tempfile.TemporaryDirectory() as root:
             catalog = RecipeCatalog(RecipeLibrary(root, max_voltage_v=ceiling_v, max_current_a=ceiling_i))
             catalog.library.save({"id": "chosen", "version": 1, "steps": [
@@ -19,6 +22,27 @@ class FirstSetAtStartTests(unittest.IsolatedAsyncioTestCase):
                  "until": {"after_seconds": 30}},
                 {"action": "off", "params": {}, "until": {"after_seconds": 1}},
             ]})
+            loaded = []
+            mutated_digests = []
+            original_load = catalog.library.load
+            def tracked_load(recipe_id, version):
+                recipe = original_load(recipe_id, version)
+                loaded.append(recipe)
+                if mutate_after_selection:
+                    mutated_document = {"id": "chosen", "version": 1, "steps": [
+                        {"action": "set", "params": {"voltage_v": 14.2,
+                         "current_a": 1.2}, "until": {"after_seconds": 30}},
+                        {"action": "off", "params": {}, "until": {"after_seconds": 1}},
+                    ]}
+                    (catalog.library.root / recipe_id / f"v{version}.json").write_text(
+                        json.dumps(mutated_document)
+                    )
+                    mutated_digests.append(parse_recipe(
+                        mutated_document, max_voltage_v=ceiling_v,
+                        max_current_a=ceiling_i,
+                    ).digest)
+                return recipe
+            catalog.library.load = tracked_load
             app = FakeApp(EnableResult(enabled=True))
             app._user_recipe_catalog = catalog
             message = FakeMessage()
@@ -32,7 +56,23 @@ class FirstSetAtStartTests(unittest.IsolatedAsyncioTestCase):
                 from runtime.charge.programs.recipe_runner_store import load_runner
                 binding = app.charge_controller._existing_recipe_execution_binding
                 app.test_initial_runner_state = load_runner(binding.state_path, binding.session.recipe)
+            app.test_loaded_recipes = loaded
+            app.test_mutated_digests = mutated_digests
             return app, message, result
+
+    async def test_start_binds_exact_single_load_despite_catalog_mutation(self):
+        app, msg, result = await self._exercise(
+            voltage=13.8, current=1.2, mutate_after_selection=True
+        )
+        self.assertTrue(result, msg.answers)
+        selected = app.test_loaded_recipes[0]
+        binding = app.charge_controller._existing_recipe_execution_binding
+        self.assertEqual(len(app.test_loaded_recipes), 1)
+        self.assertIs(binding.session.recipe, selected)
+        self.assertEqual(binding.session.recipe.digest, selected.digest)
+        self.assertNotEqual(selected.digest, app.test_mutated_digests[0])
+        self.assertEqual(app.test_initial_runner_state.step.recipe_digest, selected.digest)
+        self.assertEqual(binding.session.recipe.steps[0]["params"]["voltage_v"], 13.8)
 
     async def test_initial_set_is_used_by_physical_enable_not_profile(self):
         app, msg, result = await self._exercise(voltage=13.8, current=1.2)

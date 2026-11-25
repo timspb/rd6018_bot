@@ -12,6 +12,7 @@ from application.execution_intent.models import SafetyContext
 from application.recipe_restart_limits import existing_start_limits
 from application.recipe_execution_adapter import RecipeExecutionIdentity
 from runtime.charge.programs.recipe_preflight import inspect_recipe
+from runtime.charge.programs.recipe_schema import Recipe
 from application.recipe_session_lifecycle import (
     RecipeSession, advance_durable_recipe_session,
 )
@@ -46,6 +47,7 @@ def prepare_existing_recipe_binding(*, catalog, recipe_id: str, version: int,
                                     port: Any, identity: RecipeExecutionIdentity,
                                     safety_context: SafetyContext, voltage_ceiling_v: float,
                                     state_path: str | Path,
+                                    recipe: Recipe | None = None,
                                     journal_path: str | Path | None = None,
                                     measurement_path: str | Path | None = None) -> ExistingRecipeBinding:
     """Resolve immutable version under an already-successful START owner.
@@ -53,7 +55,10 @@ def prepare_existing_recipe_binding(*, catalog, recipe_id: str, version: int,
     Only prepares a binding. Caller decides when it becomes authoritative;
     this operation never enables hardware or changes active stages.
     """
-    recipe = catalog.library.load(recipe_id, version)
+    if recipe is None:
+        recipe = catalog.library.load(recipe_id, version)
+    elif (recipe.recipe_id, recipe.version) != (recipe_id, version):
+        raise ValueError('preloaded recipe identity mismatch')
     report = inspect_recipe(recipe)
     if not report.admissible_structure:
         raise ValueError('; '.join(report.problems))

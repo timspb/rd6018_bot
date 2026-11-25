@@ -1,5 +1,37 @@
 # RD6018 Bot V3 Project Runbook
 
+## 2026-11-26 B975 — reuse START's selected immutable recipe
+
+At base code HEAD `fdf74592949fa17231875340a5bb2df8dcfa22de`, START now passes
+the exact `Recipe` selected and inspected by
+`start_recipe_selection.resolve_user_step_recipe` into the existing
+`recipe_existing_session.prepare_existing_recipe_binding` owner. The owner
+checks supplied ID/version and retains its structural preflight, active
+voltage-ceiling, identity/safety-context, and runner-state existence checks.
+Callers that omit the optional recipe retain the original catalog-load
+behavior. START no longer rereads/reparses the version between choosing the
+first physical SET target and binding/saving the runner; session object and
+persisted runner use the selected object's digest/version. No transaction,
+ExecutionPort, OFF containment, lease, selection, or physical algorithm
+behavior was changed.
+
+Focused command using the requested Linux venv and inert `TG_TOKEN`:
+`TG_TOKEN=inert PYTHONPATH=tests /home/home-pc/.venvs/pcp-test/bin/python -m unittest test_user_recipe_prepare_binding test_recipe_first_set_start_target`.
+Result: **6 pass, 1 known pre-existing error**. The B975 fake-only catalog
+mutation test passes, demonstrating one START load and identical selected
+object/digest in the binding and initial runner after the backing file changes.
+Direct binding callers without the new argument pass. The existing
+`test_initial_set_is_used_by_physical_enable_not_profile` still errors on its
+stale `ovp_v == 13.9` expectation (`None` observed), known from clean B973 at
+`fdf7459`; no OVP behavior was changed. `py_compile` and `git diff --check`
+pass. Exact details: `B975_REPORT.md`.
+
+This is uncommitted source/test/doc work; branch tracking delta remains 0/0.
+No node104/hardware/ESP/HA/deployment/network/runtime action occurred, so
+current hands_off/deployment state was not freshly inspected and no live
+status is claimed. Last node evidence in older checkpoint is historical.
+P0–P9 remains **97/103**. Next: controller review of this worktree/report.
+
 ## 2026-11-26 B974 — durable first SET persistence owner
 
 At code HEAD `33c31b982df487332ca2dea958feecd001d62c72`, the existing
