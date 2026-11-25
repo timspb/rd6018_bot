@@ -6,7 +6,6 @@ is retained only as a compatibility import facade during ERADICATION-09.
 
 from __future__ import annotations
 
-import html
 from functools import wraps
 from typing import Any
 
@@ -27,18 +26,14 @@ from runtime.charge.runtime.stage_authority import (
     INITIAL_MAIN_THRESHOLD_V,
     select_initial_auto_target,
 )
-
-_START_INTENT_LABELS = {
-    "normal": "Обычный заряд",
-    "recovery": "Восстановление",
-    "conditioning": "Кондиционирование",
-    "diagnostic": "Диагностика",
-}
-
-
-def _intent_label(intent: Any) -> str:
-    value = str(getattr(intent, "value", intent))
-    return _START_INTENT_LABELS.get(value, value)
+from runtime.ui.components.start_status import (
+    format_start_enable_failure,
+    format_start_html_error,
+    format_start_persistence_failure,
+    format_start_pre_enable_failure,
+    format_start_success,
+    format_start_unverified_failure,
+)
 
 
 async def _confirm_failed_start_is_off(app: Any, *, identity: Any, mode: str) -> bool:
@@ -133,7 +128,7 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
         selected_recipe = resolve_user_step_recipe(app, pending)
     except (AttributeError, TypeError, ValueError, OSError) as exc:
         await message.answer(
-            "❌ Рецепт не готов к START: " + html.escape(str(exc)),
+            format_start_html_error("❌ Рецепт не готов к START: ", str(exc)),
             parse_mode=app.ParseMode.HTML,
         )
         return False
@@ -142,8 +137,9 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
             app, pending, selected_recipe)
     except (AttributeError, TypeError, ValueError, KeyError, OSError) as exc:
         await message.answer(
-            "❌ Копия штатного рецепта не готова к START: "
-            + html.escape(str(exc)), parse_mode=app.ParseMode.HTML,
+            format_start_html_error(
+                "❌ Копия штатного рецепта не готова к START: ", str(exc)
+            ), parse_mode=app.ParseMode.HTML,
         )
         return False
 
@@ -275,8 +271,10 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
     except Exception as exc:
         if not enable_attempted:
             app.charge_controller.stop(clear_session=True)
-            await message.answer('START отменён до включения: ' +
-                                 html.escape(str(exc)), parse_mode=app.ParseMode.HTML)
+            await message.answer(
+                format_start_pre_enable_failure(str(exc)),
+                parse_mode=app.ParseMode.HTML,
+            )
             return False
         off_confirmed = await _confirm_failed_start_is_off(
             app,
@@ -285,15 +283,10 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
         )
         if off_confirmed:
             app.charge_controller.stop(clear_session=True)
-            suffix = " Выход подтверждён OFF."
-        else:
-            suffix = (
-                " 🚨 <b>Output OFF НЕ подтверждён.</b> Автовключение заблокировано; "
-                "проверьте RD6018/HA и при необходимости отключите выход или питание вручную."
-            )
         await message.answer(
-            f"❌ Запуск отменён: ошибка безопасного включения "
-            f"({html.escape(type(exc).__name__)}).{suffix}",
+            format_start_enable_failure(
+                type(exc).__name__, off_confirmed=off_confirmed
+            ),
             parse_mode=app.ParseMode.HTML,
         )
         return False
@@ -306,15 +299,10 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
         )
         if off_confirmed:
             app.charge_controller.stop(clear_session=True)
-            state_text = "Выход подтверждён OFF."
-        else:
-            state_text = (
-                "🚨 <b>Output OFF НЕ подтверждён.</b> Контроллер оставлен активным и заблокированным "
-                "для контроля безопасности; проверьте RD6018/HA."
-            )
-        detail = html.escape(result.reason or "RD6018 не подтвердил безопасное включение")
         await message.answer(
-            f"❌ <b>Запуск отменён.</b> {state_text}\n<code>{detail}</code>",
+            format_start_unverified_failure(
+                result.reason, off_confirmed=off_confirmed
+            ),
             parse_mode=app.ParseMode.HTML,
         )
         return False
@@ -344,10 +332,9 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
                     f"initial recipe state persistence failed: {type(exc).__name__}"
                 )
             await message.answer(
-                "❌ Сохранение начального состояния рецепта не удалось "
-                f"({html.escape(type(exc).__name__)}). "
-                + ("Output OFF подтверждён." if off_confirmed
-                   else "🚨 Output OFF не подтверждён; проверьте RD6018 вручную."),
+                format_start_persistence_failure(
+                    type(exc).__name__, off_confirmed=off_confirmed
+                ),
                 parse_mode=app.ParseMode.HTML,
             )
             return False
@@ -373,20 +360,18 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
         ah_now,
         f"{start_reason}intent={pending.intent.value} battery={pending.battery_id}",
     )
-    prep_line = (
-        f"\nПервый SET рецепта: {target_v:.2f} В / {requested_i:.2f} А."
-        if recipe_binding is not None
-        else (
-            f"\nPREP пропущен: Uакб={battery_v:.2f} V ≥ {INITIAL_MAIN_THRESHOLD_V:.1f} V."
-            if prep_skipped
-            else f"\nPREP: мягкий ток до Uакб ≥ {INITIAL_MAIN_THRESHOLD_V:.1f} V."
-        )
-    )
     await message.answer(
-        f"✅ <b>Заряд запущен</b>\n"
-        f"{html.escape(pending.profile)} {pending.capacity_ah:g} Ah · "
-        f"{html.escape(_intent_label(pending.intent))}\n"
-        f"АКБ: <code>{html.escape(pending.battery_id)}</code>{prep_line}",
+        format_start_success(
+            pending.profile,
+            pending.capacity_ah,
+            pending.intent,
+            pending.battery_id,
+            battery_voltage_v=battery_v,
+            initial_threshold_v=INITIAL_MAIN_THRESHOLD_V,
+            prep_skipped=prep_skipped,
+            recipe_target_voltage_v=(target_v if recipe_binding is not None else None),
+            recipe_target_current_a=(requested_i if recipe_binding is not None else None),
+        ),
         parse_mode=app.ParseMode.HTML,
     )
     # Telegram PanelLastMiddleware publishes the single final graph/control

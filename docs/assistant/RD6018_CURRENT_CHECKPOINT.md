@@ -1,5 +1,35 @@
 # RD6018 — CURRENT CHECKPOINT (2026-11-03)
 
+## 2026-11-26 B978 — START operator reply presentation moved to UI component
+
+At supplied code HEAD `0b4e0f24d34ed7b602196058760bff640e29f803`, moved the
+pure successful START reply, intent label mapping, HTML escaping, and related
+validation/enable/OFF-containment failure strings from
+`application/start_transaction_service.py` into
+`runtime/ui/components/start_status.py`. The service still selects outcomes,
+performs recipe and safety checks, chooses the initial target, applies
+transactional physical enable, decides whether OFF was verified, logs its
+existing event, and calls `message.answer` once at each existing outcome with
+the same HTML parse mode. Recipe-first SET, PREP and skipped-PREP text remain
+byte-for-byte equivalent; no control or hardware owner moved.
+
+Fake-only focused invocation with a syntactically valid inert token (the
+literal `TG_TOKEN=inert` is rejected by aiogram before import),
+`PYTHONPATH=tests`, and `/home/home-pc/.venvs/pcp-test/bin/python` covered the
+new formatter cases, START service, route/UI feedback, native recipe selection,
+and recipe first-SET bindings: **35 PASS**. An initial wider cohort ran 36
+tests and hit one known stale assertion in
+`test_initial_set_is_used_by_physical_enable_not_profile` (`ovp_v` expected
+13.9, observed `None`); it was not changed. `py_compile` and `git diff --check`
+pass. Full suite not run.
+
+Local changes are uncommitted on
+`codex/rd6018-start-context-owner-20261126`; code HEAD remains the supplied
+SHA and local/upstream commit gap is 0/0. No node104 hands_off/deployment read
+was made; current operational state is not claimed. No hardware, ESP/HA,
+network, production, deployment, commit or push action occurred. P0–P9 stays
+**97/103**. Evidence: `B978_REPORT.md`. Next: independent controller review.
+
 ## 2026-11-26 B977 — START execution mapping moved to existing data contract
 
 At supplied code HEAD `1472c92d4df4ccae6fefb65098238c4f1764c784`, moved pure

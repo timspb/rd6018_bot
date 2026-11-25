@@ -1,5 +1,37 @@
 # RD6018 Bot V3 Project Runbook
 
+## 2026-11-26 B978 — START operator feedback presentation boundary
+
+At supplied source HEAD `0b4e0f24d34ed7b602196058760bff640e29f803`, moved
+successful START HTML construction, intent labels, dynamic-value escaping,
+and the cohesive recipe-validation/enable-failure/OFF-containment feedback
+formatting from the physical transaction owner into
+`runtime/ui/components/start_status.py`. The UI component accepts values and
+outcome booleans only. `start_transaction_service` remains the sole START
+transaction owner: it validates and selects recipes, chooses the target,
+applies safe physical enable, determines OFF verification, preserves existing
+event logging, and sends exactly one response at the same branch with the
+same parse mode. The first user recipe SET, PREP and skipped-PREP paths retain
+their existing displayed text. No START path or safety/execution owner was
+added.
+
+Focused fake-only evidence (`TG_TOKEN` set to an inert syntactically valid
+value, `PYTHONPATH=tests`, requested Linux venv): **35 PASS**, across
+`test_start_status`, `test_start_transaction_service`,
+`test_start_route_isolation`, `test_native_recipe_start_selection`, and all
+but one known stale OVP assertion from `test_recipe_first_set_start_target`.
+The full directly affected cohort was attempted: 36 tests, with only the
+existing assertion expecting `ovp_v == 13.9` failing (`None` observed). The
+literal token `inert` is rejected by aiogram token validation before tests
+load. `py_compile` and `git diff --check` pass; no full suite was run. Exact
+command/result and limitations: `B978_REPORT.md`.
+
+Uncommitted local source/test/docs on
+`codex/rd6018-start-context-owner-20261126`; code HEAD stays at the supplied
+SHA and tracked branch delta is 0/0. No node104/ESP/HA/hardware/network,
+production or deployment action occurred; current hands_off/deployment state
+is not freshly claimed. P0–P9 remains **97/103**. Next: controller review.
+
 ## 2026-11-26 B977 — START execution mapping moved to its data contract
 
 At code HEAD `1472c92d4df4ccae6fefb65098238c4f1764c784`, moved pure mapping
