@@ -5,11 +5,14 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from application.execution_intent.models import SafetyContext
-from application.recipe_existing_session import advance_in_existing_session
+from application.recipe_existing_session import (
+    advance_in_existing_session, persist_initial_set,
+)
 from application.recipe_session_lifecycle import RecipeSession
 from application.recipe_execution_adapter import RecipeExecutionIdentity
 from runtime.charge.programs.recipe_schema import parse_recipe
-from runtime.charge.programs.recipe_runner import RunnerState
+from runtime.charge.programs.recipe_runner import RunnerState, tick
+from runtime.charge.programs.recipe_runner_store import load_runner
 
 
 class ExistingSessionTests(unittest.IsolatedAsyncioTestCase):
@@ -22,6 +25,22 @@ class ExistingSessionTests(unittest.IsolatedAsyncioTestCase):
         self.session = RecipeSession(recipe, RecipeExecutionIdentity("session", "trace"))
         self.host = SimpleNamespace(OVP_OFFSET=0.1, OCP_OFFSET=0.1,
                                     _cap_current=lambda x: min(x, 7.2))
+
+    async def test_persist_initial_set_belongs_to_existing_session_owner(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "runner.json"
+            binding = SimpleNamespace(session=self.session, state_path=path)
+            updated = persist_initial_set(binding, entered_at_s=123.5)
+            self.assertEqual(updated.state.step.recipe_digest, self.session.recipe.digest)
+            self.assertEqual(updated.state.step.step_index, 0)
+            self.assertEqual(updated.state.step.entered_at_s, 123.5)
+            self.assertIsNone(updated.state.pending)
+            self.assertEqual(load_runner(path, self.session.recipe), updated.state)
+            self.assertIs(binding.session, updated)
+            next_tick = tick(
+                updated.recipe, updated.state, now_s=124.5, measurements={}
+            )
+            self.assertIsNone(next_tick.command)
 
     async def test_start_offsets_passed_through(self):
         with tempfile.TemporaryDirectory() as tmp:

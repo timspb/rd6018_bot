@@ -395,16 +395,10 @@ async def start_profile_transactional(app: Any, event: Any, pending: Any) -> boo
         # Persist that step as entered before allowing the next tick:
         # otherwise the runner would issue the identical physical SET again.
         try:
-            from dataclasses import replace
-            from runtime.charge.programs.recipe_engine import StepState
-            from runtime.charge.programs.recipe_runner import RunnerState
-            from runtime.charge.programs.recipe_runner_store import save_runner
-            recipe = recipe_binding.session.recipe
-            initialized = RunnerState(
-                step=StepState(recipe.digest, 0, float(app.time.time()))
+            from application.recipe_existing_session import persist_initial_set
+            persist_initial_set(
+                recipe_binding, entered_at_s=float(app.time.time())
             )
-            save_runner(recipe_binding.state_path, recipe, initialized)
-            recipe_binding.session = replace(recipe_binding.session, state=initialized)
         except Exception as exc:
             off_confirmed = await _confirm_failed_start_is_off(
                 app, identity=execution_identity, mode="AUTO_START",

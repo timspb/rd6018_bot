@@ -1,5 +1,42 @@
 # RD6018 — CURRENT CHECKPOINT (2026-11-03)
 
+## 2026-11-26 B974 — durable first SET persistence moved to recipe session owner
+
+At exact code HEAD `33c31b982df487332ca2dea958feecd001d62c72` on
+`codex/rd6018-main-start-recipe-extraction-20261126` (same as its tracked
+origin branch at inspection), moved initial user-recipe runner-state creation,
+durable save and in-memory session update from
+`application/start_transaction_service.py` to
+`application/recipe_existing_session.py::persist_initial_set`. START invokes
+it only after verified `ExecutionPort.enable`; the service still owns
+verified-OFF containment and recipe fault binding if persistence raises. The
+initial state remains the same recipe digest, step index 0 and app clock
+timestamp. It uses the existing `save_runner` and state path, so canonical
+store encoding is unchanged. No module, manager, dependency injection,
+authentication or hardware authority was added. Redundant recipe reload and
+inspection during binding preparation remains unchanged because no immutable
+preflight proof is currently passed to that owner.
+
+Focused requested cohorts (`test_start_transaction_service`,
+`test_start_recipe_selection`, native START selection/metadata,
+`test_production_start_runner`, `test_recipe_first_set_start_target`,
+`test_user_recipe_prepare_binding`, and `test_user_recipe_existing_session`)
+ran with `/home/home-pc/.venvs/pcp-test/bin/python`, inert `TG_TOKEN`, and
+`PYTHONPATH=tests`: **42 PASS, 1 existing assertion failure among 43 tests**.
+The failure is `test_initial_set_is_used_by_physical_enable_not_profile`, expecting
+`ovp_v == 13.9` but receiving `None`; it reproduces on clean HEAD `33c31b9` in
+`/tmp`, so it is not introduced by B974. New owner persistence and both
+service fail-closed variants pass. `py_compile` and `git diff --check` pass.
+No full suite, runtime write, Telegram, node104, Native ESP, HA, deployment,
+service, or physical action was performed. HANDS_OFF/deployment status was
+not freshly inspected; the last checkpoint evidence is historical only.
+
+Work remains uncommitted; code HEAD and tracked origin are equal, with no
+commit gap. P0–P9 remains **97/103**, not promoted. Exact paths, invocation,
+test counts, and limitations are recorded in `B974_REPORT.md`. Next: controller
+review of the worktree/report. Visual editor prototype remains deferred and
+untouched.
+
 ## 2026-11-26 B973 — START recipe selection decomposition
 
 At code HEAD `717a58b186ad6ff98df9387dd8d1659b9276795a` (inherited branch

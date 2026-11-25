@@ -1,5 +1,28 @@
 # RD6018 Bot V3 Project Runbook
 
+## 2026-11-26 B974 — durable first SET persistence owner
+
+At code HEAD `33c31b982df487332ca2dea958feecd001d62c72`, the existing
+`application/recipe_existing_session.py` now owns initialization and durable
+persistence of the initial user-recipe SET state. `start_transaction_service`
+calls it only after verified `ExecutionPort.enable` and retains the existing
+verified-OFF containment and fault binding on failure. Recipe digest, step 0,
+timestamp, state path, store encoder, retry/containment behavior, app-scoped
+ExecutionPort and 900-second lease contract are unchanged. Preparation's
+redundant reload/inspection was retained because no explicit immutable
+version/digest/ceiling proof crosses that boundary.
+
+Focused B973 selection and START/binding cohorts: **42 PASS, 1 pre-existing
+failure among 43 tests**. `test_initial_set_is_used_by_physical_enable_not_profile`
+expects OVP 13.9 but receives `None`; the same failure was reproduced from
+clean HEAD in `/tmp`. New owner persistence and service verified/unverified-OFF
+failure paths pass. `py_compile` and `git diff --check` pass. No broad suite,
+runtime write, Telegram, node104/ESP/HA check, deployment, service action or
+physical action occurred. Source-only acceptance; no live status is claimed.
+P0–P9 remains **97/103**. Detailed evidence and exact invocation are in
+`B974_REPORT.md` and the active checkpoint. Changes are uncommitted for
+controller review; code HEAD equals tracked origin with no commit gap.
+
 ## 2026-11-26 B973 — START recipe selection owner extraction
 
 The START transaction delegates pure selection of the mutually exclusive

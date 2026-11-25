@@ -59,7 +59,7 @@ class FirstSetAtStartTests(unittest.IsolatedAsyncioTestCase):
     async def test_runner_persistence_failure_contained_by_verified_off(self):
         from unittest.mock import AsyncMock, patch
         with patch(
-            "runtime.charge.programs.recipe_runner_store.save_runner",
+            "application.recipe_existing_session.save_runner",
             side_effect=OSError("test write failed"),
         ), patch(
             "application.start_transaction_service._confirm_failed_start_is_off",
@@ -76,7 +76,7 @@ class FirstSetAtStartTests(unittest.IsolatedAsyncioTestCase):
     async def test_runner_persistence_failure_unverified_off_reports_risk(self):
         from unittest.mock import AsyncMock, patch
         with patch(
-            "runtime.charge.programs.recipe_runner_store.save_runner",
+            "application.recipe_existing_session.save_runner",
             side_effect=OSError("test write failed"),
         ), patch(
             "application.start_transaction_service._confirm_failed_start_is_off",

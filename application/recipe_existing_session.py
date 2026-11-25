@@ -4,7 +4,7 @@ This is a callable adapter, not a new loop, START path, or session owner.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -15,7 +15,9 @@ from runtime.charge.programs.recipe_preflight import inspect_recipe
 from application.recipe_session_lifecycle import (
     RecipeSession, advance_durable_recipe_session,
 )
-from runtime.charge.programs.recipe_runner import tick
+from runtime.charge.programs.recipe_engine import StepState
+from runtime.charge.programs.recipe_runner import RunnerState, tick
+from runtime.charge.programs.recipe_runner_store import save_runner
 
 
 @dataclass
@@ -27,6 +29,17 @@ class ExistingRecipeBinding:
     state_path: str | Path
     journal_path: str | Path | None = None
     measurement_path: str | Path | None = None
+
+
+def persist_initial_set(binding: ExistingRecipeBinding, *, entered_at_s: float) -> RecipeSession:
+    """Persist the SET already applied by verified START before runner ticks."""
+    recipe = binding.session.recipe
+    initialized = RunnerState(
+        step=StepState(recipe.digest, 0, float(entered_at_s))
+    )
+    save_runner(binding.state_path, recipe, initialized)
+    binding.session = replace(binding.session, state=initialized)
+    return binding.session
 
 
 def prepare_existing_recipe_binding(*, catalog, recipe_id: str, version: int,
