@@ -160,3 +160,15 @@ For ownership/watchdog changes, fake Python lease tests are not sufficient by th
 ## Scope discipline
 
 For narrow operational tasks, make only the requested operational changes. Do not redesign charging thresholds, recipes, Telegram UX or database schema unless the task explicitly asks for it.
+
+## Autonomous task completion
+
+These rules apply to both the ChatGPT operator and Codex workers, within the existing user-authorized scope, canon, tool policy, and safety requirements.
+
+- For an implementation request, inspect the actual state, perform the next useful authorized action, verify the result, and update the relevant runbook/checkpoint. A status report, plan, launched process, or one passing test is not completion.
+- Continue within the assigned scope while a feasible action advances the requested outcome. Do not stop merely to ask whether to perform the next routine, reversible step. Keep updates concise, not the work.
+- Diagnose the exact cause of an error using the current environment, documented interfaces and evidence. Respect tool denials and explicit approval boundaries; do not invent blockers or bypass them. Continue independent authorized work when appropriate.
+- Reuse the existing owners and interfaces, avoid unnecessary layers or repeated proofs, and run tests that protect changed behavior and meaningful regressions. Do not weaken existing safeguards or confuse source acceptance with live deployment.
+- Stop at actual completion, a genuine blocker, a decision requiring user authority, or a verified handoff to an existing executor. For Wake Bridge work, verify the real launch, release the chat, then accept the actual report on completion and continue with the next useful authorized task. Do not duplicate running jobs or poll indefinitely.
+
+For RD6018, prioritize the current modularization checkpoint and meaningful ownership extraction. No task-completion instruction permits physical actuator changes, node104 deployment, weakening charge protections, or claiming physical acceptance without the canonical evidence and authorization.
