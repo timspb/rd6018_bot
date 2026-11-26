@@ -1,3 +1,31 @@
+## 2026-11-26 B986 — causal diagnosis of P8 full-suite stall
+
+At isolated code HEAD `ba4940a4c6165c4cc021a2867734b2b70b9b762b`, bounded
+WSL2/Python 3.12.3 probes reproduced the direct `aiosqlite.connect` stall on
+both native `/tmp` ext4 and the repo's `/mnt/e` NTFS mount. Synchronous
+sqlite3, asyncio same-thread scheduling, Python thread creation, and
+`Queue`/`SimpleQueue` work. A generic worker-thread
+`loop.call_soon_threadsafe` callback also did not wake the waiting event
+loop; faulthandler showed the main thread in `selectors.select` and the
+aiosqlite worker idle in its queue. This isolates the causal boundary to
+cross-thread asyncio completion/wakeup in the current Codex WSL command
+execution context, without proving whether Codex sandboxing or WSL/runner
+integration is the narrower layer. The changed catalog/test/database files
+are byte-identical to checkpointed baseline
+`70074de154b4c6f44614f2b4cfddf6ac77c55fbb`; no source workaround was made.
+
+The normal HOME-PC standard execution comparison was not run by the worker.
+`B986_REPORT.md` records exact versions, commands, bounds, observations, and
+the controller's single bounded isolated-test command. If that test passes
+there, run the canonical full runner once in that supported environment and
+record exact status/output. B984's 600-second exit 124 is not a full-suite
+PASS; P0–P9 remains **97/103**. No node104/HANDS_OFF/deployment state was
+inspected or claimed; no ESP/HA, physical, production, network, commit, or
+push operation occurred. Code HEAD remains unchanged and local/upstream gap
+is 0/0; B986 evidence/docs are uncommitted. Next: controller performs the
+focused test via the existing HOME-PC execution path, then decides on one
+supported full-suite run.
+
 ## 2026-11-26 B984 — assembled B973–B983 integration/release gate
 
 At candidate HEAD `30608f8afc830dfa06965956604149b3f92e7ce2`, the selected
@@ -1885,3 +1913,8 @@ claimed. No Native ESP/HA, physical, HTTP/network, live Telegram, service,
 deployment, commit, push, reset, or original dirty WIP operation occurred.
 P0–P9 remains **97/103** (P3=3, P8=2, P9=1 unchecked); software acceptance
 does not close physical/release gates. Next: independent controller review.
+
+
+## 2026-11-26 — Controller independent B986/B987 standard-WLS comparison: full suite completed, baseline matches all 10 failures
+Controller standard HOME-PC Desktop Commander WSL (NOT Codex sandbox): test_battery_catalog 2/2 PASS in 0.253s; generic asyncio cross-thread thread->loop callback THREAD_CALLBACK=ok. Execution-context-specific Codex sandbox aiosqlite hang established without changing project code. Controller executed ONE entire `tools/ci_unittest_runner.py` from normal HOME-PC in isolated B986 source clone ba4940a using inert TG/HA/ESP env and existing Python3.12 venv with 1200s timeout: `FULL_SUITE_EXIT=1`, exact result **Ran 2980 tests in 267.977s; FAILED (failures=8, errors=2, skipped=3)**. Full raw output resides excluded local evidence `.recipe-studio-local/B987_LOGS/full-suite-homepc.log`; finish record `.recipe-studio-local/B987_LOGS/full-suite-homepc.status`. No timeout, no aiosqlite hang. Affected tests: D109 Main Guard checkpoint three registrations (set_ocp expected), D123 AGM step effect (set_ovp), D123 MAIN desulfation effect (set_ovp/set_ocp), D123 Native Sprint57 reason physical_ocp_not_confirmed vs native_iset_matches..., `test_recipe_first_set_start_target` (ovp_v None vs 13.9), `test_v3_residual_authority_migration` (set_ovp expected), `test_operator_navigation_expired_callback` (no home navigation on expired callback), `test_recovery_resume_output_transaction` (guarded desulfation MAIN return False; underlying KeyError ovp_v from fake adapter). Three modules with new test data in B973–B985 were compared; no blanket diagnosis before test/code review.
+Controller prepared clean independent Git clone E:/CODEX/My_Local/RD6018_B987_BASELINE_WORK at EXACT ORIGINAL MAIN 70074de154b4c6f44614f2b4cfddf6ac77c55fbb, status clean. Ran exactly 9 previously failing test modules on ORIGINAL MAIN from same normal HOME-PC WSL venv fake environment: `Ran 64 tests in 6.888s`, **FAILED (failures=8, errors=2)**, with identical 10 failing identities and failure substance, including expired callback and desulfation return. This is PROVEN all 10 are pre-existing baseline failures, not introduced by B973–B985. No full PASS; do not claim P8 acceptance. Distinguish stale OVP/OCP-setting test assertions conflicting with accepted no-software-protection-setters policy from underlying baseline functional issues in Telegram stale callback and recovery. Next bounded B987: repair only verified outdated test contracts in existing tests to assert NO programming of software OVP/OCP, plus investigate actual callback/recovery errors; never restore forbidden writes or fake success. Stage/commit source in isolated clone only after controller independent review. P0–P9 remains 97/103; no node104/HA/ESP/production/physical/GitHub push changed. Existing current local main-forward chain ba4940a, GitHub main still 70074de. User remains committed to actual owner modularization and no fake gate bureaucracy.
