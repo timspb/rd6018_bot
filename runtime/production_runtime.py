@@ -61,7 +61,6 @@ from runtime.safety.variables import (
     MAX_STAGE_CURRENT_A,
     WATCHDOG_TIMEOUT_S,
 )
-from runtime.safety.live_protection import evaluate_live_protection
 from charging_log import clear_event_logs, get_recent_events, log_checkpoint, log_event, log_stage_end, rotate_if_needed, trim_log_older_than_days
 from production_controller import create_production_charge_host
 from config import (
@@ -71,7 +70,6 @@ from config import (
     DEEPSEEK_API_KEY,
     ENTITY_MAP,
     MIN_INPUT_VOLTAGE,
-    TEMP_INT_PRECRITICAL,
     TG_TOKEN,
 )
 from application.execution_port import get_or_create_execution_port
@@ -82,6 +80,7 @@ from application.session_recovery_service import (
 )
 from application.operator_pause_use_case import toggle_operator_pause
 from application.link_outage_use_case import transition_link_outage
+from application.live_protection_use_case import dispatch_live_protection
 from runtime.safety.voltage_variables import PB_AUTOMATIC_TARGET_CEILING_V
 from database import add_record, cleanup_old_records, get_graph_data_with_temp, get_logs_data, get_raw_history, init_db
 from hass_api import HassClient
@@ -827,38 +826,19 @@ async def data_logger() -> None:
                 allow_init=False,
             )
             
-            # Protection policy owns the trip decision; this runtime only
-            # dispatches the established journal, notification and OFF effects.
-            protection_decision = evaluate_live_protection(
+            # Keep live protection ahead of operator OFF, records, pause,
+            # recovery and the charge controller tick within this cycle.
+            await dispatch_live_protection(
+                app=sys.modules[__name__],
                 live=live,
                 charge_active=charge_controller.is_active,
                 output_on=output_on,
                 internal_temperature_c=temp_int,
-                precritical_temperature_c=TEMP_INT_PRECRITICAL,
+                battery_voltage_v=battery_v,
+                current_a=i,
+                external_temperature_c=t,
+                amp_hours=ah,
             )
-            if "OPP_TRIGGERED" in protection_decision.triggers:
-                log_event(
-                    charge_controller.current_stage, battery_v, i, t, ah,
-                    "OPP_TRIGGERED",
-                )
-                _charge_notify("🛑 Сработала аппаратная защита мощности. Выход выключен.")
-            if "OPP_TRIGGERED" in protection_decision.triggers:
-                await _hard_stop_charge()
-
-            if "TEMP_INT_PRECRITICAL" in protection_decision.triggers:
-                log_event(
-                    charge_controller.current_stage,
-                    battery_v,
-                    i,
-                    t,
-                    ah,
-                    f"TEMP_INT_PRECRITICAL_{temp_int:.0f}C",
-                )
-                _charge_notify(
-                    f"🌡 Температура блока {temp_int:.0f}°C ≥ {TEMP_INT_PRECRITICAL:.0f}°C. "
-                    "Выход выключен для защиты БП."
-                )
-                await _hard_stop_charge()
 
             # Команда off: выключить по напряжению / току / таймеру (защиты не отключаются)
             if output_on and _has_manual_off_condition():

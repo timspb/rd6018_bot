@@ -49,7 +49,7 @@ class OperatorOffLoggerBoundaryTests(unittest.TestCase):
         ]
         positions = [cycle.index(item) for item in expected]
         self.assertEqual(positions, sorted(positions))
-        protection = source.index("protection_decision = evaluate_live_protection(")
+        protection = source.index("await dispatch_live_protection(")
         self.assertLess(protection, source.index("if output_on and _has_manual_off_condition():"))
         self.assertIn("async with _runtime_execution_port()._guard_owner_lock:", source)
 

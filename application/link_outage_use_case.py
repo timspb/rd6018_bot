@@ -33,7 +33,7 @@ def transition_link_outage(
 ) -> LinkOutageTransition:
     """Resolve one existing outage branch without owning storage or side effects.
 
-    Transport classification stays in ``runtime.physical.transports``. Only
+    Transport classification remains exclusively with the existing transport error-policy owner. Only
     established unexpected cycle failures can request verified emergency OFF.
     """
     if category not in {"initial_read", "cycle_readback", "unexpected_cycle"}:

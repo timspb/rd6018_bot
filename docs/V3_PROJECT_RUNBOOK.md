@@ -8013,3 +8013,35 @@ acceptance. See `B1006_REPORT.md`.
 ## 2026-11-26 — B1006 independent acceptance and PR #182 CI #2230 source-owner regression repair
 R7.3 completion received for rd6018-b1006-20261126-r73-link-outage-owner (event 1c67c8f6c7874864bb3bfa7614ffb915); own-chat inspector confirms server ACK attempt_count=1. Exact source base 5b37d6f0997dabfa1bc0137dc8ebdec0de056564. Independently reviewed the complete source diff in runtime/production_runtime.py and new application/link_outage_use_case.py. LinkOutageTransition is frozen ephemeral result, not new lifecycle or hardware owner; category differences initial_read, cycle_readback, unexpected_cycle retained; both recognized transport categories preserve ongoing session and do NOT request host OFF; non-transport unexpected cycle still requests verified OFF only for last-known Output ON and stops/logs after confirmed physical OFF, preserving session on uncertain outcome. Event names, one-time notifications, counters/latch, existing 30-second cadence and ExecutionPort unchanged. Transport classification stays runtime/physical/transports/error_policy.py; no extra alarm/lease/OVP-OCP authority introduced. No node104/ESP/HA/firmware/physical/deployment action. P0–P9 remains 97/103; P3/P8 hardware and P9 release HOLD.
 Fresh head 5b37d6f GitHub CI #2230 (run 45782610513) completed FAILURE across Python 3.10/3.11/3.12, each due to ONE obsolete test-only source-location assertion: tests/test_link_session_recovery_policy.py still sought old inline expression `output_on = str(output_switch or "").lower() == "on"` in runtime/production_runtime.py. B1005 correctly transferred that expression to existing runtime/telemetry/source.py; current runtime reads observation.output_on. Controller inspected actual three-job GitHub logs and updated ONLY the assertion to require same expression in telemetry owner, runtime binding to observation and preserved recovery session run_cycle; no production source revert. Normal HOME-PC WSL Python3.12 project venv with inert test token: six-module test cohort test_link_session_recovery_policy, test_link_outage_use_case, test_transport_outage_policy, test_data_logger_recovery_quarantine, test_modularization_physical_owner_serialization_ad027, test_production_entrypoint **51/51 PASS, exit0**; git diff --check PASS. B1006 accepted as bounded source-only; no full CI PASS is claimed until the next pushed candidate completes. ESPHome source compilation on 5b37d6f run #149 SUCCESS (dummy secrets, no firmware flash), CI on exact new candidate pending. No additional protection or owner-signature mechanisms.
+
+## 2026-11-26 — B1007 live protection effect dispatch owner (source-only)
+
+`application/live_protection_use_case.py` now owns one invocation of the
+existing pure `evaluate_live_protection` policy plus its existing ordered
+event, notification, and `_hard_stop_charge` dispatch. Runtime retains the
+30-second data_logger lifecycle, raw live observation and values, and call
+position before operator OFF, record, pause, recovery, MAIN Guard, and tick.
+Effects use the existing production module context and controller; the use
+case adds no state, service, scheduler, lock, actuator, or policy. OPP then
+temperature order and both independent awaited stop calls are retained,
+including propagation of stop uncertainty. The per-event controller stage is
+read at the same dispatch point as before, preserving its value after the
+first awaited stop when BOTH triggers fire. The pure evaluator and its R16
+interpretation are unchanged; OVP/OCP remain excluded from software protection.
+
+Focused HOME-PC Python 3.12 project-venv cohort (`test_live_protection_policy`,
+`test_data_logger_recovery_quarantine`, `test_production_entrypoint`,
+`test_modularization_operator_off_logger_boundary`) passes **34/34**. Scoped
+`py_compile` and `git diff --check` pass. System Python lacked `python-dotenv`
+and `aiogram`; no packages were installed. No full suite or CI loop. Exact
+base/current uncommitted HEAD is `e39e49220ae959331b8da713ca023f07c211b7c1`,
+branch `codex/rd6018-b1007-live-safety-effects`; no stage, commit, push, remote
+query, or device action. PR #182 remains draft as provided; CI #2231 pending is
+not independently checked. Node104/HANDS_OFF and local/origin gap not queried.
+P0–P9 stays **97/103**; P3 physical, P8 hardware/release, and P9 final
+integration/release HOLD. See `B1007_REPORT.md` and the current checkpoint.
+
+
+## 2026-11-26 — B1007 controller acceptance and PR #182 CI #2231 source-isolation repair
+B1007 Luna source-only run rd6018-b1007-20261126-r73-live-safety-effects completed exit0 from exact e39e49220ae959331b8da713ca023f07c211b7c1. R7.3 current-chat delivery event fbb0a132394b4d39b425c3197989c811 was acknowledged once (server inspector attempt_count=1). Independent controller inspected runtime/production_runtime.py, new application/live_protection_use_case.py and focused tests. Application use case owns ordered effects of already-established PURE evaluate_live_protection from runtime.safety.live_protection; app context supplies unchanged logger, notify and existing _hard_stop_charge. OPP event/notify/await OFF, then independent TEMP_INT event/notify/await OFF preserve exact order; stage is reread after prior stop, and stop exceptions propagate. No policy or physical owner changes. OVP/OCP raw R16 1/2 remain diagnostic/operator-managed only; R16=3 OPP/unknown nonzero and V/I, temperature, R18, 900s lease remain effective through existing owners.
+New GitHub CI #2231 on precursor e39e492 (run 45784723283), Python 3.10/3.11/3.12, each completed FAILURE at exact same ONE architecture test, 4057 run each, 1 FAIL / 3 SKIP, no errors: test_v3_production_physical_isolation.py used a textual string scan for forbidden imported physical modules and incorrectly classified the documentation-only text 'runtime.physical.transports' in application/link_outage_use_case.py docstring. No real physical import or extra ExecutionPort was present (AST import graph unchanged). Controller removed ONLY that docstring's exact module path, preserving code and strict test; did NOT alter import checks or behavior. Normal HOME-PC WSL independent focused cohort: tests.test_live_protection_policy, test_data_logger_recovery_quarantine, test_production_entrypoint, test_modularization_operator_off_logger_boundary, test_v3_production_physical_isolation, test_link_outage_use_case, test_transport_outage_policy and test_modularization_physical_owner_serialization_ad027 — **59/59 PASS, exit0**; scoped py_compile PASS and git diff --check PASS. This is accepted B1007 source-only, not yet full current-head CI acceptance. Existing PR #182 remains DRAFT, with new source commit/CI to publish and verify after this local acceptance. No node104/HA/ESP/device/firmware/service/production action. P0-P9 checklist stays 97/103; P3/P8 physical and P9 release HOLD.

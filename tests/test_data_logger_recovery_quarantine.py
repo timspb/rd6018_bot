@@ -62,7 +62,7 @@ class DataLoggerRecoveryQuarantineTests(unittest.IsolatedAsyncioTestCase):
             "_has_manual_off_condition": Mock(return_value=False),
             "_sync_total_start_from_uptime": Mock(),
             "_log_temperature_source_if_changed": Mock(),
-            "evaluate_live_protection": Mock(return_value=SimpleNamespace(triggers=())),
+            "dispatch_live_protection": AsyncMock(),
             "read_canonical_session": Mock(return_value=None),
             "admit_main_guard_shadow": Mock(return_value=None),
             "add_record": AsyncMock(),
