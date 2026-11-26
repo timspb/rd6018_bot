@@ -8266,3 +8266,47 @@ CI verification.
 ## 2026-11-26 — B1013 independent controller acceptance after R7.3 completion
 R7.3 run rd6018-b1013-20261126-r73-start-recipe-preflight finished exit0 and its exact current-chat wake completion event 9c403d06179649279d5208a094a04154 was server-ACKed (own-chat inspector attempt_count=1). Source base 1a029cd25333125cdf7857e514945f492a390000. Independent diff review confirms existing application/start_recipe_selection.py now solely coordinates pinned user and native immutable choice resolution, delegating unchanged user select_user_recipe_for_start and native select_native_recipe_version; branch-specific allowed exceptions and response variants unchanged. application/start_transaction_service.py keeps one resolver call, its same Russian HTML response and all downstream detached-candidate, START_PENDING, canonical readback, port.enable and OFF/rollback branches unchanged. No stateful manager/new start authority/physical execution port, no new gate or permit. SOURCE-ONLY B1013 ACCEPT.
 Normal HOME-PC WSL Python3.12 venv with inert fake TG_TOKEN, PYTHONPATH=.:tests:tools: 9 focused modules covering direct user/native selection, first-step SET, OFF-first refusal, native Telegram selection, B863 ingress, START validation/adapter/execution contract **37/37 PASS, exit0** (0.570s), plus Codex's additional 3 selected transactional lifecycle tests PASS. Targeted py_compile and git diff --check PASS. Earlier broad D109 async inherited-stall invocation not counted. GitHub actions on prior HEAD 1a029cd: CI #2237 run 45796043079 SUCCESS; ESPHome dummy-secrets source build #156 run 45796043125 SUCCESS, not firmware flash. Do not attribute this success to new B1013 until current-head CI runs. Checklist P0–P9 still 97/103, P3/P8 physical and P9 final integration/release HOLD. No node104, charger, ESP/HA, service, firmware, physical Output, main merge or original dirty WIP touched. Next commit exactly accepted source/docs, safely fast-forward ONLY existing Draft PR #182, then one real architecture owner slice rather than additional cosmetic UI or test churn.
+
+## 2026-11-26 — B1014 non-authoritative signal diagnostic snapshot owner extraction
+
+Source-only run `rd6018-b1014-20261126-r73-signal-snapshot`; branch
+`codex/rd6018-b1014-signal-snapshot-20261126`; exact base/code HEAD
+`105c5ef31e6a3dc5e10d4b09f641ffee18f355b3`, uncommitted. The actual
+`ui_support_snapshot` and `signal_analyzer_diagnostic_snapshot` bodies moved
+from `runtime/charge/diagnostics.py` into the cohesive
+`runtime/charge/evidence/signal_diagnostic_snapshot.py`. The former remains a
+UI status projection; the latter remains explicitly non-authoritative and
+read-only. `diagnostics.py` directly imports both same function objects for
+legacy callers. `ManagedChargeController`'s existing one-line delegates remain
+unchanged. `SignalEvent` now has one import in the projection owner and was
+removed from `diagnostics.py`; no charge policy, analyzer mutation, telemetry
+read, timer, persistence, observer, or physical path moved or was added.
+
+Updated the stale AST location check in `tests/test_d123_p2_trace_context.py`
+to verify the diagnostics re-export identity, preserve the controller delegate
+assertion, and check the new function docstring/no physical setter names.
+Updated charge ownership and runtime ownership maps. Exact function AST parity
+against `git show HEAD:runtime/charge/diagnostics.py`: **2/2 PASS**. Scoped
+Python 3.12 cohort with inert syntactically-valid `TG_TOKEN`,
+`PYTHONPATH=.:tests:tools`: `test_signal_analyzer_diagnostic_snapshot`,
+`test_d123_p2_trace_context`, `test_d123_p4_diagnostic_snapshot_ownership`,
+`test_hmi_auto_stage_progress`, `test_operator_hmi`, and
+`test_production_entrypoint` — **96/96 PASS**, exit 0. One initial attempt used
+an invalid placeholder token and failed at import before tests; rerun with a
+valid inert-format token passed. No full suite/current-head CI. Scoped
+`py_compile` and `git diff --check` are recorded in `B1014_REPORT.md`.
+
+No node104/HANDS_OFF/deployment or local/origin comparison was queried. No
+ESP/HA/device/physical Output or setpoint, firmware, service, production,
+network/GitHub, stage, commit, push, or original dirty worktree action. Task
+context reports CI #2238 and ESPHome dummy-source #157 were in progress; not
+queried and not evidence for this source. R7.3 completion remains launcher
+owned; no manual hook/ACK. P0–P9 remains **97/103**; P3 physical, P8
+hardware/release and P9 final integration/release remain HOLD. Next: separate
+independent review and integration/current-head CI only when authorized; no
+physical acceptance implied. See `B1014_REPORT.md`.
+
+
+## 2026-11-26 — B1014 independent acceptance and owner-map correction
+R7.3 completed run rd6018-b1014-20261126-r73-signal-snapshot, event 769fe305c853403f8e4ee64bd0b2b4d9 received and own-route inspector verified server ACK attempt_count=1. Base exact 105c5ef31e6a3dc5e10d4b09f641ffee18f355b3. Independently reviewed source and confirmed two unchanged signal diagnostic read functions now owned by runtime/charge/evidence/signal_diagnostic_snapshot.py; diagnostics.py is direct object-identical compatibility re-export, ManagedChargeController delegates unaffected. Original function AST 2/2 parity and re-export identity 2/2 PASS. Existing read-only mode, Output, freshness, analyzer evidence, last sample rejection semantics all identical; no mutation/authority/IO, new scheduler, state or physical port. Corrected owner map documentation to state BOTH read projections live in the new single evidence owner; former docs sentence incorrectly claimed one remained owned by diagnostics.py.
+Independent HOME-PC WSL Python3.12 project venv (inert fake TG_TOKEN, PYTHONPATH=.:tests:tools), six relevant modules including signal snapshots, D123 P2 trace, D123 P4 ownership, HMI auto stage, operator HMI and production entrypoint: **96/96 PASS exit0**, 15.017s; selected py_compile and git diff --check PASS. GitHub on PREVIOUS HEAD 105c5ef CI #2238 run 45797883159 SUCCESS and ESPHome source/dummy-secrets #157 run 45797883417 SUCCESS, not device flash; B1014 new head CI pending publication. B1014 accepted as SOURCE ONLY. P0–P9 unchanged **97/103** (documentary count only); physical P3/P8 and release P9 HOLD. No node104/HA/ESP/RD6018 Output/firmware/service, production, original dirty WIP or main change.

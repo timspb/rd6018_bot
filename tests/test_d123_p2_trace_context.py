@@ -187,10 +187,31 @@ class TraceContextEvidenceTests(unittest.TestCase):
         diagnostics = ast.parse(
             (ROOT / "runtime" / "charge" / "diagnostics.py").read_text(encoding="utf-8")
         )
+        projection_module = ast.parse(
+            (ROOT / "runtime" / "charge" / "evidence" / "signal_diagnostic_snapshot.py")
+            .read_text(encoding="utf-8")
+        )
         projection = next(
-            node for node in diagnostics.body
+            node for node in projection_module.body
             if isinstance(node, ast.FunctionDef)
             and node.name == "signal_analyzer_diagnostic_snapshot"
+        )
+        self.assertTrue(any(
+            isinstance(node, ast.ImportFrom)
+            and node.module == "runtime.charge.evidence.signal_diagnostic_snapshot"
+            and any(alias.name == "signal_analyzer_diagnostic_snapshot"
+                    and alias.asname is None for alias in node.names)
+            for node in diagnostics.body
+        ))
+        from runtime.charge import diagnostics
+        from runtime.charge.evidence import signal_diagnostic_snapshot
+        self.assertIs(
+            diagnostics.signal_analyzer_diagnostic_snapshot,
+            signal_diagnostic_snapshot.signal_analyzer_diagnostic_snapshot,
+        )
+        self.assertIs(
+            diagnostics.ui_support_snapshot,
+            signal_diagnostic_snapshot.ui_support_snapshot,
         )
         self.assertIn(
             "non-authoritative analyzer diagnostic snapshot",
