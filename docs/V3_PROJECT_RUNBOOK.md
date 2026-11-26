@@ -1853,3 +1853,35 @@ EXECUTION BLOCKER: HOME-PC invocation of canonical D145 prepare was denied by to
 - Before each change: identify existing canonical owner and config source, perform the smallest source modification that implements the requirement, and remove superseded code rather than adding shims. Do not construct a parallel abstraction, extra proof/authorization, new service, duplicate observer, or alternative rollback path.
 - Acceptance: focused module tests + existing architecture/UI regressions + actual entrypoint behavior where relevant. Record evidence and exact SHA in the runbook. Keep the deployed known-good baseline untouched until an explicit safe D145/D144 installation is authorized; never confuse source acceptance with live hardware/UI acceptance.
 - If requested work needs a new setting or subsystem, extend the original semantic owner rather than opening an independent control plane. Reject any design that makes two modules authoritative for the same state.
+
+## 2026-11-26 B985 — optional AI engine owner and B967 reconciliation
+
+At prepared clone code HEAD `a4a0588292f0675e93f9229e9845b3baeb9d126d`
+(no commit; upstream tracking gap 0/0), moved all functional AI engine
+behavior into `integrations/ai/engine.py`: `format_ai_snapshot`,
+`format_recent_events`, and `ask_deepseek`. Production now imports this owner
+directly. Root `ai_engine.py` is a minimal backward-compatible re-export for
+the existing public imports. The integration keeps current config ownership
+in `config.py` and the current single system prompt owner in
+`ai_system_prompt.py`; the candidate's OVP/OCP-offset informational text and
+B981/B979 context/dialog behavior remain intact. The optional module does not
+import `aiohttp` until `ask_deepseek` has checked for an empty key, and the
+integration package resolves its API lazily without pulling in
+`telegram_dialog`. Missing configured HTTP client returns the B967 accepted
+unavailable message. The `aiohttp` import/use in production runtime for its
+unrelated non-AI features remains unchanged.
+
+Fake-only focused verification with Python 3.12, inert TG_TOKEN and
+`PYTHONPATH=tests`: `test_optional_ai_engine_integration
+ test_ai_temp_int_semantics test_ai_dialog_context test_ai_telegram_dialog
+ test_legacy_ai_context_read_models test_production_entrypoint
+ test_production_module_namespace` — **42 PASS**. Changed Python files pass
+`py_compile`; `git diff --check` passes. No full suite rerun because B984
+reproduced the `test_battery_catalog`/`aiosqlite.connect` hang on baseline and
+candidate. Detailed command and evidence: `B985_REPORT.md`.
+
+No current node104 HANDS_OFF/deployment state was inspected and none is
+claimed. No Native ESP/HA, physical, HTTP/network, live Telegram, service,
+deployment, commit, push, reset, or original dirty WIP operation occurred.
+P0–P9 remains **97/103** (P3=3, P8=2, P9=1 unchecked); software acceptance
+does not close physical/release gates. Next: independent controller review.

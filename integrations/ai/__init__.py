@@ -2,6 +2,10 @@
 
 
 def __getattr__(name: str):
+    if name in {"ask_deepseek", "format_ai_snapshot", "format_recent_events"}:
+        from . import engine
+
+        return getattr(engine, name)
     if name == "handle_dialog_delivery":
         from .telegram_dialog import handle_dialog_delivery
 
@@ -9,4 +13,9 @@ def __getattr__(name: str):
     raise AttributeError(name)
 
 
-__all__ = ["handle_dialog_delivery"]
+__all__ = [
+    "ask_deepseek",
+    "format_ai_snapshot",
+    "format_recent_events",
+    "handle_dialog_delivery",
+]

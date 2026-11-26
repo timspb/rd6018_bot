@@ -38,7 +38,7 @@ from runtime.ui.telegram.journal import JOURNAL_CALLBACK_DATA
 from runtime.ui.telegram.off_conditions import OFF_CALLBACK_DATA
 from operator_managed_stop import STOP_CONFIRM_CALLBACK
 
-from ai_engine import ask_deepseek, format_ai_snapshot, format_recent_events
+from integrations.ai.engine import ask_deepseek, format_ai_snapshot, format_recent_events
 from ai_system_prompt import AI_CONSULTANT_SYSTEM_PROMPT
 from runtime.charge.strategy.exit_variables import (
     MIX_CC_DELTA_V_EXIT_V,

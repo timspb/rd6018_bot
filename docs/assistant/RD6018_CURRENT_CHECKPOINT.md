@@ -1835,3 +1835,31 @@ EXECUTION BLOCKER: HOME-PC invocation of canonical D145 prepare was denied by to
 
 ## 2026-11-07 D144 slot14 installed
 2026-11-07 node104 D145/D144 deployment ACCEPTED at service and physical level. Owner retired EFB80 session first; charge_session.json absent. D145 prepare returned PREPARE_ONLY_PASS, fresh_d091_off=true, capacity_pass=true, preserved_guarded_main=false. D145 execute EXIT 0; D144_STATE_PRESERVING_V1 slot14 COMMITTED, transaction be4fce7576844e5c95df1ea8e6aeda15, source d49cb6d1bb24fa3d2496ca4564aaf1d4ea91fa5b, candidate identity b9be5f6f9188991324372f07fbbfc7d3e9c0999678ecbe332b948d2621f0e981. New service PID231800 active from 08:41:27 UTC, NRestarts0, single bot.py polling process. aiogram Start polling and Run polling for bot @RD6018_bot logged 08:41:34 UTC; no active TelegramConflictError (startup INFO contains a generic conflict advisory). Voltage relaxation sidecar PID62502 active, zero restarts. Postflight D148 collect_live: ESP Native and HA independently Output OFF U0V I0A, safety lease disarmed, no trip/quarantine, active_session=false, TTL900s. Disk 3.5 GB free, 54 percent used. No hardware commands. Prior installed slot13 source 9692cf37. D49 stage and release profile retained. Operator navigation, journal formatting, and 60-second in-place message refresh still require live Telegram interaction acceptance, not established by polling.
+
+## 2026-11-26 B985 — optional AI engine owner and B967 reconciliation
+
+At prepared clone code HEAD `a4a0588292f0675e93f9229e9845b3baeb9d126d`
+(no commit; tracked upstream gap 0/0), established
+`integrations/ai/engine.py` as the single functional owner for formatting and
+DeepSeek calls. `runtime.production_runtime` imports this owner directly;
+root `ai_engine.py` is now only a compatibility re-export. Existing `config.py`
+settings and `ai_system_prompt.py` prompt ownership are preserved, as are
+candidate-specific OVP/OCP-offset text and B979/B981 dialog/context behavior.
+The AI module imports `aiohttp` only after the empty-key check and reports the
+accepted graceful unavailable message if a configured key exists but the
+client is absent. The package-level imports remain lazy and do not create an
+AI-engine/Telegram-dialog cycle. Runtime's unrelated `aiohttp` use is intact.
+
+Focused fake-only command under Python 3.12 with inert TG_TOKEN and
+`PYTHONPATH=tests`: AI engine integration, temperature semantics, B979 dialog,
+B981 context, legacy read models, production entrypoint and namespace — **42
+PASS**. `py_compile` and `git diff --check` pass. No 600-second suite rerun;
+B984 documented a matching baseline/candidate `aiosqlite.connect` hang.
+Evidence: `B985_REPORT.md`.
+
+This remains source/test evidence, not deployment or physical validation.
+Current node104 HANDS_OFF/deployment status was not inspected and is not
+claimed. No ESP/HA, physical, HTTP/network, live Telegram, deployment, commit,
+push, reset or original dirty WIP action occurred. P0–P9 remains **97/103**
+(P3=3, P8=2, P9=1 unchecked). Remaining: independent controller review;
+B984 baseline hang and physical/release gates remain open.
