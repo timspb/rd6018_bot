@@ -181,6 +181,15 @@ class HassClient:
             return None
         return await reader()
 
+    def get_post_on_native_phase(self, receipt: Any) -> Dict[str, Any]:
+        """Return only same-ESPDirectTransport callbacks; HA has no Native proof."""
+        from runtime.physical.connectors.esp_direct import ESPDirectConnector
+
+        backend = self._physical_backend
+        if not isinstance(backend, ESPDirectConnector):
+            return {"status": "NOT_OBSERVED", "reason": "native_backend_unavailable"}
+        return backend.get_post_on_native_phase(receipt)
+
     async def get_native_guard_pre_on_snapshot(self) -> Dict[str, Any] | None:
         """Return the minimal direct ESP callback snapshot used by Guard assessment.
 

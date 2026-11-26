@@ -464,6 +464,13 @@ class RuntimeSafetyGuard:
             return None
         return await reader()
 
+    def get_post_on_native_phase(self, receipt: OutputCommandReceipt) -> Dict[str, Any]:
+        """Expose ancillary post-ON evidence from the existing physical adapter."""
+        reader = getattr(self.adapter, "get_post_on_native_phase", None)
+        if not callable(reader):
+            return {"status": "NOT_OBSERVED", "reason": "native_backend_unavailable"}
+        return reader(receipt)
+
     async def turn_off(self, entity_id: Optional[str] = None) -> bool:
         return await self._ensure_output_off("requested output shutdown", entity_id)
 

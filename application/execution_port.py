@@ -285,6 +285,7 @@ class ExecutionPort:
         identity: Any,
         recipe_voltage_ceiling_v: float,
         on_receipt_observed: Optional[Callable[[OutputCommandReceipt], Any]] = None,
+        on_native_phase_observed: Optional[Callable[[OutputCommandReceipt, Mapping[str, Any]], Any]] = None,
     ) -> ExecutionPortResult:
         if self._recovery_quarantined() or self.guarded_restore_activated_off:
             reason = ("guarded_restore_resume_gate_pending" if self.guarded_restore_activated_off
@@ -318,6 +319,16 @@ class ExecutionPort:
                 except Exception:
                     # Observation is ancillary; it cannot alter an accepted
                     # physical transaction or trigger another actuator call.
+                    pass
+            if accepted and on_native_phase_observed is not None and observation.receipt is not None:
+                try:
+                    reader = getattr(self._execution_owner, "get_post_on_native_phase", None)
+                    phase = reader(observation.receipt) if callable(reader) else {
+                        "status": "NOT_OBSERVED", "reason": "native_backend_unavailable",
+                    }
+                    on_native_phase_observed(observation.receipt, phase)
+                except Exception:
+                    # Ancillary phase evidence cannot affect the accepted ON path.
                     pass
             return self._result(
                 intent, identity, "enable", accepted, accepted,

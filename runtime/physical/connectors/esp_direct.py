@@ -38,6 +38,10 @@ class ESPDirectConnector(IndependentPhysicalConnector):
         """Expose the read-only native ESPHome SensorState output report."""
         return await self.transport.get_physical_output_report()
 
+    def get_post_on_native_phase(self, receipt: Any) -> dict[str, Any]:
+        """Read cached callbacks from this connector's existing Native client."""
+        return self.transport.get_post_on_native_phase(receipt)
+
     async def press_button(self, entity_id: str) -> bool:
         """Invoke an explicitly mapped edge button through native API."""
         return await self.transport.press_button(entity_id)

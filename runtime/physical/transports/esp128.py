@@ -5,6 +5,7 @@ import time
 import asyncio
 import inspect
 import json
+import math
 import uuid
 from datetime import datetime, timezone
 from collections.abc import Callable
@@ -36,6 +37,9 @@ class ESPHomeTransport(ReadOnlyTransport):
         self._state_updated_at: dict[tuple[str, int], float] = {}
         self._state_reported_at: dict[tuple[str, int], float] = {}
         self._state_types: dict[tuple[str, int], str] = {}
+        # Keep the exact callback objects for request-scoped Native evidence.
+        # Keys include the Native info domain because ESPHome keys can collide.
+        self._native_callback_records: dict[tuple[str, int], tuple[Any, float, int, Any, Any]] = {}
         self._state_subscription_remover: Callable[[], None] | None = None
         self._connection_closed_remover: Callable[[], None] | None = None
         self._state_subscription_lock = asyncio.Lock()
@@ -85,6 +89,7 @@ class ESPHomeTransport(ReadOnlyTransport):
         self._state_updated_at.clear()
         self._state_reported_at.clear()
         self._state_types.clear()
+        self._native_callback_records.clear()
         self._output_receipts.clear()
         for event in self._output_receipt_events.values():
             event.set()
@@ -126,8 +131,12 @@ class ESPHomeTransport(ReadOnlyTransport):
             if type(entity).__name__ != expected_info:
                 continue
             identity = (type(entity).__name__, int(entity.key))
+            callback_monotonic = time.monotonic()
+            self._native_callback_records[identity] = (
+                state, callback_monotonic, self._native_connection_generation, self.client, self
+            )
             self._state_cache.setdefault(identity, {})[state_type] = value
-            self._state_updated_at[identity] = time.monotonic()
+            self._state_updated_at[identity] = callback_monotonic
             self._state_reported_at[identity] = time.time()
             self._state_types[identity] = state_type
             status_id = self.config.entities.get("output_command_status")
@@ -333,6 +342,64 @@ class ESPHomeTransport(ReadOnlyTransport):
         if numeric not in (0.0, 1.0):
             return None, {**meta, "status": "invalid_value", "expected_values": [0, 1]}
         return value, meta
+
+    def get_post_on_native_phase(self, receipt: OutputCommandReceipt) -> dict[str, Any]:
+        """Project callback records from this exact transport after an accepted ON."""
+        from runtime.output.command_receipt_observation import same_observation_origin
+        if not same_observation_origin(receipt, source_transport=self, source_client=self.client):
+            return {"status": "NOT_OBSERVED", "reason": "command_transport_origin_mismatch"}
+        generation = self._native_connection_generation
+        if (self._reconnecting_subscription or self.client is None
+                or not isinstance(receipt, OutputCommandReceipt)
+                or type(receipt.connection_generation) is not int
+                or isinstance(receipt.terminal_completed_monotonic, bool)
+                or not isinstance(receipt.terminal_completed_monotonic, (int, float))
+                or not math.isfinite(float(receipt.terminal_completed_monotonic))
+                or receipt.connection_generation != generation
+                or not receipt.requested_target or receipt.terminal_status != "APPLIED"):
+            return {"status": "NOT_OBSERVED", "reason": "connection_or_receipt_mismatch"}
+        fields = {"output_r18": "output_state", "voltage_v": "voltage", "current_a": "current"}
+        records: dict[str, Any] = {}
+        captured_at = time.monotonic()
+        for field, config_key in fields.items():
+            object_id = self.config.entities.get(config_key)
+            matches = [item for item in self.entities
+                       if str(item.object_id) == str(object_id)
+                       and type(item).__name__ == "SensorInfo"]
+            if len(matches) != 1:
+                return {"status": "NOT_OBSERVED", "reason": "native_sensor_missing_or_ambiguous"}
+            entity = matches[0]
+            identity = ("SensorInfo", int(entity.key))
+            record = self._native_callback_records.get(identity)
+            if record is None:
+                return {"status": "NOT_OBSERVED", "reason": "native_callback_missing"}
+            state, timestamp, callback_generation, source_client, source_transport = record
+            if (type(state).__name__ != "SensorState" or source_client is not self.client
+                    or source_transport is not self
+                    or callback_generation != generation or type(state.key) is not int
+                    or state.key != int(entity.key)
+                    or timestamp <= receipt.terminal_completed_monotonic
+                    or timestamp > captured_at
+                    or captured_at - timestamp > 8.0):
+                return {"status": "NOT_OBSERVED", "reason": "native_callback_not_post_on_same_connection"}
+            records[field] = {
+                "state": state, "value": getattr(state, "state", None),
+                "object_id": str(entity.object_id), "key": int(entity.key),
+                "device_id": int(entity.device_id), "native_type": type(state).__name__,
+                "source": "esp_native_api", "subscription_timestamp_monotonic": timestamp,
+                "age_s": captured_at - timestamp,
+                "connection_generation": callback_generation,
+            }
+        if (self._native_connection_generation != generation or self.client is None
+                or any(item["connection_generation"] != generation for item in records.values())
+                or len({item["device_id"] for item in records.values()}) != 1
+                or any(type(records[field]["value"]) not in (float, int)
+                       or not math.isfinite(float(records[field]["value"]))
+                       for field in ("voltage_v", "current_a"))
+                or type(records["output_r18"]["value"]) is not int
+                or records["output_r18"]["value"] != 1):
+            return {"status": "NOT_OBSERVED", "reason": "connection_changed_or_output_not_on"}
+        return {"status": "OBSERVED", "records": records, "connection_generation": generation}
 
     async def press_button(self, entity_id: str) -> bool:
         """Invoke one explicitly mapped native ESPHome button."""
@@ -554,7 +621,7 @@ class ESPHomeTransport(ReadOnlyTransport):
         receipt = await self.command_output_with_receipt(enabled)
         if enabled:
             from runtime.output.command_receipt_observation import observe_applied_on
-            observe_applied_on(receipt)
+            observe_applied_on(receipt, source_transport=self, source_client=getattr(self, "client", None))
         return json.loads(receipt.raw_terminal_identity)
 
     async def command_output_with_receipt(self, enabled: bool) -> OutputCommandReceipt:
@@ -642,6 +709,7 @@ class ESPHomeTransport(ReadOnlyTransport):
         self._state_updated_at.clear()
         self._state_reported_at.clear()
         self._state_types.clear()
+        self._native_callback_records.clear()
         self._output_receipts.clear()
         for event in self._output_receipt_events.values():
             event.set()
