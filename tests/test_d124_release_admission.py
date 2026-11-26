@@ -39,6 +39,25 @@ class D124AdmissionTests(unittest.TestCase):
         a=classify(["esphome/rd6018.yaml"])
         self.assertEqual(a.classification,"firmware_physical_change")
         self.assertTrue(a.requires_repeat_all_physical_cases)
+    def test_python_only_source_change_does_not_imply_a_firmware_flash(self):
+        paths=["application/execution_port.py", "esphome/rd6018.yaml"]
+        physical=classify(paths)
+        self.assertEqual(physical.classification,"firmware_physical_change")
+        self.assertTrue(physical.requires_repeat_all_physical_cases)
+        software=classify(paths,software_only_transaction=True)
+        self.assertEqual(software.classification,"python_control_change")
+        self.assertEqual(software.changed_firmware_paths,("esphome/rd6018.yaml",))
+        self.assertTrue(software.requires_targeted_control_validation)
+        self.assertTrue(software.requires_fresh_native_off)
+        self.assertTrue(software.requires_d090_rollback)
+        self.assertFalse(software.requires_repeat_all_physical_cases)
+
+    def test_firmware_version_change_still_requires_physical_gate(self):
+        a=classify(["application/execution_port.py", "esphome/rd6018.yaml"],
+                   firmware_version_changed=True, software_only_transaction=True)
+        self.assertEqual(a.classification,"firmware_physical_change")
+        self.assertTrue(a.requires_repeat_all_physical_cases)
+
     def test_operator_firmware_identity_does_not_force_repeat(self):
         self.assertFalse(classify(["bot.py"],firmware_version_changed=False).requires_repeat_all_physical_cases)
     def test_d090_owner_calls_admission_before_staging_and_activation(self):

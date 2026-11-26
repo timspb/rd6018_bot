@@ -44,7 +44,11 @@ def load_software_release_profile(path: Path) -> tuple[release.ReleaseManifest, 
     changed=obj["changed_paths"]
     if type(changed) is not list or len(changed)!=len(set(changed)):
         raise ValueError("release diff inventory must be unique")
-    verdict=classify(changed)
-    if verdict.classification!="python_control_change" or verdict.changed_firmware_paths:
-        raise ValueError("release contains firmware or lacks control change")
+    # The software transaction only installs app/venv; changed ESPHome sources
+    # are not evidence of a firmware flash. Preserve their canonical Git bytes.
+    # The pinned firmware identity, unchanged-firmware physical evidence,
+    # Native OFF verification and existing D090 rollback remain mandatory.
+    verdict=classify(changed, software_only_transaction=True)
+    if verdict.classification!="python_control_change":
+        raise ValueError("release contains firmware version change or lacks control change")
     return pin,inventory,obj

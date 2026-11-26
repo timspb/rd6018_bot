@@ -34,8 +34,17 @@ class SoftwareD090ProfileTests(unittest.TestCase):
         self.assertEqual(pin.source_sha,NEW)
         self.assertEqual(old,'c'*64)
         self.assertEqual(record['mode'],'python_control_change')
-    def test_firmware_paths_not_allowed(self):
+    def test_firmware_source_paths_without_flash_keep_real_firmware_pin(self):
         data=profile();data['changed_paths']+=['esphome/rd6018.yaml']
+        pin, old, record=self.read(data)
+        self.assertIsNone(pin.firmware_digest)
+        self.assertEqual(record['changed_paths'][-1],'esphome/rd6018.yaml')
+        self.assertEqual(old,'c'*64)
+        data['pin']['firmware_digest']='f'*64
+        with self.assertRaises(ValueError):self.read(data)
+
+    def test_firmware_source_only_cannot_pass_a_python_control_release(self):
+        data=profile();data['changed_paths']=['esphome/rd6018.yaml']
         with self.assertRaises(ValueError):self.read(data)
     def test_missing_preimage_not_allowed(self):
         data=profile();data['preimage_inventory_sha256']=''

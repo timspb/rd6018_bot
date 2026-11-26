@@ -31,15 +31,20 @@ class Admission:
     requires_operator_signature: bool = False
 
 
-def classify(changed_paths: list[str], *, firmware_version_changed: bool = False) -> Admission:
+def classify(changed_paths: list[str], *, firmware_version_changed: bool = False,
+             software_only_transaction: bool = False) -> Admission:
     if not changed_paths or any(not isinstance(p, str) or not p or
                                 PurePosixPath(p).is_absolute() or ".." in PurePosixPath(p).parts
                                 for p in changed_paths):
         raise ValueError("missing or invalid change inventory")
     control = tuple(sorted({p for p in changed_paths if p.startswith(CONTROL_PREFIXES)}))
     firmware = tuple(sorted({p for p in changed_paths if p.startswith(FIRMWARE_PREFIXES)}))
-    category = "firmware_physical_change" if firmware or firmware_version_changed else (
+    # The Python-only D090 transaction may carry new firmware *source* files,
+    # but it does not flash the device. A reported firmware version change
+    # always remains physical, and the default classifier is fail-closed.
+    physical_firmware_change = bool(firmware_version_changed or (firmware and not software_only_transaction))
+    category = "firmware_physical_change" if physical_firmware_change else (
         "python_control_change" if control else "python_noncontrol_change"
     )
     return Admission(category, control, firmware, bool(control or firmware or firmware_version_changed),
-                     requires_repeat_all_physical_cases=bool(firmware or firmware_version_changed))
+                     requires_repeat_all_physical_cases=physical_firmware_change)
