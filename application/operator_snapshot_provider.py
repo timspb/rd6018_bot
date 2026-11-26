@@ -24,6 +24,147 @@ from .operator_actions import OperatorAction, OperatorActionSpec, OperatorAction
 from .intents import IntentDispatcher, OperatorIntent
 
 
+def build_legacy_ai_context_text(
+    live: Mapping[str, Any],
+    controller: Mapping[str, Any],
+    *,
+    safe_float,
+    canonical_bool,
+    format_snapshot,
+    format_events,
+    strategy_snapshot: Mapping[str, Any],
+    strategy_events,
+) -> str:
+    """Render the legacy Russian AI snapshot from already-read facts only."""
+    v_out = safe_float(live.get("voltage", 0.0))
+    i_out = safe_float(live.get("current", 0.0))
+    p_out = safe_float(live.get("power", 0.0))
+    v_batt = safe_float(live.get("battery_voltage", 0.0))
+    ah = safe_float(live.get("ah", 0.0))
+    wh = safe_float(live.get("wh", 0.0))
+    v_set = safe_float(live.get("set_voltage", 0.0))
+    i_set = safe_float(live.get("set_current", 0.0))
+    ovp = safe_float(live.get("ovp", 0.0))
+    ocp = safe_float(live.get("ocp", 0.0))
+    output_on = str(live.get("switch", "")).lower() == "on"
+    cv_mode = canonical_bool(live, "is_cv")
+    cc_mode = canonical_bool(live, "is_cc")
+    t_internal = safe_float(live.get("temp_int", 0.0))
+    t_external = safe_float(live.get("temp_ext", 0.0))
+    v_input = safe_float(live.get("input_voltage", 0.0)) or 0.0
+    uptime = live.get("uptime", "неизвестно")
+
+    capacity_ah = controller.get("capacity_ah", 0)
+    capacity_known = bool(controller.get("is_active")) and int(capacity_ah or 0) > 0
+    controller_info = ""
+    if controller.get("is_active"):
+        timers = controller.get("timers") or {}
+        controller_info = f"""
+Контроллер заряда:
+- Активный этап: {controller.get('stage')}
+- Тип АКБ: {controller.get('battery_type')}
+- Заданная емкость: {capacity_ah}Ач
+- Общее время: {timers['total_time']}
+- Время этапа: {timers['stage_time']}
+- Лимит этапа: {timers['remaining_time']}"""
+
+    controller_info += f"""
+
+Карточка стратегии:
+{format_snapshot(strategy_snapshot)}"""
+    if strategy_events:
+        controller_info += f"""
+
+Последние важные события:
+{format_events(strategy_events, limit=8)}"""
+    context = f"""ПОЛНЫЙ СЛЕПОК RD6018:
+
+Статус выхода: {"ON" if output_on else "OFF"} (включен/выключен)
+Емкость известна: {"да" if capacity_known else "нет"}
+Емкость АКБ: {capacity_ah if capacity_known else "UNKNOWN"} Ач
+
+Электрика:
+- Напряжение на выходе: {v_out:.3f}В
+- Ток нагрузки: {i_out:.3f}А
+- Мощность: {p_out:.2f}Вт
+- Напряжение на клеммах АКБ: {v_batt:.3f}В
+
+Счетчики:
+- Накопленная емкость: {ah:.3f} Ач
+- Накопленная энергия: {wh:.2f} Вч
+
+Уставки:
+- Целевое напряжение: {v_set:.2f}В
+- Лимит тока: {i_set:.2f}А
+- Защита перенапряжения: {ovp:.1f}В
+- Защита перетока: {ocp:.1f}А
+
+Статусы:
+- Выход включен: {'да' if output_on else 'нет'}
+- Режим стабилизации напряжения: {'да' if cv_mode else 'нет'}
+- Режим стабилизации тока: {'да' if cc_mode else 'нет'}
+- Режим измерения АКБ: {'да' if not output_on else 'нет'}
+
+Температура:
+- Температура блока: {t_internal:.1f}°C
+- Температура АКБ: {t_external:.1f}°C
+
+Система:
+- Входное напряжение БП: {v_input:.1f}В
+- Время работы: {uptime}{controller_info}"""
+    return context
+
+
+def append_legacy_ai_log_events(context: str, events) -> str:
+    """Append the separate legacy five-event window to rendered context."""
+    if not events:
+        return context
+    context += "\n\nПоследние события из лога:\n"
+    for event in events:
+        context += f"- {event}\n"
+    return context
+
+
+def build_legacy_ai_context_dict(
+    live: Mapping[str, Any],
+    controller: Mapping[str, Any],
+    strategy_snapshot: Mapping[str, Any],
+    *,
+    safe_float,
+) -> dict[str, Any]:
+    """Assemble the legacy UNKNOWN-safe AI shape from read-only facts."""
+    unknown: dict[str, Any] = {
+        "output_status": "UNKNOWN",
+        "current_stage": "UNKNOWN",
+        "battery_type": "UNKNOWN",
+        "mode": "UNKNOWN",
+        "capacity_ah": "UNKNOWN",
+        "capacity_known": False,
+        "remaining_time": "—",
+        "v_batt_now": None,
+        "i_now": None,
+        "temp_ext_now": None,
+        "temp_int_now": None,
+    }
+    capacity = controller.get("capacity_ah") or 0
+    capacity_known = float(capacity) > 0
+    timers = strategy_snapshot.get("timers") or {}
+    return {
+        **unknown,
+        "output_status": "ON" if str(live.get("switch", "")).lower() == "on" else "OFF",
+        "current_stage": strategy_snapshot.get("stage", controller.get("stage", "UNKNOWN")),
+        "battery_type": strategy_snapshot.get("profile", controller.get("battery_type", "UNKNOWN")),
+        "mode": strategy_snapshot.get("phase", "UNKNOWN"),
+        "capacity_ah": int(capacity) if capacity_known else "UNKNOWN",
+        "capacity_known": capacity_known,
+        "remaining_time": timers.get("remaining_time", "—"),
+        "v_batt_now": safe_float(live.get("battery_voltage")),
+        "i_now": safe_float(live.get("current")),
+        "temp_ext_now": safe_float(live.get("temp_ext")),
+        "temp_int_now": safe_float(live.get("temp_int")),
+    }
+
+
 class OperatorSnapshotProvider:
     """Expose sanitized operator views from an explicit read source.
 

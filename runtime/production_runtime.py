@@ -95,6 +95,11 @@ from rd6018_telemetry import as_bool, telemetry_freshness, finite_float
 from time_utils import format_time_user_tz
 import html
 from application.intents import OperatorIntent, OperatorIntentKind
+from application.operator_snapshot_provider import (
+    append_legacy_ai_log_events,
+    build_legacy_ai_context_dict,
+    build_legacy_ai_context_text,
+)
 from pb_domain import BatteryCondition, ChargeIntent
 from manual_mode import ManualUIIntent
 from runtime.ui.components.off_condition_status import format_operator_off_conditions
@@ -2779,126 +2784,29 @@ async def get_ai_context() -> str:
     """Получить полный слепок данных RD6018 для AI анализа."""
     try:
         live = await hass.get_all_live()
-        
-        # Электрические параметры
-        v_out = _safe_float(live.get("voltage", 0.0))
-        i_out = _safe_float(live.get("current", 0.0))
-        p_out = _safe_float(live.get("power", 0.0))
-        v_batt = _safe_float(live.get("battery_voltage", 0.0))
-        
-        # Счетчики
-        ah = _safe_float(live.get("ah", 0.0))
-        wh = _safe_float(live.get("wh", 0.0))
-        
-        # Уставки
-        v_set = _safe_float(live.get("set_voltage", 0.0))
-        i_set = _safe_float(live.get("set_current", 0.0))
-        ovp = _safe_float(live.get("ovp", 0.0))
-        ocp = _safe_float(live.get("ocp", 0.0))
-        
-        # Статусы
-        output_on = str(live.get("switch", "")).lower() == "on"
-        cv_mode = _canonical_bool(live, "is_cv")
-        cc_mode = _canonical_bool(live, "is_cc")
-        battery_mode = not output_on  # Режим батареи = выход выключен
-        
-        # Температуры
-        t_internal = _safe_float(live.get("temp_int", 0.0))
-        t_external = _safe_float(live.get("temp_ext", 0.0))
-        
-        # Системные параметры (если доступны в HA)
-        v_input = _safe_float(live.get("input_voltage", 0.0)) or 0.0  # Может отсутствовать
-        uptime = live.get("uptime", "неизвестно")
-        
-        # Данные контроллера заряда
-        controller_info = ""
-        capacity_known = False
-        capacity_ah = 0
-        controller_snapshot = {
-            "stage": "Idle",
-            "profile": "UNKNOWN",
-            "is_active": False,
-            "summary": "Активный заряд не идет.",
-            "transition": "Активный переход отсутствует.",
-            "next_stage": "Idle",
-            "timers": {"total_time": "—", "stage_time": "—", "remaining_time": "—"},
-            "hold": None,
-            "safety": {},
-            "target_voltage": 0.0,
-            "target_current": 0.0,
-        }
+        controller_facts = {"is_active": bool(charge_controller.is_active)}
         recent_events = get_recent_events(8)
         if charge_controller.is_active:
             timers = charge_controller.get_timers()
-            capacity_ah = int(getattr(charge_controller, "ah_capacity", 0) or 0)
-            capacity_known = capacity_ah > 0
-            controller_info = f"""
-Контроллер заряда:
-- Активный этап: {charge_controller.current_stage}
-- Тип АКБ: {charge_controller.battery_type}
-- Заданная емкость: {capacity_ah}Ач
-- Общее время: {timers['total_time']}
-- Время этапа: {timers['stage_time']}
-- Лимит этапа: {timers['remaining_time']}"""
-        controller_snapshot = _safe_stage_snapshot(t_external)
-
-        controller_info += f"""
-
-Карточка стратегии:
-{format_ai_snapshot(controller_snapshot)}"""
-        if recent_events:
-            controller_info += f"""
-
-Последние важные события:
-{format_recent_events(recent_events, limit=8)}"""
-        output_status = "ON" if output_on else "OFF"
-        
-        # Формируем полный контекст
-        context = f"""ПОЛНЫЙ СЛЕПОК RD6018:
-
-Статус выхода: {output_status} (включен/выключен)
-Емкость известна: {"да" if capacity_known else "нет"}
-Емкость АКБ: {capacity_ah if capacity_known else "UNKNOWN"} Ач
-
-Электрика:
-- Напряжение на выходе: {v_out:.3f}В
-- Ток нагрузки: {i_out:.3f}А
-- Мощность: {p_out:.2f}Вт
-- Напряжение на клеммах АКБ: {v_batt:.3f}В
-
-Счетчики:
-- Накопленная емкость: {ah:.3f} Ач
-- Накопленная энергия: {wh:.2f} Вч
-
-Уставки:
-- Целевое напряжение: {v_set:.2f}В
-- Лимит тока: {i_set:.2f}А
-- Защита перенапряжения: {ovp:.1f}В
-- Защита перетока: {ocp:.1f}А
-
-Статусы:
-- Выход включен: {'да' if output_on else 'нет'}
-- Режим стабилизации напряжения: {'да' if cv_mode else 'нет'}
-- Режим стабилизации тока: {'да' if cc_mode else 'нет'}
-- Режим измерения АКБ: {'да' if battery_mode else 'нет'}
-
-Температура:
-- Температура блока: {t_internal:.1f}°C
-- Температура АКБ: {t_external:.1f}°C
-
-Система:
-- Входное напряжение БП: {v_input:.1f}В
-- Время работы: {uptime}{controller_info}"""
-        
-        # Последние события из лога
-        from charging_log import get_recent_events
-        recent_events = get_recent_events(5)
-        if recent_events:
-            context += "\n\nПоследние события:\n"
-            for event in recent_events:
-                context += f"- {event}\n"
-        
-        return context
+            controller_facts.update({
+                "stage": charge_controller.current_stage,
+                "battery_type": charge_controller.battery_type,
+                "capacity_ah": int(getattr(charge_controller, "ah_capacity", 0) or 0),
+                "timers": timers,
+            })
+        strategy_snapshot = _safe_stage_snapshot(_safe_float(live.get("temp_ext", 0.0)))
+        context = build_legacy_ai_context_text(
+            live,
+            controller_facts,
+            safe_float=_safe_float,
+            canonical_bool=_canonical_bool,
+            format_snapshot=format_ai_snapshot,
+            format_events=format_recent_events,
+            strategy_snapshot=strategy_snapshot,
+            strategy_events=recent_events,
+        )
+        log_events = get_recent_events(5)
+        return append_legacy_ai_log_events(context, log_events)
     except Exception as ex:
         return f"Ошибка получения AI контекста: {ex}"
 
@@ -2910,41 +2818,23 @@ async def get_ai_context_dict() -> Dict[str, Any]:
     compatibility shape is intentionally read-only and fails closed to
     explicit UNKNOWN values when telemetry or a controller snapshot is absent.
     """
-    unknown: Dict[str, Any] = {
-        "output_status": "UNKNOWN",
-        "current_stage": "UNKNOWN",
-        "battery_type": "UNKNOWN",
-        "mode": "UNKNOWN",
-        "capacity_ah": "UNKNOWN",
-        "capacity_known": False,
-        "remaining_time": "—",
-        "v_batt_now": None,
-        "i_now": None,
-        "temp_ext_now": None,
-        "temp_int_now": None,
-    }
     try:
         live = await hass.get_all_live()
         snapshot = _safe_stage_snapshot(_safe_float(live.get("temp_ext"))) or {}
-        capacity = getattr(charge_controller, "ah_capacity", 0) or 0
-        capacity_known = float(capacity) > 0
-        return {
-            **unknown,
-            "output_status": "ON" if str(live.get("switch", "")).lower() == "on" else "OFF",
-            "current_stage": snapshot.get("stage", getattr(charge_controller, "current_stage", "UNKNOWN")),
-            "battery_type": snapshot.get("profile", getattr(charge_controller, "battery_type", "UNKNOWN")),
-            "mode": snapshot.get("phase", "UNKNOWN"),
-            "capacity_ah": int(capacity) if capacity_known else "UNKNOWN",
-            "capacity_known": capacity_known,
-            "remaining_time": (snapshot.get("timers") or {}).get("remaining_time", "—"),
-            "v_batt_now": _safe_float(live.get("battery_voltage")),
-            "i_now": _safe_float(live.get("current")),
-            "temp_ext_now": _safe_float(live.get("temp_ext")),
-            "temp_int_now": _safe_float(live.get("temp_int")),
+        controller_facts = {
+            "capacity_ah": getattr(charge_controller, "ah_capacity", 0) or 0,
+            "stage": getattr(charge_controller, "current_stage", "UNKNOWN"),
+            "battery_type": getattr(charge_controller, "battery_type", "UNKNOWN"),
         }
+        return build_legacy_ai_context_dict(live, controller_facts, snapshot, safe_float=_safe_float)
     except Exception as ex:
         logger.warning("get_ai_context_dict: unavailable: %s", ex)
-        return unknown
+        return {
+            "output_status": "UNKNOWN", "current_stage": "UNKNOWN", "battery_type": "UNKNOWN",
+            "mode": "UNKNOWN", "capacity_ah": "UNKNOWN", "capacity_known": False,
+            "remaining_time": "—", "v_batt_now": None, "i_now": None,
+            "temp_ext_now": None, "temp_int_now": None,
+        }
 
 
 async def get_current_context_for_llm() -> str:

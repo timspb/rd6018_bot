@@ -1,5 +1,30 @@
 # RD6018 Bot V3 Project Runbook
 
+## 2026-11-26 B981 — legacy AI context read-model owner
+
+At supplied code HEAD `0ad42776d1007ad32ca7171c0a0afe4ace1e9a9d`, moved the
+legacy Russian text renderer and structured UNKNOWN-safe AI context assembly
+into pure builders in the existing `application/operator_snapshot_provider.py`.
+`runtime.production_runtime` retains its compatibility async functions and
+owns each single live read, controller/timer and strategy snapshot reads,
+event-source reads, and existing exception/log behavior. The text event
+windows remain separate and ordered 8 then 5; all formatting is delegated to
+the application read model with existing safe and AI formatting adapters.
+The application projection performs no I/O and adds no control or AI
+authority. Runtime lost 146 lines of context-body code.
+
+Fake-only focused run via `/usr/bin/env` with inert syntactically valid
+`TG_TOKEN`, `PYTHONPATH=tests`, and `/home/home-pc/.venvs/pcp-test/bin/python`:
+`test_ai_dialog_context test_ai_telegram_dialog
+test_legacy_ai_context_read_models` — **10 PASS**. Coverage includes exact
+Idle text, Active runtime delegation and 8/5 event order, structured Active
+and UNKNOWN values. `py_compile` and `git diff --check` pass; no full suite.
+Code HEAD remains the supplied SHA, tracked upstream gap 0/0, worktree
+uncommitted. Node104 HANDS_OFF/deployment was not inspected. P0–P9 remains
+**97/103**. No physical, ESP/HA, network, production, deployment, commit, or
+push action occurred. Details: `B981_REPORT.md`. Next: independent ChatGPT
+review.
+
 ## 2026-11-26 B980 — Telegram free-text parser owner
 
 At exact supplied code HEAD `23574b54493cddcc30f4878bf72271d232933837`

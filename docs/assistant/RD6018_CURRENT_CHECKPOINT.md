@@ -1,5 +1,32 @@
 # RD6018 — CURRENT CHECKPOINT (2026-11-03)
 
+## 2026-11-26 B981 — legacy AI context read-model owner
+
+At supplied code HEAD `0ad42776d1007ad32ca7171c0a0afe4ace1e9a9d`, moved the
+legacy Russian human-readable AI context renderer and structured
+UNKNOWN-safe dictionary assembly out of `runtime/production_runtime.py` and
+into pure builders in the existing `application/operator_snapshot_provider.py`.
+Runtime retains the two async compatibility APIs, one live read per call,
+controller/timer/strategy snapshot reads, event fetching, and existing
+exception-as-string versus warning/UNKNOWN semantics. It injects existing
+safe numeric/boolean and AI formatting adapters. Text rendering preserves
+the 8-event strategy window followed by the separate 5-event log window;
+Idle layout and formatting are exact. No projection I/O or authority was
+added. Runtime context implementation reduced by 146 lines.
+
+Focused fake-only command via `/usr/bin/env` with inert syntactically valid
+token, `PYTHONPATH=tests`, and `/home/home-pc/.venvs/pcp-test/bin/python`:
+`test_ai_dialog_context test_ai_telegram_dialog
+test_legacy_ai_context_read_models` — **10 PASS**. New coverage checks exact
+Idle text, Active runtime delegation/read and event order, plus structured
+Active and UNKNOWN projections. `py_compile` and `git diff --check` pass; no
+full suite. Exact code HEAD remains supplied SHA; tracked upstream is
+`origin/codex/rd6018-ui-telegram-parser-20261126`, ahead/behind `0/0`. Source,
+tests and docs are uncommitted. Node104 HANDS_OFF/deployment status was not
+inspected and is not claimed. P0–P9 remains **97/103**. No node, ESP/HA,
+hardware, network, production, deployment, commit or push action occurred.
+Evidence: `B981_REPORT.md`. Next: independent ChatGPT review.
+
 ## 2026-11-26 B980 — Telegram free-text parser owner
 
 At supplied exact code HEAD `23574b54493cddcc30f4878bf72271d232933837`
