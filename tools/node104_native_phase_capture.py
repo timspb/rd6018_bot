@@ -76,6 +76,8 @@ def capture_native_phase(
             "value": value,
             "source": "esp_native_api",
             "native_type": "SensorState",
+            "object_id": field,
+            "actual_object_id": meta["actual_object_id"],
             "source_key": key,
             "device_id": device_id,
             "connection_generation": generation,

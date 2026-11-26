@@ -21,6 +21,7 @@ if TOOLS not in sys.path:
     sys.path.insert(0, TOOLS)
 import node104_d091_physical_proof_collector as ro
 import node104_d106_readonly_projection as projection
+from node104_native_phase_capture import capture_native_phase
 
 # Actual physical register, configured readback and authority entity keys.
 ENTITY = {
@@ -194,8 +195,11 @@ def _validate_callback_cache_generation(field: str, callback: tuple, cached: dic
             raise ro.ProofError("native same-callback/cache disagreement: " + field)
 
 
-async def collect_live() -> dict:
+async def collect_live(*, phase_observation: bool = False) -> dict:
     """The actual read-only adapter; requires an installed node104 app/runtime."""
+    if type(phase_observation) is not bool:
+        raise ValueError("phase_observation must be bool")
+    phase_started = time.monotonic()
     pid, count = ro._service_identity()
     ro._load_service_environment(pid)
     if str(ro.APP) not in sys.path:
@@ -241,6 +245,25 @@ async def collect_live() -> dict:
             ("current_a", native_measurements["current"]),
         ):
             native[field] = _native_callback_record(field, callback, inventory, now)
+        if phase_observation:
+            phase_capture_time = time.monotonic()
+            phase_records = {
+                field: native[field]
+                for field in ("output_r18", "voltage_v", "current_a")
+            }
+            phase = capture_native_phase(
+                phase_records, phase_started_monotonic=phase_started,
+                captured_at_monotonic=phase_capture_time,
+            )
+            return {
+                "native_phase_observation": {
+                    "phase": "ON" if phase["output_r18"]["value"] == 1 else "OFF",
+                    "records": phase,
+                    "captured_at_monotonic": phase_capture_time,
+                    "device_info": device_info,
+                },
+                "observed_pid": pid, "bot_process_count": count,
+            }
         required_ha = {
             field: hc.entities.get(ENTITY[field]) for field in projection.HA_FIELDS}
         if not all(required_ha.values()):
@@ -281,7 +304,9 @@ async def collect_live() -> dict:
 
 def main() -> int:
     try:
-        value = asyncio.run(asyncio.wait_for(collect_live(), timeout=40))
+        phase_observation = "--phase-observation" in sys.argv[1:]
+        value = asyncio.run(asyncio.wait_for(
+            collect_live(phase_observation=phase_observation), timeout=40))
         print(json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False))
         return 0
     except Exception as exc:
