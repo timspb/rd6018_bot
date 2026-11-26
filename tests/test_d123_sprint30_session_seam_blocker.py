@@ -38,11 +38,15 @@ class OrdinaryRestoreSnapshotOwnershipTests(unittest.TestCase):
 
     def test_schema_assembly_and_atomic_completion_remain_single_owner(self):
         persistence = (ROOT / "runtime/charge/persistence.py").read_text()
+        projection_owner = (ROOT / "runtime/charge/session_document_projection.py").read_text()
         atomic = (ROOT / "runtime/charge/session_atomic.py").read_text()
-        projection = persistence.split("def project_session_document(", 1)[1].split("def save_session(", 1)[0]
         writer = persistence.split("def save_session(", 1)[1].split("def mark_session_interrupted(", 1)[0]
-        self.assertEqual(projection.count('"profile": host.battery_type'), 1)
-        self.assertIn("data = complete_session_document(", projection)
+        self.assertEqual(projection_owner.count("def project_session_document("), 1)
+        self.assertEqual(projection_owner.count('"profile": host.battery_type'), 1)
+        self.assertIn("data = complete_session_document(", projection_owner)
+        self.assertIn("from runtime.charge.session_document_projection import (", persistence)
+        self.assertIn("project_session_document,", persistence)
+        self.assertNotIn("def project_session_document(", persistence)
         self.assertIn("atomic_session_write(", writer)
         self.assertIn("def complete_session_document(", atomic)
 

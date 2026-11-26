@@ -8849,3 +8849,35 @@ paths, commands, limitations and next owner slice are in `B1015_REPORT.md`.
 ## 2026-11-26 — B1015 independent controller acceptance (R7.3 completion)
 Existing Wake R7.3 own-chat route delivered exact completion event c8b7ed4228bb43c3a2b6daac96988c67 for rd6018-b1015-20261126-r73-start-pending-owner; server inspector verified ACK attempt_count=1. Controller inspected the full extracted START_PENDING source and original persistence diff; no additional session owner/writer, persisted file, timeout, lock or permission added. Exact AST of the 7 moved classes/functions compared to base 75bb80a4333aeae174ae00ad20f360a88845a4f5 **7/7 PASS**. Direct source compatibility type/function object identity between persistence and start_pending **8/8 PASS**. Existing runtime/charge/session_atomic remains single writer with original compare-replace/delete and fsync; current unchanged START application transaction uses old imports via direct reexports.
 Independent normal HOME-PC WSL Python 3.12 project venv, inert format-valid TG_TOKEN, PYTHONPATH=.:tests:tools: focused START_PENDING/session persistence, START lifecycle and failure/restore, D061 OFF pending and production entrypoint **82/82 PASS (exit 0, 11.802 s)**. Selected py_compile PASS, git diff --check PASS. Executor's 60+3 focused tests also passed, but overlapping suites are not additive acceptance. Prior feature HEAD 75bb80a GitHub CI #2239 run 45799995835 SUCCESS and ESPHome dummy-secrets source compile #158 run 45799996194 SUCCESS (NOT flashed). These do NOT establish full CI on new B1015 code yet. B1015 SOURCE-ONLY accepted. P0-P9 remains 97/103 documentary count, P3/P8 physical and P9 final release HOLD, no node104/HA/ESP/RD hardware/firmware/device/production action. Next: scoped accepted commit and safe fast-forward ONLY feature branch behind Draft PR #182; design next project_session_document owner move with dependency/patch-target review and no duplicate canonical writer or physical authority.
+
+
+## 2026-11-26 — B1016 source-only checkpoint
+
+Run `rd6018-b1016-20261126-r73-session-document-projection`; branch
+`codex/rd6018-b1016-session-document-20261126`; exact base/code HEAD
+`3b217a0c23676c46d039e637bf869481d79729fd`, source uncommitted/unstaged.
+`runtime/charge/session_document_projection.py` now owns the canonical
+candidate projection and the unchanged `_set_done_outcome`; persistence
+directly re-exports identical objects. `save_session` still calls its
+historical public symbol, restore uses the same setter, and
+`session_atomic.py` remains the sole canonical writer. Persistence is 801 LOC
+(post-extraction); focused projection owner is 227 LOC.
+
+Evidence: exact AST parity **2/2**, export identity/default session-path
+checks PASS, six requested modules **65/65 PASS** on the HOME-PC project venv
+(Python 3.12, `PYTHONPATH=.:tests:tools`, inert token), scoped `py_compile`
+PASS; see `B1016_REPORT.md` for exact commands and result. No full suite/CI.
+
+P0–P9 stays **97/103**; P3 physical, P8 hardware/release, P9 integration/
+release HOLD. Node104/HANDS_OFF/deployment and local/origin gap were not
+queried. Supplied PR #182, CI #2240 and ESPHome source #159 were not queried or
+modified and are not evidence for this code. No node/HA/ESP/hardware/device,
+firmware, Output, service, production, network, stage, commit, push, or
+original dirty worktree action. R7.3 completion is launcher-owned; no manual
+wake/ACK. Next: independent source review, then separately authorized
+integration/current-head CI.
+
+
+## 2026-11-26 — B1016 independent controller acceptance (R7.3)
+B1016 Luna run rd6018-b1016-20261126-r73-session-document-projection completed exit0 from base 3b217a0c23676c46d039e637bf869481d79729fd. Exact Wake R7.3 completion event 123a365c5dbe4cdeb700853f54279410 was delivered in own chat and server inspector ACK attempt_count=1 confirmed. Independent controller reviewed source diff, new runtime/charge/session_document_projection.py and changed D123 contract. The existing project_session_document and _set_done_outcome function ASTs are byte-structure equal to base (2/2 PASS); runtime.charge.persistence direct compatibility exports are identical Python objects (2/2 PASS). Candidate projection only READS existing charge_session.json and calls existing session_atomic.complete_session_document; it does not write, does not add a new file, store, timer, service, lock, authorization or ExecutionPort. save_session still invokes persistence.project_session_document so existing monkeypatch seam and one canonical session writer persist. Complete Storage Done priority, START_PENDING fence, guarded MAIN trace document inclusion, terminal measurement fallback and error behavior retained by exact AST.
+Independent normal HOME-PC WSL Python3.12 project venv with inert process-local TG_TOKEN, PYTHONPATH=.:tests:tools: seven scoped modules including deterministic session projection, restore finalization, D123 seam ownership, START_PENDING, START transaction, restore admission and production entrypoint **84/84 PASS exit0 (11.512s)**. Selected py_compile and git diff --check PASS. Prior GitHub CI #2240 on 3b217a0 (run 45801580850) completed SUCCESS; ESPHome dummy-secrets source compilation #159 (run 45801580907) completed SUCCESS, not flashed. Do not attribute that full CI to unpushed B1016 changes. B1016 SOURCE ONLY accepted; P0-P9 still 97/103 documentary checkboxes, P3/P8 physical and P9 final release HOLD. No node104/HA/ESP/RD charger Output/firmware/service/physical/production action. Next source commit and safe fast-forward to Draft PR #182 only; next meaningful ownership seam: persistence.restore_session 336-line persisted snapshot admission/host application, provided existing owners and monkeypatch contracts remain correct.

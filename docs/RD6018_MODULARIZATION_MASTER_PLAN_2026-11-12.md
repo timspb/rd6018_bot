@@ -4460,3 +4460,21 @@ Node104/HANDS_OFF/deployment and local/origin gap were not queried. No
 network/GitHub, device/ESP/HA, firmware, physical, service, staging, commit, or
 push action. P0–P9 remains 97/103; P3/P8 physical and P9 release HOLD. Exact
 paths, commands, limitations and next owner slice are in `B1015_REPORT.md`.
+
+
+## 2026-11-26 — B1016 session-document owner map update
+
+The canonical session candidate projection is now owned by
+`runtime/charge/session_document_projection.py`; `runtime/charge/persistence.py`
+remains the compatibility facade plus save/restore/persistence operations.
+The direct persistence re-export preserves historical consumers and patch
+targets. `_set_done_outcome` has one concrete implementation in the projection
+owner and persistence re-exports it for restore. `session_atomic.py` remains
+the sole canonical completion/atomic writer owner. This source-only owner move
+does not change the synchronized P0–P9 checklist/status (97/103; P3/P8/P9
+HOLD). Exact evidence is in `B1016_REPORT.md` and the current checkpoint.
+
+
+## 2026-11-26 — B1016 independent controller acceptance (R7.3)
+B1016 Luna run rd6018-b1016-20261126-r73-session-document-projection completed exit0 from base 3b217a0c23676c46d039e637bf869481d79729fd. Exact Wake R7.3 completion event 123a365c5dbe4cdeb700853f54279410 was delivered in own chat and server inspector ACK attempt_count=1 confirmed. Independent controller reviewed source diff, new runtime/charge/session_document_projection.py and changed D123 contract. The existing project_session_document and _set_done_outcome function ASTs are byte-structure equal to base (2/2 PASS); runtime.charge.persistence direct compatibility exports are identical Python objects (2/2 PASS). Candidate projection only READS existing charge_session.json and calls existing session_atomic.complete_session_document; it does not write, does not add a new file, store, timer, service, lock, authorization or ExecutionPort. save_session still invokes persistence.project_session_document so existing monkeypatch seam and one canonical session writer persist. Complete Storage Done priority, START_PENDING fence, guarded MAIN trace document inclusion, terminal measurement fallback and error behavior retained by exact AST.
+Independent normal HOME-PC WSL Python3.12 project venv with inert process-local TG_TOKEN, PYTHONPATH=.:tests:tools: seven scoped modules including deterministic session projection, restore finalization, D123 seam ownership, START_PENDING, START transaction, restore admission and production entrypoint **84/84 PASS exit0 (11.512s)**. Selected py_compile and git diff --check PASS. Prior GitHub CI #2240 on 3b217a0 (run 45801580850) completed SUCCESS; ESPHome dummy-secrets source compilation #159 (run 45801580907) completed SUCCESS, not flashed. Do not attribute that full CI to unpushed B1016 changes. B1016 SOURCE ONLY accepted; P0-P9 still 97/103 documentary checkboxes, P3/P8 physical and P9 final release HOLD. No node104/HA/ESP/RD charger Output/firmware/service/physical/production action. Next source commit and safe fast-forward to Draft PR #182 only; next meaningful ownership seam: persistence.restore_session 336-line persisted snapshot admission/host application, provided existing owners and monkeypatch contracts remain correct.
