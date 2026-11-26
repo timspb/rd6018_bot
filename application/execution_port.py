@@ -445,6 +445,7 @@ class ExecutionPort:
         self,
         *,
         allow_hands_off_operator_off: bool = False,
+        on_native_off_observed: Optional[Callable[[OutputCommandReceipt, Mapping[str, Any]], Any]] = None,
     ) -> OutputCommandReceipt | None:
         """Emergency liveness route returning exact AD051 OFF evidence when supported."""
         self._normal_actuation_gate(
@@ -455,11 +456,30 @@ class ExecutionPort:
         operation = getattr(self._execution_owner, "turn_off_with_receipt", None)
         if not callable(operation):
             return None
+        from runtime.output.command_receipt_observation import (
+            begin_observation, reset_observation,
+        )
+        observation, token = begin_observation()
         try:
-            receipt = await operation()
-        except Exception:
-            return None
-        return receipt if isinstance(receipt, OutputCommandReceipt) else None
+            try:
+                receipt = await operation()
+            except Exception:
+                return None
+            if not isinstance(receipt, OutputCommandReceipt):
+                return None
+            if on_native_off_observed is not None and observation.receipt is receipt:
+                try:
+                    reader = getattr(self._execution_owner, "get_post_on_native_phase", None)
+                    sample = reader(receipt) if callable(reader) else {
+                        "status": "NOT_OBSERVED", "reason": "native_backend_unavailable",
+                    }
+                    on_native_off_observed(receipt, sample)
+                except Exception:
+                    # Ancillary readback cannot affect emergency OFF semantics.
+                    pass
+            return receipt
+        finally:
+            reset_observation(token)
 
     @_serialized_normal_execution
     async def request_verified_off_evidence(self) -> VerifiedOffEvidence | None:

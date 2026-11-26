@@ -47,12 +47,25 @@ def observe_applied_on(receipt: object, *, source_transport: object = None, sour
         current.source_client = source_client
 
 
+def observe_applied_off(receipt: object, *, source_transport: object = None, source_client: object = None) -> None:
+    """Capture only the exact typed APPLIED OFF receipt in the active request."""
+    current = _CURRENT.get()
+    if (current is not None and isinstance(receipt, OutputCommandReceipt)
+            and receipt.requested_target is False
+            and receipt.terminal_status == "APPLIED"
+            and type(receipt.observed_r18) is int and receipt.observed_r18 == 0):
+        current.receipt = receipt
+        current.source_transport = source_transport
+        current.source_client = source_client
+
+
 def same_observation_origin(receipt: OutputCommandReceipt, *, source_transport: object,
                             source_client: object) -> bool:
     """Require actual transport and client object identity from the one ON command.
 
-    Per-client connection_generation alone cannot link a receipt to an observer
-    session. The scope is always reset by ExecutionPort.enable in finally.
+    Per-client connection_generation alone cannot link a receipt to its producer
+    and observer session. The scope is reset by its ExecutionPort request in
+    ``finally``.
     """
     current = _CURRENT.get()
     return bool(
