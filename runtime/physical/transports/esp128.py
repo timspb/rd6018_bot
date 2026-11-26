@@ -391,7 +391,7 @@ class ESPHomeTransport(ReadOnlyTransport):
                     or captured_at - timestamp > 8.0):
                 return {"status": "NOT_OBSERVED", "reason": "native_callback_not_post_on_same_connection"}
             records[field] = {
-                "state": state, "value": getattr(state, "state", None),
+                "sensor_info": entity, "state": state, "value": getattr(state, "state", None),
                 "object_id": str(entity.object_id), "key": int(entity.key),
                 "device_id": int(entity.device_id), "native_type": type(state).__name__,
                 "source": "esp_native_api", "subscription_timestamp_monotonic": timestamp,
@@ -411,7 +411,12 @@ class ESPHomeTransport(ReadOnlyTransport):
                     records[field]["value"] != 0 for field in ("voltage_v", "current_a")
                 ))):
             return {"status": "NOT_OBSERVED", "reason": "connection_changed_or_receipt_state_mismatch"}
-        return {"status": "OBSERVED", "records": records, "connection_generation": generation}
+        # These are read-only references to the client and transport already
+        # used by this request. They let a later in-process consumer compare
+        # actual objects across accepted ON/OFF callbacks; generation numbers
+        # remain local counters and are not session identities.
+        return {"status": "OBSERVED", "records": records, "connection_generation": generation,
+                "source_transport": self, "source_client": self.client}
 
     async def press_button(self, entity_id: str) -> bool:
         """Invoke one explicitly mapped native ESPHome button."""
