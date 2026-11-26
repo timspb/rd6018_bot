@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import ast
+import subprocess
 from pathlib import Path
+from source_audit_inventory import source_inventory
 import unittest
 
 from runtime.config.variable_spec import ChangeEffect, OverridePolicy, VariableSpec
@@ -13,6 +15,19 @@ from runtime.ui.routing.registry import route_for
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def tracked_ui_sources():
+    return [
+        ROOT / relative
+        for relative in source_inventory(ROOT)
+        if relative.suffix == ".py" and relative.parts[:2] == ("runtime", "ui")
+    ]
+
+
+def has_tracked_sources(relative):
+    target = ROOT / relative
+    return any(path == target or target in path.parents for path in tracked_ui_sources())
 
 
 class ModularV3ArchitectureContractTests(unittest.TestCase):
@@ -68,7 +83,7 @@ class ModularV3ArchitectureContractTests(unittest.TestCase):
             "esphome",
         )
         violations: list[str] = []
-        for path in (ROOT / "runtime" / "ui").rglob("*.py"):
+        for path in tracked_ui_sources():
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             for node in ast.walk(tree):
                 module = ""
@@ -88,10 +103,57 @@ class ModularV3ArchitectureContractTests(unittest.TestCase):
                         violations.append(f"{path.relative_to(ROOT)}:{name}")
         self.assertEqual([], violations)
 
+    @staticmethod
+    def _direct_ha_live_reads(source: str) -> list[int]:
+        """Identify direct HA reads, not authorized Application read-port calls."""
+        tree = ast.parse(source)
+        violations = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            method = node.func
+            if not (
+                isinstance(method, ast.Attribute)
+                and method.attr == "get_all_live"
+                and isinstance(method.value, ast.Attribute)
+                and method.value.attr == "hass"
+            ):
+                continue
+            violations.append(node.lineno)
+        return violations
+
+    def test_telegram_ingress_uses_application_live_read_port(self) -> None:
+        """P2/P6 contract: Telegram presents data, Application reads HA."""
+        files = [ROOT / "production_bot_ui.py"]
+        files.extend(sorted((ROOT / "runtime/ui/telegram").glob("*.py")))
+        violations = []
+        for path in files:
+            lines = self._direct_ha_live_reads(path.read_text(encoding="utf-8"))
+            violations.extend(
+                f"{path.relative_to(ROOT)}:{line}" for line in lines
+            )
+        self.assertEqual([], violations)
+
+    def test_live_read_audit_identifies_direct_ha_call_without_false_positives(self) -> None:
+        self.assertEqual(
+            [2],
+            self._direct_ha_live_reads(
+                "async def route(app):\n"
+                "    return await app.hass.get_all_live()\n"
+            ),
+        )
+        self.assertEqual(
+            [],
+            self._direct_ha_live_reads(
+                "async def route(app):\n"
+                "    return await OperatorReadSource(app).read_live()\n"
+            ),
+        )
+
     def test_only_telegram_renderer_layer_constructs_framework_buttons(self) -> None:
         violations: list[str] = []
         renderer_hits: list[str] = []
-        for path in (ROOT / "runtime" / "ui").rglob("*.py"):
+        for path in tracked_ui_sources():
             text = path.read_text(encoding="utf-8")
             for token in ("InlineKeyboardButton(", "callback_data="):
                 if token not in text:
@@ -111,8 +173,17 @@ class ModularV3ArchitectureContractTests(unittest.TestCase):
         start = source.index("async def handle_ah_input")
         end = source.index("async def handle_dialog_mode", start)
         callback = source[start:end]
-        self.assertIn("direct legacy START is retired", callback)
-        self.assertIn("await route.submit(intent)", callback)
+        # START submission and the fail-closed denial are owned by the
+        # canonical Telegram charge module, not the runtime adapter.
+        self.assertIn("await handle_capacity_input(", callback)
+        self.assertIn("route=route", callback)
+        charge_source = (ROOT / "runtime" / "ui" / "telegram" / "charge.py").read_text(encoding="utf-8")
+        begin = charge_source.index("async def handle_capacity_input(")
+        finish = charge_source.index("CHARGE_CALLBACK_DATA", begin)
+        owned = charge_source[begin:finish]
+        self.assertIn("direct legacy START is retired", owned)
+        self.assertIn("if route is None:", owned)
+        self.assertIn("await route.submit(intent)", owned)
         for forbidden in (
             "charge_controller.start(",
             "hass.set_ovp(",
@@ -122,6 +193,7 @@ class ModularV3ArchitectureContractTests(unittest.TestCase):
             "hass.turn_on(",
         ):
             self.assertNotIn(forbidden, callback)
+            self.assertNotIn(forbidden, owned)
 
     def test_ui_support_has_no_legacy_start_helper_or_physical_fallback(self) -> None:
         source = (ROOT / "production_bot_ui.py").read_text(encoding="utf-8")
@@ -153,7 +225,7 @@ class ModularV3ArchitectureContractTests(unittest.TestCase):
         self.assertFalse((ROOT / "v1_ui_compat.py").exists())
         self.assertFalse((ROOT / "application" / "v2_identity_bridge.py").exists())
         self.assertFalse((ROOT / "application" / "operator_snapshot_shadow.py").exists())
-        self.assertFalse((ROOT / "runtime" / "ui" / "legacy_shadow").exists())
+        self.assertFalse(has_tracked_sources("runtime/ui/legacy_shadow"))
         self.assertFalse((ROOT / "application" / "active_start_bridge.py").exists())
         self.assertFalse((ROOT / "application" / "operator_feedback.py").exists())
         self.assertFalse((ROOT / "application" / "telegram_operator_feedback.py").exists())

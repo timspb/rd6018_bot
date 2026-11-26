@@ -24,6 +24,34 @@ class V2BatteryInputTests(unittest.TestCase):
         self.assertEqual(identity.chemistry, BatteryChemistry.CA_CA)
         self.assertEqual(identity.nominal_capacity_ah, 70.0)
 
+    def test_telegram_legacy_parser_has_one_owner(self):
+        import pathlib
+        import production_bot_ui
+        from battery_input import parse_legacy_pipe_battery_spec
+        source = pathlib.Path(production_bot_ui.__file__).read_text(encoding="utf-8")
+        self.assertIn("parse_legacy_pipe_battery_spec as parse_battery_spec", source)
+        self.assertNotIn("def parse_battery_spec(", source)
+        sample = "old72 | Ca/Ca | 72 | Leoch | Ca/Ca"
+        self.assertEqual(production_bot_ui.parse_battery_spec(sample),
+                         parse_legacy_pipe_battery_spec(sample))
+
+    def test_telegram_legacy_pipe_parser_preserves_strict_grammar(self):
+        from battery_input import parse_legacy_pipe_battery_spec
+        identity, lifecycle = parse_legacy_pipe_battery_spec("old72 | Ca/Ca | 72,0 | Leoch | Ca/Ca")
+        self.assertEqual(identity.battery_id, "old72")
+        self.assertEqual(identity.nominal_capacity_ah, 72.0)
+        self.assertEqual(identity.chemistry, BatteryChemistry.CA_CA)
+        self.assertEqual(identity.manufacturer, "Leoch")
+        self.assertEqual(identity.model, "Ca/Ca")
+        with self.assertRaisesRegex(ValueError, "формат"):
+            parse_legacy_pipe_battery_spec("old72 AGM 72 Leoch")
+
+    def test_telegram_legacy_pipe_parser_rejects_invalid_capacity(self):
+        from battery_input import parse_legacy_pipe_battery_spec
+        for value in ("0", "-1", "1001", "not-a-number"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                parse_legacy_pipe_battery_spec(f"bad | EFB | {value} | Vendor | Model")
+
     def test_capacity_may_include_ah_suffix(self):
         identity, _ = parse_battery_spec("agm95 AGM 95Ah Varta G14")
         self.assertEqual(identity.nominal_capacity_ah, 95.0)

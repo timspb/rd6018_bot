@@ -16,7 +16,7 @@ from runtime.safety.variables import MAX_STAGE_CURRENT_A
 MAX_STAGE_CURRENT = float(MAX_STAGE_CURRENT_A.default)
 from config import MAX_MANUAL_VOLTAGE
 from manual_mode import ManualChargeRequest, ManualStopConditions
-from manual_runtime import ProductionManualSessionManager, ProductionManualUIRoute, ProductionManualUIRoute
+from manual_runtime import ProductionManualSessionManager, ProductionManualUIRoute
 from runtime.charge.profiles.manual import ManualChargeProfile, ManualStageProfile, load_manual_profile, save_manual_profile
 
 MANUAL_PROFILE_PATH = Path(__file__).resolve().parent / "config" / "charge" / "manual.yaml"
@@ -308,16 +308,13 @@ def _format_start(parsed: ParsedManualCommand, *, replaced: bool) -> str:
     return (
         f"<b>🛠 {request.operation_mode_label} {verb.lower()}</b>\n"
         f"U={request.voltage_v:.2f} V · I={request.current_a:.2f} A\n"
-        f"OVP={request.ovp_v:.2f} V · OCP={request.ocp_a:.2f} A\n"
         f"Stop: <code>{html.escape(suffix)}</code>\n"
         "Автоматическая химическая FSM не имеет authority в этом режиме."
     )
 
 
 def _another_dialog_owns_text(app: Any, user_id: int) -> bool:
-    """Keep structured V2/legacy dialog input ahead of the global quick Manual parser."""
-    if user_id in getattr(app, "custom_mode_state", {}):
-        return True
+    """Keep active capacity and specific-gravity dialogs ahead of the Manual parser."""
     if getattr(app, "awaiting_ah", {}).get(user_id):
         return True
     # SG input starts with six numeric values, so without explicit ownership the first

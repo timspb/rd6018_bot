@@ -8,7 +8,6 @@ import tempfile
 import time
 import uuid
 from dataclasses import dataclass, replace
-from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
 
@@ -23,7 +22,28 @@ from rd_managed_adoption import (
     ManagedLiveAdoptionCoordinator,
 )
 from recipe_engine import POLICIES
-from runtime_safety import RuntimeSafetyError, _binary
+from runtime.safety.runtime_guard import RuntimeSafetyError, _binary
+from runtime.charge.strategy.adopted_mix_admission import (
+    _finite_nonnegative,
+    require_adopted_mix_budget,
+    require_adopted_mix_chemistry,
+)
+from runtime.charge.evidence.adopted_mix_source_timestamp import adopted_mix_source_timestamp
+from runtime.charge.evidence.adopted_mix_sample_decision import (
+    classify_adopted_mix_source_timestamp,
+    project_adopted_mix_signal_sample,
+)
+from runtime.charge.evidence.adopted_mix_finish_hold_decision import (
+    adopted_mix_finish_hold_complete,
+)
+from runtime.charge.evidence.adopted_mix_prior_age import (
+    PriorMixAge,
+    PriorMixAgeSource,
+    aged_elapsed as _aged_elapsed,
+    age_prior_mix_age,
+    resolve_prior_mix_age,
+    select_fresh_recorder_age,
+)
 from signal_analyzer import SignalAnalyzer, SignalEvent, SignalSample
 
 
@@ -43,18 +63,6 @@ class ManagedMixState(str, Enum):
     FAILED = "failed"
 
 
-class PriorMixAgeSource(str, Enum):
-    RECORDER = "recorder"
-    OPERATOR_DECLARED = "operator_declared"
-
-
-@dataclass(frozen=True)
-class PriorMixAge:
-    elapsed_s: float
-    source: PriorMixAgeSource
-    observed_at_s: float
-
-
 @dataclass(frozen=True)
 class ManagedMixPreview:
     token: str
@@ -64,57 +72,6 @@ class ManagedMixPreview:
     fingerprint: ManagedAdoptionFingerprint
     prior_age: PriorMixAge
     history: Optional[MixHistoryEvidence] = None
-
-
-def _finite_nonnegative(value: Any, *, field: str) -> float:
-    if value is None or isinstance(value, bool):
-        raise RuntimeSafetyError(f"{field} is required")
-    try:
-        parsed = float(value)
-    except (TypeError, ValueError) as exc:
-        raise RuntimeSafetyError(f"{field} is invalid") from exc
-    if not math.isfinite(parsed) or parsed < 0:
-        raise RuntimeSafetyError(f"{field} is invalid")
-    return parsed
-
-
-def _aged_elapsed(elapsed_s: float, observed_at_s: float, now_s: float) -> float:
-    elapsed = _finite_nonnegative(elapsed_s, field="prior Mix age")
-    observed = float(observed_at_s)
-    now = float(now_s)
-    if not math.isfinite(observed) or not math.isfinite(now):
-        raise RuntimeSafetyError("prior Mix age timestamp is invalid")
-    return elapsed + max(0.0, now - observed)
-
-
-def resolve_prior_mix_age(
-    history: Optional[MixHistoryEvidence],
-    *,
-    declared_elapsed_s: Optional[float] = None,
-    declared_at_s: Optional[float] = None,
-    now_s: Optional[float] = None,
-) -> PriorMixAge:
-    """Resolve an initial D063 age without inventing a new chemistry window.
-
-    Recorder counts only with an explicit uninterrupted OFF->ON edge. An operator
-    declaration is explicit evidence. When both exist the larger value wins: operator
-    knowledge may conservatively extend, never shorten, Recorder evidence.
-    """
-
-    now = float(now_s if now_s is not None else time.time())
-    candidates: list[PriorMixAge] = []
-    if history is not None and history.output.reliable and history.output.elapsed_s is not None:
-        elapsed = _aged_elapsed(history.output.elapsed_s, history.fetched_at_s, now)
-        candidates.append(PriorMixAge(elapsed, PriorMixAgeSource.RECORDER, now))
-    if declared_elapsed_s is not None:
-        observed = float(declared_at_s if declared_at_s is not None else now)
-        elapsed = _aged_elapsed(declared_elapsed_s, observed, now)
-        candidates.append(PriorMixAge(elapsed, PriorMixAgeSource.OPERATOR_DECLARED, now))
-    if not candidates:
-        raise RuntimeSafetyError(
-            "prior external Mix age is not proven; declare elapsed active time or remain HANDS_OFF/Manual/OFF"
-        )
-    return max(candidates, key=lambda item: item.elapsed_s)
 
 
 class ManagedMixAdoptionCoordinator:
@@ -127,7 +84,7 @@ class ManagedMixAdoptionCoordinator:
     SAFE_WAIT/Storage. Process restart never resumes this high-voltage authority.
     """
 
-    VERSION = 1
+    VERSION = 2
 
     def __init__(
         self,
@@ -211,7 +168,7 @@ class ManagedMixAdoptionCoordinator:
             return None
         try:
             values = tuple(float(raw[key]) for key in (
-                "set_voltage_v", "set_current_a", "ovp_v", "ocp_a"
+                "set_voltage_v", "set_current_a"
             ))
         except (KeyError, TypeError, ValueError):
             return None
@@ -226,8 +183,6 @@ class ManagedMixAdoptionCoordinator:
             return {
                 "set_voltage_v": value.set_voltage_v,
                 "set_current_a": value.set_current_a,
-                "ovp_v": value.ovp_v,
-                "ocp_a": value.ocp_a,
             }
 
         return {
@@ -326,29 +281,13 @@ class ManagedMixAdoptionCoordinator:
         capacity_ah: float,
         fingerprint: ManagedAdoptionFingerprint,
     ) -> None:
-        if chemistry not in MIX_HARD_LIMIT_HOURS or chemistry is BatteryChemistry.CUSTOM:
-            raise RuntimeSafetyError("MIX_ADOPTED requires a supported Pb chemistry")
-        capacity = _finite_nonnegative(capacity_ah, field="battery capacity")
-        if capacity <= 0:
-            raise RuntimeSafetyError("MIX_ADOPTED requires positive battery capacity")
-        policy = POLICIES[chemistry]
-        tol = ADOPTED_MIX_SETPOINT_TOLERANCE
-        if fingerprint.set_voltage_v <= policy.normal_voltage_ceiling_v + tol:
-            raise RuntimeSafetyError("MIX_ADOPTED requires an already-running high-voltage Mix program")
-        if fingerprint.set_voltage_v > policy.recovery_voltage_ceiling_v + tol:
-            raise RuntimeSafetyError(
-                f"live Mix voltage {fingerprint.set_voltage_v:.2f}V exceeds {chemistry.value} envelope "
-                f"{policy.recovery_voltage_ceiling_v:.2f}V"
-            )
-        hv_current_limit = min(
-            float(self.guard.policy.absolute_current_ceiling_a),
-            capacity * float(policy.hv_current_c_max),
+        require_adopted_mix_chemistry(
+            chemistry,
+            capacity_ah,
+            fingerprint,
+            absolute_current_ceiling_a=self.guard.policy.absolute_current_ceiling_a,
+            tolerance=ADOPTED_MIX_SETPOINT_TOLERANCE,
         )
-        if fingerprint.set_current_a > hv_current_limit + tol:
-            raise RuntimeSafetyError(
-                f"live Mix current {fingerprint.set_current_a:.2f}A exceeds chemistry HV envelope "
-                f"{hv_current_limit:.2f}A"
-            )
 
     def _preflight_mix_live(
         self,
@@ -383,58 +322,19 @@ class ManagedMixAdoptionCoordinator:
         """Revalidate D063 age without ever decreasing the already accepted floor."""
 
         now = float(self._wall_time())
-        floor = PriorMixAge(
-            _aged_elapsed(preview.prior_age.elapsed_s, preview.prior_age.observed_at_s, now),
-            preview.prior_age.source,
-            now,
-        )
+        floor = age_prior_mix_age(preview.prior_age, now_s=now)
         try:
             history = await self.history_reader.read_mix_evidence(live=live)
         except HomeAssistantHistoryError:
             return floor
-        if not history.output.reliable or history.output.elapsed_s is None:
-            return floor
-        fresh = PriorMixAge(
-            _aged_elapsed(history.output.elapsed_s, history.fetched_at_s, now),
-            PriorMixAgeSource.RECORDER,
-            now,
-        )
-        return fresh if fresh.elapsed_s > floor.elapsed_s else floor
+        return select_fresh_recorder_age(floor, history, now_s=now)
 
     def _require_budget(self, chemistry: BatteryChemistry, prior_elapsed_s: float) -> None:
-        limit_h = MIX_HARD_LIMIT_HOURS.get(chemistry)
-        if limit_h is None:
-            raise RuntimeSafetyError("MIX_ADOPTED chemistry has no hard Mix limit")
-        if float(prior_elapsed_s) >= float(limit_h) * 3600.0:
-            raise RuntimeSafetyError(
-                f"prior Mix age {float(prior_elapsed_s) / 3600.0:.2f}h already exhausts "
-                f"{chemistry.value} hard limit {limit_h:g}h; managed Mix adoption is forbidden"
-            )
+        require_adopted_mix_budget(chemistry, prior_elapsed_s)
 
     @staticmethod
     def _source_timestamp(live: dict[str, Any]) -> Optional[float]:
-        meta = live.get("_meta")
-        if not isinstance(meta, dict):
-            return None
-        values: list[float] = []
-        for key in (
-            "current", "battery_voltage", "temp_ext_v2", "temp_ext",
-            "regulation_code", "is_cv", "is_cc",
-        ):
-            item = meta.get(key)
-            if not isinstance(item, dict):
-                continue
-            raw = item.get("last_reported") or item.get("last_updated")
-            if not isinstance(raw, str) or not raw:
-                continue
-            text = raw[:-1] + "+00:00" if raw.endswith("Z") else raw
-            try:
-                parsed = datetime.fromisoformat(text).timestamp()
-            except (ValueError, OverflowError):
-                continue
-            if math.isfinite(parsed) and parsed > 0:
-                values.append(parsed)
-        return min(values) if values else None
+        return adopted_mix_source_timestamp(live)
 
     def _reset_delta_epoch(
         self,
@@ -621,9 +521,11 @@ class ManagedMixAdoptionCoordinator:
             if bool(getattr(self.manager, "hands_off", False)):
                 ok = bool(await self.manager.operator_output_off(self.app.ENTITY_MAP.get("switch")))
             else:
-                ok = bool(
-                    await get_or_create_execution_port(self.app).request_verified_off()
-                )
+                port = get_or_create_execution_port(self.app)
+                if failed:
+                    ok = bool(await port.request_emergency_off())
+                else:
+                    ok = bool(await port.request_verified_off())
         except Exception as exc:
             self.last_status = f"{reason}: Output OFF unconfirmed: {type(exc).__name__}: {exc}"
             self._persist()
@@ -665,7 +567,9 @@ class ManagedMixAdoptionCoordinator:
             await self.force_verified_off("MIX_ADOPTED_LOST_PB_MANAGED", failed=True)
             return
 
-        live = await self.app.hass.get_all_live()
+        # MIX_ADOPTED is managed PB authority: every active observation must
+        # pass through the canonical Safety owner, not raw HA transport.
+        live = await self.guard.get_all_live()
         output_state = _binary(live.get("switch"))
         if output_state is False:
             await self._external_off_complete()
@@ -682,7 +586,7 @@ class ManagedMixAdoptionCoordinator:
             return
 
         increases: list[str] = []
-        for field in ("set_voltage_v", "set_current_a", "ovp_v", "ocp_a"):
+        for field in ("set_voltage_v", "set_current_a"):
             actual = float(getattr(fingerprint, field))
             ceiling = float(getattr(authority, field))
             if actual > ceiling + ADOPTED_MIX_SETPOINT_TOLERANCE:
@@ -696,8 +600,6 @@ class ManagedMixAdoptionCoordinator:
         ratcheted = ManagedAdoptionFingerprint(
             set_voltage_v=min(authority.set_voltage_v, fingerprint.set_voltage_v),
             set_current_a=min(authority.set_current_a, fingerprint.set_current_a),
-            ovp_v=min(authority.ovp_v, fingerprint.ovp_v),
-            ocp_a=min(authority.ocp_a, fingerprint.ocp_a),
         )
         if ratcheted != authority:
             try:
@@ -728,9 +630,9 @@ class ManagedMixAdoptionCoordinator:
             return
 
         source_timestamp = self._source_timestamp(live)
-        if source_timestamp is None:
-            raise RuntimeSafetyError("MIX_ADOPTED source timestamps unavailable")
-        if self.last_source_timestamp_s is not None and source_timestamp <= self.last_source_timestamp_s:
+        if not classify_adopted_mix_source_timestamp(
+            source_timestamp, self.last_source_timestamp_s
+        ):
             self._persist()
             return
 
@@ -740,22 +642,12 @@ class ManagedMixAdoptionCoordinator:
         if temp is None:
             temp = finite_float(live.get("temp_ext"))
         regulation = resolve_regulation(live)
-        if voltage is None or current is None or temp is None or regulation not in {
-            RegulationMode.CV, RegulationMode.CC
-        }:
-            raise RuntimeSafetyError("MIX_ADOPTED coherent U/I/T/CV-CC sample unavailable")
+        sample = project_adopted_mix_signal_sample(
+            source_timestamp, voltage, current, temp, regulation
+        )
 
         self.last_source_timestamp_s = source_timestamp
-        analysis = self.analyzer.observe(
-            SignalSample(
-                timestamp_s=source_timestamp,
-                voltage_v=float(voltage),
-                current_a=float(current),
-                temp_c=float(temp),
-                is_cv=regulation is RegulationMode.CV,
-                is_cc=regulation is RegulationMode.CC,
-            )
-        )
+        analysis = self.analyzer.observe(sample)
         metrics = analysis.metrics
         self.last_status = (
             f"{regulation.value}: used={self.total_active_elapsed_s / 3600.0:.2f}h "
@@ -773,10 +665,11 @@ class ManagedMixAdoptionCoordinator:
             )
 
         if self._finish_hold_anchor_mono is not None:
-            held = float(self._monotonic()) - float(self._finish_hold_anchor_mono)
-            if not math.isfinite(held) or held < 0:
-                raise RuntimeSafetyError("MIX_ADOPTED finish-hold monotonic clock moved backwards")
-            if held >= MIX_FINISH_HOLD_S:
+            if adopted_mix_finish_hold_complete(
+                self._finish_hold_anchor_mono,
+                self._monotonic(),
+                MIX_FINISH_HOLD_S,
+            ):
                 await self.force_verified_off("DELTA_HOLD_COMPLETE", failed=False)
                 self._notify(
                     "⏹ <b>MIX_ADOPTED завершён:</b> свежая Delta + 2ч. Output подтверждён OFF. "
@@ -882,47 +775,5 @@ def install_runtime_composition(app: Any, coordinator: ManagedMixAdoptionCoordin
 
         cls._d062_managed_mix_hooks = True
 
-    hass = app.hass
-    if bool(getattr(hass, "_d062_managed_mix_wrapped", False)):
-        return
-    original_turn_on = hass.turn_on
-    original_set_voltage = hass.set_voltage
-    original_set_current = hass.set_current
-    original_set_ovp = hass.set_ovp
-    original_set_ocp = hass.set_ocp
-
-    async def turn_on(entity_id: Optional[str] = None) -> bool:
-        mix = getattr(app, "rd_managed_mix_adoption", None)
-        if mix is not None and mix.managed_authority:
-            raise RuntimeSafetyError(
-                "MIX_ADOPTED cannot re-energize Output; a fresh managed program is required"
-            )
-        return bool(await original_turn_on(entity_id))
-
-    async def write(field: str, value: float, fn: Any) -> bool:
-        mix = getattr(app, "rd_managed_mix_adoption", None)
-        if mix is not None:
-            mix.authorize_managed_write(field, value)
-        result = bool(await fn(value))
-        if result and mix is not None:
-            mix.ratchet_after_managed_write(field, value)
-        return result
-
-    async def set_voltage(value: float) -> bool:
-        return await write("set_voltage_v", value, original_set_voltage)
-
-    async def set_current(value: float) -> bool:
-        return await write("set_current_a", value, original_set_current)
-
-    async def set_ovp(value: float) -> bool:
-        return await write("ovp_v", value, original_set_ovp)
-
-    async def set_ocp(value: float) -> bool:
-        return await write("ocp_a", value, original_set_ocp)
-
-    hass.turn_on = turn_on
-    hass.set_voltage = set_voltage
-    hass.set_current = set_current
-    hass.set_ovp = set_ovp
-    hass.set_ocp = set_ocp
-    hass._d062_managed_mix_wrapped = True
+    # MIX_ADOPTED actuation authority is enforced centrally by ExecutionPort.
+    # This installer never monkeypatches HassClient actuator methods.

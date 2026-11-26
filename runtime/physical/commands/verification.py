@@ -13,8 +13,6 @@ from .target import validate_target
 _READBACK_FIELDS = {
     "voltage_setpoint": "configured_voltage",
     "current_setpoint": "configured_current",
-    "ovp": "ovp",
-    "ocp": "ocp",
     "output_state": "output_state",
     "current": "measured_current",
     "voltage": "measured_voltage",

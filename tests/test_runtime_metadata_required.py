@@ -1,8 +1,8 @@
 import unittest
 from types import SimpleNamespace
 
-from runtime_safety import RuntimeSafetyError
-from managed_runtime_safety import ManagedRuntimeSafetyGuard
+from runtime.safety.runtime_guard import RuntimeSafetyError
+from runtime.safety.managed_guard import ManagedRuntimeSafetyGuard
 
 
 class _Hass:

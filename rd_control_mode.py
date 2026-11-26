@@ -14,8 +14,9 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
 from runtime.ui.telegram.off_conditions import OFF_CALLBACK_DATA
 
-from runtime_safety import RuntimeSafetyError, _binary, logger
-from managed_runtime_safety import ManagedRuntimeSafetyGuard
+from runtime.safety.runtime_guard import RuntimeSafetyError, logger
+from runtime.safety.managed_guard import ManagedRuntimeSafetyGuard
+from rd6018_telemetry import telemetry_freshness
 
 
 class RdControlMode(str, Enum):
@@ -68,20 +69,26 @@ class RdControlModeManager:
     def edge_autonomous(self) -> bool:
         return bool(self._edge_autonomous)
 
+    def _record_edge_autonomous(self, active: bool) -> None:
+        """Update the in-memory mirror of the edge-owned persistent mode."""
+        if not isinstance(active, bool):
+            raise TypeError("edge autonomous observation must be an explicit bool")
+        self._edge_autonomous = active
+
     def _observe_edge_mode(self, live: Any) -> None:
         if not isinstance(live, dict):
             return
         raw = live.get("autonomous_mode")
         if isinstance(raw, bool):
-            self._edge_autonomous = raw
+            self._record_edge_autonomous(raw)
         elif isinstance(raw, (int, float)) and raw in (0, 1):
-            self._edge_autonomous = bool(raw)
+            self._record_edge_autonomous(bool(raw))
         elif isinstance(raw, str):
             value = raw.strip().lower()
             if value in {"on", "true", "1"}:
-                self._edge_autonomous = True
+                self._record_edge_autonomous(True)
             elif value in {"off", "false", "0"}:
-                self._edge_autonomous = False
+                self._record_edge_autonomous(False)
 
     def _load(self) -> None:
         if not os.path.exists(self.state_file):
@@ -196,6 +203,86 @@ class RdControlModeManager:
             finally:
                 self._release_in_progress = False
 
+    def _fresh_output_off_evidence(self, live: dict[str, Any]) -> bool:
+        """Require canonical OFF plus freshness for the source that owns it."""
+        evidence = self.guard._output_evidence(live)
+        meta = live.get("_meta")
+        source_key = str(evidence.source_key or "switch")
+        if source_key == "output_state_code_v2":
+            source_meta = meta.get(source_key) if isinstance(meta, dict) else None
+            switch_meta = meta.get("switch") if isinstance(meta, dict) else None
+            if not isinstance(source_meta, dict) and (
+                isinstance(switch_meta, dict)
+                and switch_meta.get("source_key") == source_key
+            ):
+                source_key = "switch"
+        freshness = telemetry_freshness(live, (source_key,))
+        if not freshness.valid:
+            return False
+        if evidence.requires_fresh_heartbeat and evidence.heartbeat_epoch is None:
+            return False
+        return evidence.state is False
+
+    async def _require_edge_lease_unarmed(self) -> None:
+        if not bool(getattr(self.guard, "edge_lease_enforced", False)):
+            return
+        lease = getattr(self.guard, "edge_safety_lease", None)
+        if lease is None:
+            raise RuntimeSafetyError(
+                "PB control restore blocked: required edge safety lease is unavailable"
+            )
+
+        # HANDS_OFF must not renew an old managed lease while ownership is being
+        # returned. Keep renewals suspended on every failure; a fresh START explicitly
+        # arms the same lease again after PB authority is durable.
+        lease.suspend_renewals()
+        try:
+            state = await lease.read_state()
+        except Exception as exc:
+            raise RuntimeSafetyError(
+                f"PB control restore blocked: edge safety lease state is unavailable ({exc})"
+            ) from exc
+
+        def healthy_unarmed(snapshot: Any) -> bool:
+            return bool(
+                not snapshot.armed
+                and not snapshot.tripped
+                and not snapshot.boot_quarantine
+                and lease._fresh_modbus(snapshot)
+                and snapshot.remaining_s is not None
+                and snapshot.remaining_s <= lease.config.ack_remaining_slack_s
+            )
+
+        if state.tripped or state.boot_quarantine or not lease._fresh_modbus(state):
+            raise RuntimeSafetyError(
+                "PB control restore blocked: edge safety lease is tripped, quarantined or stale"
+            )
+        if (
+            state.armed
+            or state.remaining_s is None
+            or state.remaining_s > lease.config.ack_remaining_slack_s
+        ):
+            try:
+                disarmed = bool(await lease.disarm())
+            except Exception as exc:
+                raise RuntimeSafetyError(
+                    f"PB control restore blocked: edge lease disarm failed ({exc})"
+                ) from exc
+            if not disarmed:
+                raise RuntimeSafetyError(
+                    "PB control restore blocked: edge lease disarm was not positively acknowledged"
+                )
+            try:
+                state = await lease.read_state()
+            except Exception as exc:
+                raise RuntimeSafetyError(
+                    f"PB control restore blocked: edge lease post-disarm read is unavailable ({exc})"
+                ) from exc
+        if not healthy_unarmed(state):
+            raise RuntimeSafetyError(
+                "PB control restore blocked: edge lease is not positively unarmed and healthy"
+            )
+
     async def return_pb_control(self) -> bool:
         async with self._transition_lock:
             if self.pb_managed:
@@ -204,18 +291,23 @@ class RdControlModeManager:
                 raise RuntimeSafetyError(
                     "PB control restore blocked: stale managed software authority is still active"
                 )
-            live = await self.guard._raw_live()
-            output_state = _binary(live.get("switch"))
-            if output_state is not False:
+            from application.execution_port import get_or_create_execution_port
+
+            # Read through the composed Safety owner. A raw/stale legacy switch
+            # value must never override canonical V2 Output state or its heartbeat.
+            port = get_or_create_execution_port(self.app)
+            live = await port.read_live()
+            if not self._fresh_output_off_evidence(dict(live)):
                 if bool(getattr(self.guard, "_off_unconfirmed", False)):
                     raise RuntimeSafetyError(
                         "PB control restore blocked: Output OFF remains unconfirmed"
                     )
                 raise RuntimeSafetyError(
-                    "PB control restore requires confirmed Output OFF; current RD state was not changed"
+                    "PB control restore requires fresh confirmed Output OFF; current RD state was not changed"
                 )
-            # A physical/manual OFF observed through the raw boundary also clears a prior
-            # failed explicit HANDS_OFF OFF attempt. Discard any pre-HANDS_OFF AUTO
+            await self._require_edge_lease_unarmed()
+            # A physical/manual OFF observed through the composed Safety boundary also
+            # clears a prior failed explicit HANDS_OFF OFF attempt. Discard any pre-HANDS_OFF AUTO
             # restore file so returning control always requires a fresh operator start.
             self.guard._off_unconfirmed = False
             self._clear_stale_auto_restore_authority()
@@ -231,16 +323,18 @@ class RdControlModeManager:
                 "explicit RD-mode Output OFF is available only in HANDS_OFF"
             )
 
+        from application.execution_port import get_or_create_execution_port
+
+        port = get_or_create_execution_port(self.app)
         confirmed = bool(
-            await self.guard._ensure_output_off("explicit HANDS_OFF Output OFF", entity_id)
+            await port.request_emergency_off(
+                entity_id,
+                allow_hands_off_operator_off=True,
+            )
         )
-        if confirmed:
-            # HANDS_OFF normally has no edge lease. However, a live-adoption command can
-            # have executed while its ACK was lost before software crossed to PB_MANAGED.
-            # Once physical OFF is positively confirmed, clear that possible residual
-            # lease through the same strict disarm path used by managed Output OFF.
-            logger.info("Output OFF verified; edge lease disarm may proceed")
-            await self.guard._disarm_edge_lease_best_effort()
+        # ExecutionPort delegates to the canonical physical owner, whose verified
+        # turn_off transaction already disarms any residual edge lease. Do not issue a
+        # second disarm here: HANDS_OFF containment must perform exactly one OFF/disarm.
         return confirmed
 
 
@@ -268,91 +362,13 @@ def install_rd_control_mode(app: Any, *, install_ui: bool = True) -> RdControlMo
 
     manager = RdControlModeManager(app)
     app.rd_control_mode_manager = manager
-    hass = app.hass
     guard = manager.guard
-
-    if not getattr(hass, "_rd_control_mode_wrapped", False):
-        managed_get_all_live = hass.get_all_live
-        managed_turn_on = hass.turn_on
-        managed_turn_off = hass.turn_off
-        managed_set_voltage = hass.set_voltage
-        managed_set_current = hass.set_current
-        managed_set_ovp = hass.set_ovp
-        managed_set_ocp = hass.set_ocp
-
-        async def get_all_live() -> dict[str, Any]:
-            raw = await guard._raw_live()
-            manager._observe_edge_mode(raw)
-            if manager.hands_off or manager.edge_autonomous:
-                return raw
-            return await managed_get_all_live()
-
-        def _blocked(action: str) -> RuntimeSafetyError:
-            if manager.edge_autonomous:
-                state = "RD AUTONOMOUS"
-            else:
-                state = "HANDS_OFF transfer" if manager.release_in_progress else "RD HANDS_OFF"
-            return RuntimeSafetyError(
-                f"{state}: bot {action} is disabled; use the physical RD6018 controls"
-            )
-
-        async def turn_on(entity_id: Optional[str] = None) -> bool:
-            if manager.hands_off or manager.edge_autonomous or manager.release_in_progress:
-                raise _blocked("Output ON")
-            return await managed_turn_on(entity_id)
-
-        async def turn_off(entity_id: Optional[str] = None) -> bool:
-            if manager.hands_off or manager.edge_autonomous:
-                raise _blocked("Output OFF")
-            return await managed_turn_off(entity_id)
-
-        async def set_voltage(value: float) -> bool:
-            if manager.hands_off or manager.edge_autonomous or manager.release_in_progress:
-                raise _blocked("voltage write")
-            return await managed_set_voltage(value)
-
-        async def set_current(value: float) -> bool:
-            if manager.hands_off or manager.edge_autonomous or manager.release_in_progress:
-                raise _blocked("current write")
-            return await managed_set_current(value)
-
-        async def set_ovp(value: float) -> bool:
-            if manager.hands_off or manager.edge_autonomous or manager.release_in_progress:
-                raise _blocked("OVP write")
-            return await managed_set_ovp(value)
-
-        async def set_ocp(value: float) -> bool:
-            if manager.hands_off or manager.edge_autonomous or manager.release_in_progress:
-                raise _blocked("OCP write")
-            return await managed_set_ocp(value)
-
-        hass.get_all_live = get_all_live
-        hass.turn_on = turn_on
-        hass.turn_off = turn_off
-        hass.set_voltage = set_voltage
-        hass.set_current = set_current
-        hass.set_ovp = set_ovp
-        hass.set_ocp = set_ocp
-        hass._rd_control_mode_wrapped = True
+    # Actuation ownership/policy is centralized in ExecutionPort. HassClient is
+    # transport/read-only here and must never be monkeypatched by ownership mode.
 
     controller = getattr(app, "charge_controller", None)
-    if controller is not None and not getattr(
-        controller, "_rd_control_mode_start_wrapped", False
-    ):
-        original_start = controller.start
-
-        def guarded_controller_start(*args: Any, **kwargs: Any) -> Any:
-            if manager.hands_off or manager.edge_autonomous or manager.release_in_progress:
-                raise RuntimeSafetyError(
-                    "RD AUTONOMOUS: automatic charge start is disabled"
-                    if manager.edge_autonomous
-                    else "RD HANDS_OFF: automatic charge start is disabled"
-                )
-            return original_start(*args, **kwargs)
-
-        controller.start = guarded_controller_start
-        controller._rd_control_mode_start_wrapped = True
-
+    # Canonical automatic START admission is owned by ExecutionPort before
+    # controller state mutation. Restore has a separate recovery contract below.
     if controller is not None and callable(getattr(controller, "try_restore_session", None)) and not getattr(
         controller, "_rd_control_mode_restore_wrapped", False
     ):

@@ -11,16 +11,16 @@ class V3CommandPlanShadowTests(unittest.TestCase):
         self.assertEqual(plan.steps[-1].name, "enable")
         self.assertEqual(plan.steps[-2].name, "readback_compare")
 
-    def test_disable_requires_confirmed_off_before_reset(self):
+    def test_disable_requires_confirmed_off_without_protection_reset(self):
         plan = build_command_plan(SafeOutputIntent(OutputAction.DISABLE))
         names = tuple(step.name for step in plan.steps)
-        self.assertLess(names.index("confirm_off"), names.index("reset_protection"))
+        self.assertEqual(names, ("disable", "read_output_state", "confirm_off"))
 
-    def test_shadow_reports_incomplete_observation(self):
-        plan = build_command_plan(SafeOutputIntent(OutputAction.RESET_PROTECTION, target_ovp=15.0, target_ocp=3.0, source="mix_exit"))
-        result = BenchExecutionShadow().compare(plan, BenchObservation(("reset_ovp",), readback_valid=False))
+    def test_shadow_reports_incomplete_off_observation(self):
+        plan = build_command_plan(SafeOutputIntent(OutputAction.DISABLE))
+        result = BenchExecutionShadow().compare(plan, BenchObservation(("disable",), readback_valid=False))
         self.assertEqual(result.status, "MISMATCH")
-        self.assertIn("readback_compare", result.missing_steps)
+        self.assertEqual(result.missing_steps, ("read_output_state", "confirm_off"))
 
     def test_shadow_match_is_only_observation_comparison(self):
         plan = build_command_plan(SafeOutputIntent(OutputAction.SET_CURRENT, target_current=2.0))

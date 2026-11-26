@@ -14,6 +14,7 @@ from runtime.ui.telegram.charge import (
     INTERRUPTED_MANUAL_CALLBACK_DATA,
     MANUAL_CALLBACK_DATA,
     PROFILE_CALLBACK_PREFIX,
+    legacy_profile_from_callback,
     install_charge_program_screen,
 )
 from runtime.ui.telegram.renderer import callback_data_for, render_screen_text
@@ -78,6 +79,12 @@ class _App:
 
 
 class V3ChargeProgramCutoverTests(unittest.TestCase):
+    def test_legacy_profile_callback_mapping_preserves_live_callback_payloads(self):
+        self.assertEqual(legacy_profile_from_callback("v2_profile_caca"), "Ca/Ca")
+        self.assertEqual(legacy_profile_from_callback("v2_profile_efb"), "EFB")
+        self.assertEqual(legacy_profile_from_callback("v2_profile_agm"), "AGM")
+        self.assertIsNone(legacy_profile_from_callback("v2_profile_unknown"))
+
     def test_charge_screen_is_declarative_and_preserves_program_choices(self):
         screen = build_charge_program_screen(manual_interrupted=True)
         self.assertEqual(screen.screen_id, ScreenId.CHARGE)
@@ -159,15 +166,18 @@ class V3ChargeProgramCutoverTests(unittest.TestCase):
         self.assertNotIn("await restore_dashboard_to_bottom", charge_route)
 
     def test_operator_hmi_uses_canonical_charge_and_battery_callbacks(self):
-        source = (ROOT / "operator_hmi.py").read_text(encoding="utf-8")
-        self.assertIn(
-            'OperatorAction.START_CHARGE: ("⚡ Режимы заряда", CHARGE_CALLBACK_DATA)',
-            source,
-        )
-        self.assertIn(
-            'OperatorAction.SELECT_PROFILE: ("🔋 АКБ", BATTERIES_CALLBACK_DATA)',
-            source,
-        )
+        from application.operator_actions import OperatorAction, OperatorActionSpec, OperatorActionsView
+        from operator_hmi import _keyboard_from_actions
+        from runtime.ui.labels.operator_actions import OPERATOR_ACTION_LABELS
+        self.assertEqual(OPERATOR_ACTION_LABELS[OperatorAction.START_CHARGE][1], CHARGE_CALLBACK_DATA)
+        self.assertEqual(OPERATOR_ACTION_LABELS[OperatorAction.SELECT_PROFILE][1], BATTERIES_CALLBACK_DATA)
+        actions = OperatorActionsView(tuple(OperatorActionSpec(action) for action in (
+            OperatorAction.START_CHARGE, OperatorAction.SELECT_PROFILE
+        )))
+        keyboard = _keyboard_from_actions(actions)
+        callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row]
+        self.assertIn(CHARGE_CALLBACK_DATA, callbacks)
+        self.assertIn(BATTERIES_CALLBACK_DATA, callbacks)
 
     def test_canonical_charge_ui_has_no_historical_or_physical_imports(self):
         for rel in (

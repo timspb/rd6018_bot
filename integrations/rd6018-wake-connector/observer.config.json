@@ -1,0 +1,5 @@
+{
+  "poll_interval_s": 20,
+  "summary_interval_s": 1800,
+  "spool_path": "/var/lib/rd6018-wake-observer/events.sqlite3"
+}

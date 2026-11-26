@@ -35,18 +35,12 @@ class FakePort:
 class SessionRecoveryServiceTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.port = FakePort()
-        self.protection_calls = []
-
-        async def protection(v, i):
-            self.protection_calls.append(("protection", v, i))
-
         self.service = SessionRecoveryService(
-            self.port, protection, lambda value: min(10.0, value)
+            self.port, lambda value: min(10.0, value)
         )
 
     async def test_route_a_success_and_failed_enable(self):
         self.assertTrue(await self.service.reenable_active(14.4, 12.0))
-        self.assertEqual(self.protection_calls, [("protection", 14.4, 12.0)])
         self.assertEqual(self.port.calls, [("voltage", 14.4), ("current", 10.0), ("on",)])
 
         self.port.calls.clear()
@@ -177,7 +171,7 @@ class SessionRecoveryServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.port.calls, [("voltage", 14.4), ("current", 2.0)])
         self.assertNotIn("on", [call[0] for call in self.port.calls])
 
-    async def test_setter_and_protection_errors_propagate(self):
+    async def test_setter_and_current_cap_errors_propagate(self):
         for failed in ("voltage", "current"):
             with self.subTest(failed=failed):
                 self.port.calls.clear()
@@ -189,11 +183,10 @@ class SessionRecoveryServiceTests(unittest.IsolatedAsyncioTestCase):
                 self.port.fail_on = None
         self.port.calls.clear()
         self.service._guard.operator_rearm(confirmed_output_off=True)
-        self.port.fail_on = "protection"
-        async def broken_protection(_v, _i):
-            raise RuntimeError("protection")
-        broken = SessionRecoveryService(self.port, broken_protection, float)
-        with self.assertRaisesRegex(RuntimeError, "protection"):
+        def broken_cap(_value):
+            raise RuntimeError("current cap")
+        broken = SessionRecoveryService(self.port, broken_cap)
+        with self.assertRaisesRegex(RuntimeError, "current cap"):
             await broken.restore_idle_link(14.4, 2.0, safe_wait=False)
         self.assertEqual(self.port.calls, [])
 

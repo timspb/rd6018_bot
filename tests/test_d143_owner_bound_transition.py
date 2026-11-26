@@ -1,5 +1,6 @@
 """D143 owner integration tests. All paths are isolated; no device I/O."""
 from pathlib import Path
+import os
 import tempfile
 import unittest
 from tools.node104_d090_transaction import D090Transaction, TransactionError
@@ -35,6 +36,7 @@ class D143OwnerTests(unittest.TestCase):
         self.owner.service=self.svc
         self.owner._lock_depth=0
 
+    @unittest.skipIf(os.name == "nt", "D143 transaction enters the POSIX D090 flock owner")
     def test_shared_owner_activation_and_restore(self):
         self.assertEqual(self.owner.d143_offline_cutover()["phase"],"CANDIDATE_RUNNING")
         self.assertEqual((self.root/"app/version").read_text(),"newapp")
@@ -56,6 +58,7 @@ class D143OwnerTests(unittest.TestCase):
             self.owner.d143_offline_cutover()
         self.assertEqual(self.svc.stops,0)
 
+    @unittest.skipIf(os.name == "nt", "D143 recovery enters the POSIX D090 flock owner")
     def test_crash_recovery_through_shared_lock(self):
         def fault(name):
             if name=="AFTER_NEW_APP_RENAME_BEFORE_JOURNAL":
@@ -66,6 +69,7 @@ class D143OwnerTests(unittest.TestCase):
         self.assertEqual((self.root/"venv/version").read_text(),"oldvenv")
         self.assertEqual((self.root/"state/session.json").read_text(),"RETIRED")
 
+    @unittest.skipIf(os.name == "nt", "D090 cross-process serialization requires POSIX fcntl.flock")
     def test_old_d090_lock_serializes_operations(self):
         # Acquisition of the existing lock remains the only lock owner.
         with self.owner._locked():

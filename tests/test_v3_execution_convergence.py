@@ -9,6 +9,7 @@ import unittest
 
 from application.execution_intent.models import ExecutionIntent, SafetyContext
 from application.execution_port import ExecutionPort, get_or_create_execution_port
+from application.manual_execution_boundary import ManualExecutionBoundary
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -56,7 +57,29 @@ class V3ExecutionConvergenceTests(unittest.TestCase):
         second = get_or_create_execution_port(app)
         self.assertIs(first, second)
         self.assertIs(app.execution_port, first)
-        self.assertIs(first.execution_owner, app.hass)
+        self.assertIs(first._execution_owner, app.hass)
+
+    def test_managed_safety_owner_and_manual_boundary_reuse_one_port_and_lock(self):
+        raw_transport = _Owner()
+        managed_safety_owner = _Owner()
+        app = SimpleNamespace(
+            hass=raw_transport,
+            runtime_safety_guard=managed_safety_owner,
+        )
+
+        port = get_or_create_execution_port(app)
+        owner_lock = port._guard_owner_lock
+        manual_boundary = ManualExecutionBoundary(port)
+        second_lookup = get_or_create_execution_port(app)
+
+        self.assertIs(port, second_lookup)
+        self.assertIs(app.execution_port, port)
+        self.assertIs(port._execution_owner, managed_safety_owner)
+        self.assertIsNot(port._execution_owner, raw_transport)
+        self.assertIs(port._guard_owner_lock, owner_lock)
+        self.assertIs(app.guard_execution_owner_lock, owner_lock)
+        self.assertIs(manual_boundary.execution_port, port)
+        self.assertEqual(asyncio.run(port.read_live()), managed_safety_owner.live)
 
     def test_port_rebinds_when_composed_execution_owner_changes(self):
         first_owner = _Owner()
@@ -66,7 +89,7 @@ class V3ExecutionConvergenceTests(unittest.TestCase):
         app.hass = second_owner
         second = get_or_create_execution_port(app)
         self.assertIsNot(first, second)
-        self.assertIs(second.execution_owner, second_owner)
+        self.assertIs(second._execution_owner, second_owner)
         self.assertIs(app.execution_port, second)
 
     def test_disable_prefers_canonical_output_state_code(self):
@@ -157,11 +180,15 @@ class V3ExecutionConvergenceTests(unittest.TestCase):
                 self.assertNotIn(token, source, f"{name}: {token}")
 
     def test_start_owners_use_application_execution_port(self):
-        for name in ("application/start_transaction_service.py", "mix_mode.py"):
-            source = (ROOT / name).read_text(encoding="utf-8")
-            self.assertIn("get_or_create_execution_port", source)
-            self.assertIn(".enable(", source)
-            self.assertIn(".disable(", source)
+        start = (ROOT / "application/start_transaction_service.py").read_text(encoding="utf-8")
+        self.assertIn("get_or_create_execution_port", start)
+        self.assertIn(".enable(", start)
+        self.assertIn("request_emergency_off_receipt(", start)
+
+        mix = (ROOT / "mix_mode.py").read_text(encoding="utf-8")
+        self.assertIn("get_or_create_execution_port", mix)
+        self.assertIn(".enable(", mix)
+        self.assertIn(".disable(", mix)
 
 
     def test_runtime_restore_modules_have_no_direct_hass_execution_writes(self):

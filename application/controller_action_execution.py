@@ -10,6 +10,8 @@ from __future__ import annotations
 import time
 from typing import Any, Callable, Mapping, Optional
 
+from runtime.charge.controller_state import set_last_known_output_on
+
 
 async def execute_controller_action_batch(
     actions: Mapping[str, Any],
@@ -22,12 +24,7 @@ async def execute_controller_action_batch(
     temp: float,
     ah: float,
     max_stage_current_a: float,
-    ocp_offset_a: float,
-    idle_safe_ocp_a: float,
-    stabilize_delay_s: float,
     recipe_voltage_ceiling_v: float,
-    has_ovp: bool,
-    has_ocp: bool,
     notify: Callable[..., Any],
     log_event: Callable[..., Any],
     logger: Any,
@@ -46,9 +43,6 @@ async def execute_controller_action_batch(
             controller=controller, actions=actions, now=time.monotonic,
             max_stage_current_a=float(max_stage_current_a),
             recipe_voltage_ceiling_v=float(recipe_voltage_ceiling_v),
-            has_ovp=bool(has_ovp), has_ocp=bool(has_ocp),
-            ocp_offset_a=float(ocp_offset_a),
-            stabilize_delay_s=float(stabilize_delay_s),
             battery_v=float(battery_v), current=float(current), ah=float(ah),
         )
         if execution is not None and not execution.verified:
@@ -61,12 +55,7 @@ async def execute_controller_action_batch(
             actions,
             live,
             max_stage_current_a=float(max_stage_current_a),
-            ocp_offset_a=float(ocp_offset_a),
-            idle_safe_ocp_a=float(idle_safe_ocp_a),
-            stabilize_delay_s=float(stabilize_delay_s),
             recipe_voltage_ceiling_v=float(recipe_voltage_ceiling_v),
-            has_ovp=bool(has_ovp),
-            has_ocp=bool(has_ocp),
         )
         enabled = execution.enabled
         final_targets_missing = execution.final_targets_missing
@@ -75,28 +64,56 @@ async def execute_controller_action_batch(
     if actions.get("turn_on") and not enabled:
         logger.warning("Controller Output ON request was not verified; stage commit withheld")
     if final_targets_missing:
-        logger.error("Final startup protection verification lacks V/I/OVP target")
+        logger.error("Final startup V/I verification lacks target")
     elif final_verification_failed:
-        logger.error("Final OVP/OCP/V/I verification failed after startup settle; forcing OFF")
+        logger.error("Final V/I verification failed after startup settle; forcing OFF")
 
     if isinstance(transition, dict):
         commit = None
         if enabled:
             commit_fn = getattr(controller, "commit_verified_enable_transition", None)
             if callable(commit_fn):
-                commit = commit_fn(
-                    transition,
-                    now=now(),
-                    voltage=float(battery_v),
-                    current=float(current),
-                    ah=float(ah),
-                )
+                try:
+                    commit = commit_fn(
+                        transition,
+                        now=now(),
+                        voltage=float(battery_v),
+                        current=float(current),
+                        ah=float(ah),
+                    )
+                except Exception as exc:
+                    # Physical ON may have completed before atomic session
+                    # persistence rejected the transition. Contain immediately
+                    # under the existing ExecutionPort; never leave energized
+                    # hardware waiting for the orphan-output grace/watchdog.
+                    logger.error(
+                        "Verified Output ON lost its session commit: %s",
+                        type(exc).__name__,
+                    )
+                    try:
+                        off_verified = bool(await execution_port.request_emergency_off())
+                    except Exception as off_exc:
+                        logger.error(
+                            "OFF containment after failed session commit raised: %s",
+                            type(off_exc).__name__,
+                        )
+                        off_verified = False
+                    if off_verified:
+                        notify(
+                            "🚨 Storage не закреплён в сессии. Output OFF подтверждён; "
+                            "автоматическое продолжение заблокировано.",
+                            critical=True,
+                        )
+                        return False
+                    raise RuntimeError(
+                        "verified enable session commit failed; Output OFF unconfirmed"
+                    ) from exc
         if not enabled or not isinstance(commit, dict):
             # A failed recovery SAFE_WAIT -> MAIN enable must never replay
             # autonomously on the next charge tick. Retire that continuation
             # only after the existing execution owner positively proves OFF.
             if not enabled and transition.get("kind") == "recovery_safe_wait_to_main":
-                off_proved = bool(await execution_port.request_verified_off())
+                off_proved = bool(await execution_port.request_emergency_off())
                 if off_proved:
                     if guarded_desulfation_return:
                         logger.error("Guarded recovery MAIN return failed; durable SAFE_WAIT retained for retry")
@@ -108,11 +125,11 @@ async def execute_controller_action_batch(
                 return False
             if enabled:
                 logger.error("Verified Output ON could not be bound to controller transition; forcing OFF")
-                await execution_port.request_verified_off()
+                await execution_port.request_emergency_off()
                 enabled = False
             logger.warning("Verified-enable stage transition remains pending in SAFE_WAIT")
         else:
-            controller._last_known_output_on = True
+            set_last_known_output_on(controller, True)
             event_name = str(commit.get("log_event") or "").strip()
             if event_name:
                 log_event(controller.current_stage, battery_v, current, temp, ah, event_name)

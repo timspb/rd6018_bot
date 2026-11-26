@@ -11,6 +11,7 @@ import asyncio
 from dataclasses import replace
 from functools import wraps
 import hashlib
+import json
 import logging
 from pathlib import Path
 import time
@@ -20,10 +21,19 @@ logger = logging.getLogger("rd6018.startup_recovery")
 
 from application.execution_port import get_or_create_execution_port
 from diagnostic_persistence import recover_diagnostic_persistence
-from runtime.charge.persistence import SESSION_FILE
+from runtime.charge.persistence import (
+    SESSION_FILE, StartPendingAction, StartPendingStatus,
+    finish_start_pending, read_canonical_session, read_start_pending,
+)
+from runtime.charge.controller_state import clear_link_lost_timestamp
+from runtime.charge.link_session_recovery import (
+    RecoveryAction,
+    RecoveryAuthorizationInput,
+    RecoveryRoute,
+    authorize_recovery_action,
+)
 from runtime.charge.strategy.main_guard_pre_on import assess_main_guard_before_output_on
 from runtime.charge.strategy.main_guard_session import GuardJournalError, read_guard
-from runtime.charge.strategy.main_guard_admission import read_canonical_session
 from runtime.charge.session import (
     _issue_guarded_restore_activation_permit,
     issue_guarded_physical_resume_permit,
@@ -40,7 +50,19 @@ def _serialized_deferred_restore(operation):
         if lock is None:
             raise RuntimeError("deferred restore lacks canonical execution owner")
         async with lock:
-            return await operation(self)
+            try:
+                return await operation(self)
+            except asyncio.CancelledError:
+                port.session_recovery_guard.quarantine("deferred_restore_cancelled")
+                raise
+            except Exception as exc:
+                # A failed deferred restore may have loaded or partly applied
+                # its candidate before the failure. Keep later automatic
+                # control blocked even if an outer startup owner handles it.
+                port.session_recovery_guard.quarantine(
+                    "deferred_restore_failed:" + type(exc).__name__
+                )
+                raise
     return wrapped
 
 
@@ -53,6 +75,8 @@ class StartupRecovery:
         self.last_guard_assessment = None
 
     async def recover_managed_startup_authority(self) -> bool:
+        if not await self._settle_start_pending_before_restore():
+            return False
         if not get_or_create_execution_port(self.app).session_recovery_guard.may_run_automatic_control():
             logger.warning("Managed startup recovery blocked: session recovery guard")
             return False
@@ -68,6 +92,80 @@ class StartupRecovery:
         await recover_diagnostic_persistence(self.app)
         logger.info("Managed startup recovery completed")
         return True
+
+    async def _settle_start_pending_before_restore(self) -> bool:
+        """Require this process to prove OFF before restoring embedded prior bytes."""
+        raw, pending, error = read_start_pending(SESSION_FILE)
+        if error:
+            get_or_create_execution_port(self.app).session_recovery_guard.quarantine(
+                "start_pending_unreadable:" + error
+            )
+            return False
+        if raw is not None:
+            try:
+                raw_document = json.loads(raw.decode("utf-8"))
+            except (UnicodeError, ValueError):
+                raw_document = None
+            if (isinstance(raw_document, dict)
+                    and any(str(key).startswith("start_transaction_")
+                            and key not in {"start_transaction_generation", "start_transaction_pending_v1"}
+                            for key in raw_document)):
+                get_or_create_execution_port(self.app).session_recovery_guard.quarantine(
+                    "start_pending_unknown_transaction_envelope"
+                )
+                return False
+            if (isinstance(raw_document, dict)
+                    and "start_transaction_pending_v1" in raw_document
+                    and pending is None):
+                get_or_create_execution_port(self.app).session_recovery_guard.quarantine(
+                    "start_pending_marker_without_valid_envelope"
+                )
+                return False
+        if pending is None:
+            return True
+        port = get_or_create_execution_port(self.app)
+        try:
+            receipt = await port.request_emergency_off_receipt()
+            if (receipt is None or receipt.requested_target is not False
+                    or receipt.terminal_status != "APPLIED"
+                    or type(receipt.observed_r18) is not int or receipt.observed_r18 != 0
+                    or not isinstance(receipt.terminal_completed_monotonic, (int, float))
+                    or isinstance(receipt.terminal_completed_monotonic, bool)
+                    or type(receipt.connection_generation) is not int):
+                raise RuntimeError("start_pending_off_receipt_unproven")
+            report = await self.app.hass.get_native_physical_output_report()
+            if not isinstance(report, tuple) or len(report) != 2:
+                raise RuntimeError("start_pending_native_output_report_missing")
+            value, meta = report
+            timestamp = meta.get("subscription_timestamp_monotonic") if isinstance(meta, dict) else None
+            if (type(value) is bool or value != 0
+                    or not isinstance(meta, dict) or meta.get("status") != "ok"
+                    or meta.get("native_type") != "SensorState"
+                    or type(meta.get("connection_generation")) is not int
+                    or meta["connection_generation"] != receipt.connection_generation
+                    or not isinstance(timestamp, (int, float)) or isinstance(timestamp, bool)
+                    or timestamp <= receipt.terminal_completed_monotonic):
+                raise RuntimeError("start_pending_post_receipt_native_off_unproven")
+            result = finish_start_pending(
+                raw, pending, action=StartPendingAction.ROLLBACK, path=SESSION_FILE,
+            )
+            if result.status is not StartPendingStatus.COMMITTED:
+                raise RuntimeError("start_pending_exact_rollback_unproven")
+            observed, after_pending, after_error = read_start_pending(SESSION_FILE)
+            expected = (pending.get("previous_raw_utf8", "").encode("utf-8")
+                        if pending.get("previous_exists") else None)
+            if after_error or after_pending is not None or observed != expected:
+                raise RuntimeError("start_pending_rollback_readback_mismatch")
+            return True
+        except Exception as exc:
+            try:
+                port.session_recovery_guard.quarantine(
+                    "start_pending_recovery:" + type(exc).__name__
+                )
+            except Exception:
+                pass
+            logger.error("START_PENDING recovery quarantined: %s", type(exc).__name__)
+            return False
 
     @_serialized_deferred_restore
     async def replay_deferred_startup_restore(self) -> None:
@@ -318,7 +416,7 @@ class StartupRecovery:
             execution_port.mark_guarded_restore_activated_off()
             self.last_guard_assessment = assessment
             return
-        live = await app.hass.get_all_live()
+        live = await execution_port.read_live()
 
         if not bool(getattr(controller, "is_active", False)):
             ok, _msg = controller.try_restore_session(
@@ -356,25 +454,19 @@ class StartupRecovery:
                 raise RuntimeError("deferred startup SAFE_WAIT Output OFF was not confirmed")
             return
 
-        if output_state == "on":
+        action = authorize_recovery_action(RecoveryAuthorizationInput(
+            route=RecoveryRoute.IDLE_LINK,
+            restored=True,
+            auto_enable_authorized=True,
+            safe_wait=False,
+            input_voltage_ok=True,
+            cold_start=True,
+        ))
+        if action is not RecoveryAction.SKIP:
+            logger.error("Unexpected deferred startup cold-start authorization: %s", action)
             return
-        if output_state != "off":
-            raise RuntimeError("deferred startup restore cannot resolve canonical Output state")
-
-        raw_temp = live.get("temp_ext")
-        if raw_temp is None or str(raw_temp).strip().lower() in {"", "unknown", "unavailable", "none"}:
-            raise RuntimeError("deferred startup restore requires fresh battery temperature")
-        temp_ext = app._safe_float(raw_temp)
-        uv, ui = controller._get_target_v_i(temp_ext)
-        await app._apply_phase_protection(uv, ui)
-        await execution_port.program_voltage(uv)
-        await execution_port.program_current(app._cap_current(ui))
-        enabled = await execution_port.request_verified_on()
-        if not enabled:
-            raise RuntimeError("deferred startup safe Output enable was not confirmed")
-        app.logger.info(
-            "Deferred startup session physically resumed after MANAGED authority reconciliation: %s",
-            controller.current_stage,
+        logger.warning(
+            "Cold-start automatic re-energization denied for deferred restored session"
         )
 
     @_serialized_deferred_restore
@@ -464,3 +556,102 @@ class StartupRecovery:
             return blocked("guarded_resume_revalidation_failed:" + type(exc).__name__)
         self.last_guard_assessment = assessment
         return await port.execute_guarded_physical_resume(permit)
+
+
+# Startup restore uptime reconciliation owns these two legacy constants.
+UPTIME_AS_CHARGE_TIMER_MAX_SEC = 24 * 3600
+UPTIME_SYNC_MAX_DRIFT_SEC = 300
+
+
+def parse_uptime_to_elapsed_sec(uptime_raw: Any, *, now_s: float | None = None) -> Optional[float]:
+    """Parse RD6018 uptime/timer telemetry into elapsed seconds."""
+    from datetime import datetime
+
+    if uptime_raw is None or uptime_raw == "":
+        return None
+    if isinstance(uptime_raw, (int, float)):
+        return float(uptime_raw)
+    value = str(uptime_raw).strip()
+    if not value:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        pass
+    if ":" in value and "T" not in value and "-" not in value:
+        parts = value.split(":")
+        try:
+            if len(parts) == 2:
+                a, b = int(parts[0].strip()), int(parts[1].strip())
+                if a == 0:
+                    return b * 60
+                if 1 <= a <= 59 and b == 0:
+                    return a * 60
+                return a * 3600 + b * 60
+            if len(parts) == 3:
+                hours, minutes, seconds = (
+                    int(parts[0].strip()), int(parts[1].strip()), int(parts[2].strip())
+                )
+                return hours * 3600 + minutes * 60 + seconds
+        except (ValueError, IndexError):
+            pass
+    try:
+        observed_at = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        now_value = time.time() if now_s is None else float(now_s)
+        elapsed = now_value - observed_at.timestamp()
+        return None if elapsed < 0 else elapsed
+    except Exception:
+        return None
+
+
+def sync_total_start_from_uptime(
+    controller: Any,
+    live: Optional[dict[str, Any]],
+    *,
+    max_drift_sec: int = UPTIME_SYNC_MAX_DRIFT_SEC,
+    allow_init: bool = False,
+    now_s: float | None = None,
+) -> bool:
+    """Reconcile total_start_time with the device timer under the legacy drift gate."""
+    if not getattr(controller, "is_active", False):
+        return False
+    uptime_raw = (live or {}).get("uptime")
+    if uptime_raw is None:
+        return False
+    now_value = time.time() if now_s is None else float(now_s)
+    elapsed = parse_uptime_to_elapsed_sec(uptime_raw, now_s=now_value)
+    if elapsed is None or not (0 < elapsed <= UPTIME_AS_CHARGE_TIMER_MAX_SEC):
+        return False
+
+    total_start = float(getattr(controller, "total_start_time", 0) or 0)
+    if total_start > 0:
+        if abs((now_value - total_start) - elapsed) > max_drift_sec:
+            return False
+    elif not allow_init:
+        return False
+
+    controller.total_start_time = now_value - elapsed
+    return True
+
+
+def apply_restore_time_corrections(
+    controller: Any,
+    live: Optional[dict[str, Any]],
+    *,
+    now_s: float | None = None,
+) -> None:
+    """Apply startup/reconnect clock reconciliation without owning session policy."""
+    now_value = time.time() if now_s is None else float(now_s)
+    link_lost = getattr(controller, "_link_lost_at", 0) or 0
+    if link_lost > 0:
+        gap = now_value - link_lost
+        controller.total_start_time += gap
+        controller.stage_start_time += gap
+        clear_link_lost_timestamp(controller)
+    sync_total_start_from_uptime(
+        controller,
+        live,
+        max_drift_sec=UPTIME_SYNC_MAX_DRIFT_SEC,
+        allow_init=False,
+        now_s=now_value,
+    )

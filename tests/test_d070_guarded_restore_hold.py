@@ -167,7 +167,16 @@ class GuardedLegacyRestoreHoldTests(unittest.TestCase):
         )
         self.assertEqual(revision, 1)
         self.assertEqual(controller._main_current_guard, restored)
-        self.assertEqual(controller._main_current_guard_revision, 1)
+        # The accepted restore performs one canonical compare-and-replace,
+        # advancing the durable Guard revision from 1 to 2. The in-memory
+        # concurrency token must match the newly committed document.
+        committed_document = json.loads(self.session_file.read_text(encoding="utf-8"))
+        committed_guard, committed_revision = read_guard(
+            committed_document, session_id="sid-1", battery_id="battery-1", now_s=time.time(),
+        )
+        self.assertEqual(committed_revision, 2)
+        self.assertEqual(committed_guard, restored)
+        self.assertEqual(controller._main_current_guard_revision, committed_revision)
         self.assertTrue(controller._guarded_restore_activated_off)
         self.assertIsNone(controller._guarded_restore_candidate)
 

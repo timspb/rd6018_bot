@@ -15,8 +15,11 @@ from time import time
 import time as _time
 from typing import Any, Mapping, Optional
 
-from protection_utils import should_delay_current_ramp, should_use_startup_settle
 from rd6018_telemetry import canonical_programmed_readback, finite_float
+from runtime.safety.output_policy import OutputRequest, SafetySupervisor, snapshot_from_live
+from runtime.safety.runtime_guard import RuntimeSafetyError
+from runtime.output.command_receipt import OutputCommandReceipt
+from .safe_output_coordinator import SafeOutputCoordinator
 
 from .execution_intent.models import ExecutionIntent
 from .guard_execution_owner_lock import GuardExecutionOwnerLock
@@ -80,8 +83,15 @@ class GuardedPhysicalResumeResult:
 class ExecutionPort:
     """production physical port; never selects a phase or creates targets."""
 
-    def __init__(self, execution_owner: Any, session_recovery_guard: SessionRecoveryGuard | None = None) -> None:
-        self.execution_owner = execution_owner
+    def __init__(
+        self,
+        execution_owner: Any,
+        session_recovery_guard: SessionRecoveryGuard | None = None,
+        *,
+        app: Any = None,
+    ) -> None:
+        self._execution_owner = execution_owner
+        self.app = app
         self.audit: list[ExecutionPortAudit] = []
         # UNBOUND by default: a stand-alone Guard transaction cannot grant
         # itself an independent lock and pretend it protects all output paths.
@@ -90,6 +100,20 @@ class ExecutionPort:
         self._guarded_restore_activated_off = False
         self._guarded_resume_endpoint = None
         self._guarded_resume_consumed: set[int] = set()
+
+    async def read_live(self) -> Mapping[str, Any]:
+        """Read through the composed Safety owner without exposing that owner."""
+        live = await self._execution_owner.get_all_live()
+        if not isinstance(live, Mapping):
+            raise RuntimeError("execution owner returned an invalid live snapshot")
+        return live
+
+    async def read_native_physical_output_report(self) -> Any:
+        """Read native Output evidence through the composed Safety owner."""
+        reader = getattr(self._execution_owner, "get_native_physical_output_report", None)
+        if not callable(reader):
+            return None
+        return await reader()
 
     @property
     def guarded_restore_activated_off(self) -> bool:
@@ -141,6 +165,105 @@ class ExecutionPort:
     def _recovery_quarantined(self) -> bool:
         return self.session_recovery_guard.quarantined
 
+    def _normal_actuation_gate(
+        self,
+        action: str,
+        *,
+        allow_startup_off_clearance: bool = False,
+        ignore_startup: bool = False,
+        allow_hands_off_operator_off: bool = False,
+    ) -> None:
+        """Apply ownership/startup policy before any normal physical action."""
+        app = self.app
+        if app is None:
+            return
+        manager = getattr(app, "rd_control_mode_manager", None)
+        if manager is not None:
+            hands_off = bool(getattr(manager, "hands_off", False))
+            autonomous = bool(getattr(manager, "edge_autonomous", False))
+            releasing = bool(getattr(manager, "release_in_progress", False))
+            hands_off_off_override = (
+                bool(allow_hands_off_operator_off)
+                and action == "Output OFF"
+                and hands_off
+            )
+            if (
+                autonomous
+                or (hands_off and not hands_off_off_override)
+                or (releasing and action != "Output OFF")
+            ):
+                state = "RD AUTONOMOUS" if autonomous else (
+                    "HANDS_OFF transfer" if releasing else "RD HANDS_OFF"
+                )
+                raise RuntimeSafetyError(
+                    f"{state}: bot {action} is disabled; use the physical RD6018 controls"
+                )
+
+        if ignore_startup:
+            return
+        startup = getattr(app, "rd_startup_authority_gate", None)
+        if startup is None or bool(getattr(startup, "recovery_scope", False)):
+            return
+        if bool(getattr(startup, "managed_actuation_ready", True)):
+            return
+        if allow_startup_off_clearance and action == "Output OFF":
+            recovery_guard = getattr(app, "session_recovery_guard", None)
+            quarantined = getattr(recovery_guard, "quarantined", False) is True
+            candidate = getattr(startup, "candidate_autonomous", None)
+            edge_auto = bool(getattr(manager, "edge_autonomous", False)) if manager is not None else False
+            if quarantined and candidate is False and not edge_auto:
+                return
+        blocked = getattr(startup, "_blocked", None)
+        if callable(blocked):
+            raise blocked(action)
+        raise RuntimeSafetyError(f"startup authority: bot {action} is blocked")
+
+    def _authorize_adopted_write(self, field: str, value: float) -> tuple[Any, Any]:
+        """Authorize adopted-live/MIX ratchets without touching the transport adapter."""
+        app = self.app
+        if app is None:
+            return None, None
+        mix = getattr(app, "rd_managed_mix_adoption", None)
+        adoption = getattr(app, "rd_managed_live_adoption", None)
+        if mix is not None:
+            mix.authorize_managed_write(field, value)
+        if adoption is not None:
+            adoption.authorize_managed_write(field, value)
+        return adoption, mix
+
+    @staticmethod
+    def _ratchet_adopted_write(authorities: tuple[Any, Any], field: str, value: float) -> None:
+        adoption, mix = authorities
+        if adoption is not None:
+            adoption.ratchet_after_managed_write(field, value)
+        if mix is not None:
+            mix.ratchet_after_managed_write(field, value)
+
+    def authorize_managed_start(self) -> None:
+        """Authorize controller session creation before any START state mutation."""
+        if self._recovery_quarantined() or self.guarded_restore_activated_off:
+            raise RuntimeSafetyError("managed START blocked by recovery quarantine")
+        self._normal_actuation_gate("automatic charge start")
+
+    def _assert_output_on_authority(self) -> None:
+        self._normal_actuation_gate("Output ON")
+        app = self.app
+        if app is None:
+            return
+        adoption = getattr(app, "rd_managed_live_adoption", None)
+        if adoption is not None and (
+            bool(getattr(adoption, "active", False))
+            or bool(getattr(adoption, "off_pending", False))
+        ):
+            raise RuntimeSafetyError(
+                "adopted-live Manual cannot re-energize Output; start a fresh managed program"
+            )
+        mix = getattr(app, "rd_managed_mix_adoption", None)
+        if mix is not None and bool(getattr(mix, "managed_authority", False)):
+            raise RuntimeSafetyError(
+                "MIX_ADOPTED cannot re-energize Output; a fresh managed program is required"
+            )
+
     def bind_guard_owner_lock(self, lock: GuardExecutionOwnerLock) -> None:
         """Bind the proven app-wide lifecycle lock before Guard activation.
 
@@ -160,8 +283,6 @@ class ExecutionPort:
         intent: ExecutionIntent,
         *,
         identity: Any,
-        ovp_v: float | None = None,
-        ocp_a: float | None = None,
         recipe_voltage_ceiling_v: float,
     ) -> ExecutionPortResult:
         if self._recovery_quarantined() or self.guarded_restore_activated_off:
@@ -169,13 +290,22 @@ class ExecutionPort:
                       else "session_recovery_quarantined")
             return self._result(intent, identity, "enable", False, False, reason)
         try:
-            result = await self.execution_owner.safe_enable_output(
-                voltage_v=float(intent.requested_voltage_v),
-                current_a=float(intent.requested_current_a),
-                ovp_v=float(ovp_v) if ovp_v is not None else None,
-                ocp_a=float(ocp_a) if ocp_a is not None else None,
-                recipe_voltage_ceiling_v=float(recipe_voltage_ceiling_v),
-            )
+            self._assert_output_on_authority()
+            if callable(getattr(self._execution_owner, "safe_enable_output", None)):
+                result = await self._execution_owner.safe_enable_output(
+                    voltage_v=float(intent.requested_voltage_v),
+                    current_a=float(intent.requested_current_a),
+                    recipe_voltage_ceiling_v=float(recipe_voltage_ceiling_v),
+                )
+            else:
+                policy = getattr(self._execution_owner, "policy", None)
+                supervisor = SafetySupervisor(policy) if policy is not None else SafetySupervisor()
+                coordinator = SafeOutputCoordinator(self._execution_owner, supervisor)
+                result = await coordinator.enable(OutputRequest(
+                    voltage_v=float(intent.requested_voltage_v),
+                    current_a=float(intent.requested_current_a),
+                    recipe_voltage_ceiling_v=float(recipe_voltage_ceiling_v),
+                ))
             accepted = bool(getattr(result, "enabled", False))
             return self._result(
                 intent, identity, "enable", accepted, accepted,
@@ -193,16 +323,16 @@ class ExecutionPort:
         if not self._identity_valid(identity):
             return self._result(intent, identity, "setpoints", False, False, "identity_required")
         try:
-            before = await self.execution_owner.get_all_live()
+            before = await self._execution_owner.get_all_live()
             battery_v = finite_float(before.get("battery_voltage"))
             output = str(before.get("switch", "")).lower() in {"on", "true", "1"}
             if not output or battery_v is None or intent.requested_voltage_v < battery_v:
                 return self._result(intent, identity, "setpoints", False, False, "precondition_failed")
-            if not await self.execution_owner.set_current(intent.requested_current_a):
+            if not await self.program_current(intent.requested_current_a):
                 return self._result(intent, identity, "setpoints", False, False, "current_setter_rejected")
-            if not await self.execution_owner.set_voltage(intent.requested_voltage_v):
+            if not await self.program_voltage(intent.requested_voltage_v):
                 return self._result(intent, identity, "setpoints", False, False, "voltage_setter_rejected")
-            after = await self.execution_owner.get_all_live()
+            after = await self._execution_owner.get_all_live()
             read_v = canonical_programmed_readback(after, "set_voltage")
             read_i = canonical_programmed_readback(after, "set_current")
             verified = (
@@ -217,7 +347,7 @@ class ExecutionPort:
 
     @_serialized_normal_execution
     async def execute_main_current_guard_reduction(self, **transaction: Any) -> Any:
-        """Execute one due MAIN Guard current/OCP reduction on this owner."""
+        """Execute one due MAIN Guard current-setpoint reduction on this owner."""
         if self._recovery_quarantined():
             return None
         from .main_guard_transaction import execute_main_guard_reduction
@@ -235,9 +365,76 @@ class ExecutionPort:
             self, execution_lock=self._guard_owner_lock, **transaction,
         )
 
+    async def verify_live_programming(
+        self,
+        *,
+        voltage_v: float,
+        current_a: float,
+        recipe_voltage_ceiling_v: float,
+    ) -> bool:
+        """Verify post-ON V/I and live safety without re-running pre-enable policy."""
+        request = OutputRequest(
+            voltage_v=float(voltage_v),
+            current_a=float(current_a),
+            recipe_voltage_ceiling_v=float(recipe_voltage_ceiling_v),
+        )
+        policy = getattr(self._execution_owner, "policy", None)
+        supervisor = SafetySupervisor(policy) if policy is not None else SafetySupervisor()
+        try:
+            live = await self._execution_owner.get_all_live()
+        except Exception:
+            return False
+        if not isinstance(live, Mapping):
+            return False
+        programmed = snapshot_from_live(
+            live,
+            require_programming_freshness=True,
+        )
+        if programmed is None:
+            return False
+        return bool(supervisor.verify_live_output(request, programmed).allowed)
+
+    @_serialized_normal_execution
     async def request_verified_off(self) -> bool:
         """Delegate one verified Output-OFF transaction to the production owner."""
-        return bool(await self.execution_owner.turn_off())
+        self._normal_actuation_gate("Output OFF", allow_startup_off_clearance=True)
+        return bool(await self._execution_owner.turn_off())
+
+    async def request_emergency_off(
+        self,
+        entity_id: Optional[str] = None,
+        *,
+        allow_hands_off_operator_off: bool = False,
+    ) -> bool:
+        """Request guarded containment OFF without waiting for normal app work."""
+        self._normal_actuation_gate(
+            "Output OFF",
+            ignore_startup=True,
+            allow_hands_off_operator_off=allow_hands_off_operator_off,
+        )
+        if entity_id is None:
+            return bool(await self._execution_owner.turn_off())
+        return bool(await self._execution_owner.turn_off(entity_id))
+
+    async def request_emergency_off_receipt(
+        self,
+        *,
+        allow_hands_off_operator_off: bool = False,
+    ) -> OutputCommandReceipt | None:
+        """Emergency liveness route returning exact AD051 OFF evidence when supported."""
+        self._normal_actuation_gate(
+            "Output OFF",
+            ignore_startup=True,
+            allow_hands_off_operator_off=allow_hands_off_operator_off,
+        )
+        operation = getattr(self._execution_owner, "turn_off_with_receipt", None)
+        if not callable(operation):
+            return None
+        try:
+            receipt = await operation()
+        except Exception:
+            return None
+        return receipt if isinstance(receipt, OutputCommandReceipt) else None
 
     @_serialized_normal_execution
     async def request_verified_off_evidence(self) -> VerifiedOffEvidence | None:
@@ -262,7 +459,7 @@ class ExecutionPort:
             _clearance_logger.warning("CLEARANCE_OFF_FAILED step=turn_off_rejected")
             return None
         off_completed_at = _time.monotonic()
-        reader = getattr(self.execution_owner, "get_native_physical_output_report", None)
+        reader = getattr(self._execution_owner, "get_native_physical_output_report", None)
         if not callable(reader):
             self.last_off_clearance_failure = "native_reader_missing"
             _clearance_logger.warning("CLEARANCE_OFF_FAILED step=native_reader_missing")
@@ -321,19 +518,32 @@ class ExecutionPort:
         """Delegate one guarded/verified Output-ON transaction to the V2 owner."""
         if self._recovery_quarantined() or self.guarded_restore_activated_off:
             return False
-        return bool(await self.execution_owner.turn_on())
+        self._assert_output_on_authority()
+        return bool(await self._execution_owner.turn_on())
 
     @_serialized_normal_execution
     async def program_voltage(self, value_v: float) -> bool:
         if self._recovery_quarantined():
             return False
-        return bool(await self.execution_owner.set_voltage(float(value_v)))
+        value = float(value_v)
+        self._normal_actuation_gate("voltage write")
+        authorities = self._authorize_adopted_write("set_voltage_v", value)
+        ok = bool(await self._execution_owner.set_voltage(value))
+        if ok:
+            self._ratchet_adopted_write(authorities, "set_voltage_v", value)
+        return ok
 
     @_serialized_normal_execution
     async def program_current(self, value_a: float) -> bool:
         if self._recovery_quarantined():
             return False
-        return bool(await self.execution_owner.set_current(float(value_a)))
+        value = float(value_a)
+        self._normal_actuation_gate("current write")
+        authorities = self._authorize_adopted_write("set_current_a", value)
+        ok = bool(await self._execution_owner.set_current(value))
+        if ok:
+            self._ratchet_adopted_write(authorities, "set_current_a", value)
+        return ok
 
     @_serialized_normal_execution
     async def program_voltage_current(self, voltage_v: float, current_a: float) -> tuple[bool, bool]:
@@ -349,240 +559,52 @@ class ExecutionPort:
         return ok_v, ok_i
 
     @_serialized_normal_execution
-    async def program_ovp(self, value_v: float) -> bool:
-        if self._recovery_quarantined():
-            return False
-        return bool(await self.execution_owner.set_ovp(float(value_v)))
-
-    @_serialized_normal_execution
-    async def program_ocp(self, value_a: float) -> bool:
-        if self._recovery_quarantined():
-            return False
-        return bool(await self.execution_owner.set_ocp(float(value_a)))
-
-    @_serialized_normal_execution
-    async def apply_phase_protection(
-        self,
-        *,
-        target_voltage_v: float,
-        target_current_a: float,
-        ovp_offset_v: float,
-        ocp_offset_a: float,
-        max_stage_current_a: float,
-        has_ovp: bool,
-        has_ocp: bool,
-    ) -> None:
-        if self._recovery_quarantined():
-            return
-        if has_ovp:
-            await self.execution_owner.set_ovp(float(target_voltage_v) + float(ovp_offset_v))
-        if has_ocp:
-            current = min(float(max_stage_current_a), max(0.1, float(target_current_a)))
-            await self.execution_owner.set_ocp(current + float(ocp_offset_a))
-
-    @_serialized_normal_execution
-    async def apply_current_with_ocp(
-        self,
-        *,
-        target_current_a: float,
-        current_set_a: float,
-        target_ocp_a: Optional[float],
-        max_stage_current_a: float,
-        ocp_offset_a: float,
-        has_ocp: bool,
-        stabilize_delay_s: float,
-    ) -> None:
-        if self._recovery_quarantined():
-            return
-        target_i = min(float(max_stage_current_a), max(0.1, float(target_current_a)))
-        if target_ocp_a is None or not has_ocp:
-            await self.execution_owner.set_current(target_i)
-            return
-
-        target_ocp = min(
-            float(target_ocp_a),
-            float(max_stage_current_a) + float(ocp_offset_a),
-        )
-        if target_i < float(current_set_a):
-            await self.execution_owner.set_current(target_i)
-            await self.execution_owner.set_ocp(target_ocp)
-        elif should_delay_current_ramp(
-            target_i,
-            float(current_set_a),
-            float(target_ocp_a),
-            True,
-        ):
-            await self.execution_owner.set_ocp(target_ocp)
-            await asyncio.sleep(float(stabilize_delay_s))
-            await self.execution_owner.set_current(target_i)
-        else:
-            await self.execution_owner.set_ocp(target_ocp)
-            await self.execution_owner.set_current(target_i)
-
-    @_serialized_normal_execution
-    async def apply_current_with_startup_settle(
-        self,
-        *,
-        target_current_a: float,
-        current_set_a: float,
-        target_ocp_a: Optional[float],
-        turn_on_requested: bool,
-        max_stage_current_a: float,
-        ocp_offset_a: float,
-        idle_safe_ocp_a: float,
-        has_ocp: bool,
-        stabilize_delay_s: float,
-    ) -> Optional[float]:
-        if self._recovery_quarantined():
-            return None
-        target_i = min(float(max_stage_current_a), max(0.1, float(target_current_a)))
-        if target_ocp_a is None or not has_ocp:
-            await self.execution_owner.set_current(target_i)
-            return None
-
-        target_ocp = min(
-            float(target_ocp_a),
-            float(max_stage_current_a) + float(ocp_offset_a),
-        )
-        if should_use_startup_settle(
-            target_i,
-            float(current_set_a),
-            float(target_ocp_a),
-            True,
-            bool(turn_on_requested),
-        ):
-            await self.execution_owner.set_ocp(float(idle_safe_ocp_a))
-            await self.execution_owner.set_current(target_i)
-            return target_ocp
-
-        if target_i < float(current_set_a):
-            await self.execution_owner.set_current(target_i)
-            await self.execution_owner.set_ocp(target_ocp)
-        elif should_delay_current_ramp(
-            target_i,
-            float(current_set_a),
-            float(target_ocp_a),
-            True,
-        ):
-            await self.execution_owner.set_ocp(target_ocp)
-            await asyncio.sleep(float(stabilize_delay_s))
-            await self.execution_owner.set_current(target_i)
-        else:
-            await self.execution_owner.set_ocp(target_ocp)
-            await self.execution_owner.set_current(target_i)
-        return None
-
-    @_serialized_normal_execution
-    async def reset_idle_protection(
-        self,
-        *,
-        idle_safe_ovp_v: float,
-        idle_safe_ocp_a: float,
-        has_ovp: bool,
-        has_ocp: bool,
-    ) -> None:
-        if self._recovery_quarantined():
-            return
-        if has_ovp:
-            await self.execution_owner.set_ovp(float(idle_safe_ovp_v))
-        if has_ocp:
-            await self.execution_owner.set_ocp(float(idle_safe_ocp_a))
-
-    @_serialized_normal_execution
     async def execute_controller_actions(
         self,
         actions: Mapping[str, Any],
         live: Mapping[str, Any],
         *,
         max_stage_current_a: float,
-        ocp_offset_a: float,
-        idle_safe_ocp_a: float,
-        stabilize_delay_s: float,
         recipe_voltage_ceiling_v: float,
-        has_ovp: bool,
-        has_ocp: bool,
     ) -> ControllerActionExecutionResult:
-        """Execute an already-decided controller action batch without stage logic."""
-
+        """Execute the controller's V/I/Output actions through the existing owner."""
         if self._recovery_quarantined():
-            # Preserve an explicit OFF action, then suppress every other write.
             if actions.get("turn_off"):
                 await self.request_verified_off()
             return ControllerActionExecutionResult(enabled=False if actions.get("turn_on") else None)
 
         if actions.get("turn_off"):
             await self.request_verified_off()
-
-        if actions.get("set_ovp") is not None and has_ovp:
-            await self.execution_owner.set_ovp(float(actions["set_ovp"]))
         if actions.get("set_voltage") is not None:
-            await self.execution_owner.set_voltage(float(actions["set_voltage"]))
+            await self.program_voltage(float(actions["set_voltage"]))
 
-        target_i_raw = actions.get("set_current")
-        target_ocp_raw = actions.get("set_ocp")
-        target_i: Optional[float] = None
-        pending_ocp_restore: Optional[float] = None
-        if target_i_raw is not None:
-            target_i = min(
-                float(max_stage_current_a),
-                max(0.1, float(target_i_raw)),
-            )
-            try:
-                current_set_i = float(live.get("set_current", target_i))
-            except (TypeError, ValueError):
-                current_set_i = target_i
-            pending_ocp_restore = await self.apply_current_with_startup_settle(
-                target_current_a=target_i,
-                current_set_a=current_set_i,
-                target_ocp_a=(
-                    float(target_ocp_raw)
-                    if target_ocp_raw is not None and has_ocp
-                    else None
-                ),
-                turn_on_requested=bool(actions.get("turn_on")),
-                max_stage_current_a=float(max_stage_current_a),
-                ocp_offset_a=float(ocp_offset_a),
-                idle_safe_ocp_a=float(idle_safe_ocp_a),
-                has_ocp=bool(has_ocp),
-                stabilize_delay_s=float(stabilize_delay_s),
-            )
-        elif target_ocp_raw is not None and has_ocp:
-            target_ocp = min(
-                float(target_ocp_raw),
-                float(max_stage_current_a) + float(ocp_offset_a),
-            )
-            await self.execution_owner.set_ocp(target_ocp)
+        target_i = actions.get("set_current")
+        if target_i is not None:
+            target_i = min(float(max_stage_current_a), max(0.1, float(target_i)))
+            await self.program_current(target_i)
 
         enabled: Optional[bool] = None
         if actions.get("turn_on"):
             enabled = await self.request_verified_on()
 
-        attempted = False
-        failed = False
-        missing = False
-        if pending_ocp_restore is not None:
-            await asyncio.sleep(float(stabilize_delay_s))
-            await self.execution_owner.set_ocp(float(pending_ocp_restore))
-            if enabled:
-                attempted = True
-                target_v_raw = actions.get("set_voltage")
-                target_ovp_raw = actions.get("set_ovp")
-                if target_v_raw is None or target_i is None or target_ovp_raw is None:
-                    missing = True
-                    await self.request_verified_off()
+        attempted = failed = missing = False
+        if enabled:
+            attempted = True
+            target_v = actions.get("set_voltage")
+            if target_v is None or target_i is None:
+                missing = True
+                await self.request_emergency_off()
+                enabled = False
+            else:
+                final_ok = await self.verify_live_programming(
+                    voltage_v=float(target_v),
+                    current_a=float(target_i),
+                    recipe_voltage_ceiling_v=float(recipe_voltage_ceiling_v),
+                )
+                if not final_ok:
+                    failed = True
+                    await self.request_emergency_off()
                     enabled = False
-                else:
-                    final_ok = await self.execution_owner.verify_live_programming(
-                        voltage_v=float(target_v_raw),
-                        current_a=float(target_i),
-                        ovp_v=float(target_ovp_raw),
-                        ocp_a=float(pending_ocp_restore),
-                        recipe_voltage_ceiling_v=float(recipe_voltage_ceiling_v),
-                    )
-                    if not final_ok:
-                        failed = True
-                        await self.request_verified_off()
-                        enabled = False
 
         return ControllerActionExecutionResult(
             enabled=enabled,
@@ -596,7 +618,7 @@ class ExecutionPort:
         # inventing a lifecycle identity. The audit explicitly records that gap.
         try:
             accepted = await self.request_verified_off()
-            live = await self.execution_owner.get_all_live()
+            live = await self._execution_owner.get_all_live()
             output_off = self._output_is_off(live)
             verified = accepted and output_off
             return self._result(intent, identity, "disable", accepted, verified, reason if verified else "off_verification_failed")
@@ -640,17 +662,18 @@ def get_or_create_execution_port(app: Any) -> ExecutionPort:
     if not isinstance(recovery_guard, SessionRecoveryGuard):
         recovery_guard = SessionRecoveryGuard()
         setattr(app, "session_recovery_guard", recovery_guard)
-    owner = getattr(app, "hass", None)
+    owner = getattr(app, "runtime_safety_guard", None) or getattr(app, "hass", None)
     existing = getattr(app, "execution_port", None)
-    if isinstance(existing, ExecutionPort) and existing.execution_owner is owner:
+    if isinstance(existing, ExecutionPort) and existing._execution_owner is owner:
         existing.session_recovery_guard = recovery_guard
+        existing.app = app
         lock = getattr(app, "guard_execution_owner_lock", None)
         if lock is None:
             lock = GuardExecutionOwnerLock()
             setattr(app, "guard_execution_owner_lock", lock)
         existing.bind_guard_owner_lock(lock)
         return existing
-    port = ExecutionPort(owner, recovery_guard)
+    port = ExecutionPort(owner, recovery_guard, app=app)
     lock = getattr(app, "guard_execution_owner_lock", None)
     if lock is None:
         lock = GuardExecutionOwnerLock()

@@ -231,7 +231,7 @@ class LiveMixObserverTests(unittest.IsolatedAsyncioTestCase):
             fake = AlwaysDeltaAnalyzer()
             observer.analyzer = fake
             await observer.start(preview_from_live(live), mode=LiveMixObserverMode.OBSERVE_ONLY)
-            set_source_report(manager, _iso(1.0))
+            set_source_report(manager, _iso(120.0))
             await observer.observe_once()
             self.assertIsNotNone(observer.finish_hold_started_at_s)
             first_observations = len(fake.observe_calls)
@@ -239,12 +239,14 @@ class LiveMixObserverTests(unittest.IsolatedAsyncioTestCase):
             manager.guard.live["set_current"] = 0.8
             # This report already existed when the changed setpoint was detected, so
             # it must only reset evidence, not seed the new epoch.
-            set_source_report(manager, _iso(0.0))
+            # This report predates the wall-clock epoch reset and therefore
+            # cannot seed the new setpoint epoch, regardless of test duration.
+            set_source_report(manager, _iso(-10.0))
             await observer.observe_once()
             self.assertIsNone(observer.finish_hold_started_at_s)
             self.assertEqual(len(fake.observe_calls), first_observations)
 
-            set_source_report(manager, _iso(2.0))
+            set_source_report(manager, _iso(180.0))
             await observer.observe_once()
             self.assertEqual(len(fake.observe_calls), first_observations + 1)
             self.assertIsNotNone(observer.finish_hold_started_at_s)

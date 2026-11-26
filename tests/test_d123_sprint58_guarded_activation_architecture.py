@@ -25,9 +25,15 @@ class Sprint58GuardedActivationArchitectureTests(unittest.TestCase):
         startup_text = source("runtime/startup_recovery.py")
         forbidden = {"request_verified_on", "turn_on", "safe_enable_output", "program_voltage",
                      "program_current", "program_ocp", "program_ovp"}
-        activation = startup_text.split("if candidate is not None:", 1)[1].split("live = await app.hass.get_all_live()", 1)[0]
-        startup = ast.parse(textwrap.dedent(activation))
-        invoked = {node.func.attr for node in ast.walk(startup)
+        startup = ast.parse(startup_text)
+        recovery = next(node for node in ast.walk(startup)
+                        if isinstance(node, ast.AsyncFunctionDef)
+                        and node.name == "replay_deferred_startup_restore")
+        guarded_path = next(node for node in ast.walk(recovery)
+                            if isinstance(node, ast.If)
+                            and ast.unparse(node.test) == "candidate is not None")
+        invoked = {node.func.attr for branch in guarded_path.body
+                   for node in ast.walk(branch)
                    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)}
         self.assertFalse(invoked & forbidden)
         self.assertIn("read_guard", source("runtime/startup_recovery.py"))
@@ -41,12 +47,12 @@ class Sprint58GuardedActivationArchitectureTests(unittest.TestCase):
         request_on = port.split("async def request_verified_on(", 1)[1].split("async def program_voltage(", 1)[0]
         self.assertIn("guarded_restore_activated_off", enable)
         self.assertIn("guarded_restore_activated_off", request_on)
-        self.assertIn("execution_owner.turn_on()", request_on)
+        self.assertIn("_execution_owner.turn_on()", request_on)
 
     def test_emergency_off_remains_independent_of_activation_latch(self):
         port = source("application/execution_port.py")
         off = port.split("async def request_verified_off(", 1)[1].split("async def request_verified_off_evidence(", 1)[0]
-        self.assertIn("execution_owner.turn_off()", off)
+        self.assertIn("_execution_owner.turn_off()", off)
         self.assertNotIn("guarded_restore_activated_off", off)
 
     def test_activated_off_session_skips_background_charge_tick(self):

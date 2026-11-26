@@ -22,8 +22,6 @@ class _AsyncTransitionTransport:
         self.calls = []
         self.v = 13.57
         self.i = 0.10
-        self.ovp = 14.07
-        self.ocp = 0.20
         self._delayed_once = False
 
     async def read_snapshot(self):
@@ -35,7 +33,7 @@ class _AsyncTransitionTransport:
             self._delayed_once = True
         return HardwareSnapshot(
             1, "connected", visible_output, 0.0, 0.0,
-            self.v, self.i, self.ovp, self.ocp, 25.0, 13.07,
+            self.v, self.i, 25.0, 13.07,
         )
 
     async def set_voltage(self, value):
@@ -45,14 +43,6 @@ class _AsyncTransitionTransport:
     async def set_current(self, value):
         self.calls.append("set_current")
         self.i = float(value)
-
-    async def set_ovp(self, value):
-        self.calls.append("set_ovp")
-        self.ovp = float(value)
-
-    async def set_ocp(self, value):
-        self.calls.append("set_ocp")
-        self.ocp = float(value)
 
     async def enable_output(self):
         self.calls.append("enable_output")
@@ -66,7 +56,7 @@ class _AsyncTransitionTransport:
 def _capability():
     return HardwareCapability(
         True, True, 0.01, 18.0, 0.01, 0.01, 12.0, 0.01,
-        True, True, False, True, True, True,
+        True, True, True,
     )
 
 
@@ -80,11 +70,9 @@ class ControlledTransitionContainmentTests(unittest.IsolatedAsyncioTestCase):
         parameters = {
             "set_voltage": 13.57,
             "set_current": 0.10,
-            "set_ovp": 14.07,
-            "set_ocp": 0.20,
         }
         intent = SafeOutputIntent(OutputAction.ENABLE, 13.57, 0.10)
-        plan = build_command_plan(intent, protection_ovp=14.07, protection_ocp=0.20)
+        plan = build_command_plan(intent)
         return executor, await executor.execute_controlled_transition(
             plan,
             ExecutionPolicyDecision(True, "ok"),
@@ -95,8 +83,6 @@ class ControlledTransitionContainmentTests(unittest.IsolatedAsyncioTestCase):
             tolerances={
                 "voltage_setpoint": 0.02,
                 "current_setpoint": 0.02,
-                "ovp": 0.02,
-                "ocp": 0.02,
                 "measured_current": 0.01,
             },
             readback_timeout_s=0.05,
@@ -129,12 +115,8 @@ class ControlledTransitionContainmentTests(unittest.IsolatedAsyncioTestCase):
         executor = PhysicalBridgeExecutor(gate, transport)
         provider = BenchLeaseProvider(duration_s=60)
         lease = provider.request("operator", BenchLeaseScope.CONTROLLED_STATE_TRANSITION)
-        parameters = {"set_voltage": 13.57, "set_current": 0.10, "set_ovp": 14.07, "set_ocp": 0.20}
-        plan = build_command_plan(
-            SafeOutputIntent(OutputAction.ENABLE, 13.57, 0.10),
-            protection_ovp=14.07,
-            protection_ocp=0.20,
-        )
+        parameters = {"set_voltage": 13.57, "set_current": 0.10}
+        plan = build_command_plan(SafeOutputIntent(OutputAction.ENABLE, 13.57, 0.10))
         with self.assertRaisesRegex(Exception, "output ON was not confirmed"):
             await executor.execute_controlled_transition(
                 plan,
@@ -146,8 +128,6 @@ class ControlledTransitionContainmentTests(unittest.IsolatedAsyncioTestCase):
                 tolerances={
                     "voltage_setpoint": 0.02,
                     "current_setpoint": 0.02,
-                    "ovp": 0.02,
-                    "ocp": 0.02,
                     "measured_current": 0.01,
                 },
                 readback_timeout_s=0.05,

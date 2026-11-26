@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+import os
+import subprocess
+import sys
 from pathlib import Path
 import tempfile
 import unittest
@@ -10,6 +13,25 @@ from tools import node104_d145_entrypoint as entrypoint
 
 
 class D145D146EntrypointTests(unittest.TestCase):
+    def test_entrypoint_import_does_not_require_posix_account_modules(self):
+        code = "\n".join((
+            "import builtins",
+            "original_import = builtins.__import__",
+            "def import_without_posix_accounts(name, *args, **kwargs):",
+            "    if name in {'grp', 'pwd'}:",
+            "        raise ModuleNotFoundError(name)",
+            "    return original_import(name, *args, **kwargs)",
+            "builtins.__import__ = import_without_posix_accounts",
+            "from tools import node104_d145_entrypoint",
+        ))
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_canonical_profile_is_exactly_source_and_safety_pinned(self):
         path = entrypoint.default_profile()
         pin, preimage, record = entrypoint.load_pinned_profile(path)
@@ -28,6 +50,7 @@ class D145D146EntrypointTests(unittest.TestCase):
             with self.assertRaisesRegex(entrypoint.d090.TransactionError, "digest"):
                 entrypoint.load_pinned_profile(path)
 
+    @unittest.skipIf(os.name == "nt", "Windows symlink creation depends on privileges; POSIX symlink rejection remains required on Linux")
     def test_profile_symlink_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "profile.json"
@@ -40,6 +63,7 @@ class D145D146EntrypointTests(unittest.TestCase):
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
         self.assertEqual(digest, entrypoint.PROFILE_SHA256)
 
+    @unittest.skipIf(os.name == "nt", "immutable observer admission asserts POSIX read-only mode bits")
     def test_pinned_observer_requires_exact_read_only_file(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -58,6 +82,7 @@ class D145D146EntrypointTests(unittest.TestCase):
                 entrypoint.verify_pinned_observer(
                     root, "d147-proof/observer.py", "0" * 64)
 
+    @unittest.skipIf(os.name == "nt", "observer checks assert POSIX write bits and create a privilege-sensitive symlink")
     def test_pinned_observer_rejects_missing_writable_and_symlink_files(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -98,15 +123,16 @@ class D145D146EntrypointTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             parser.parse_args(["activate"])
 
-    def test_state_preserving_observer_is_the_existing_pinned_d148_reader(self):
+    def test_state_preserving_observer_is_the_versioned_pinned_d151_reader(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)
             with patch.object(entrypoint, "verify_pinned_observer",
-                              return_value=root / "d148.py") as verify:
+                              return_value=root / "d151.py") as verify:
                 self.assertEqual(entrypoint.verify_state_preserving_observer(root),
-                                 root / "d148.py")
+                                 root / "d151.py")
             verify.assert_called_once_with(
-                root, "d147-proof/d148_recovery_d091_collector.py", entrypoint.D148_SHA)
+                root, "d147-proof/d151_software_release_d091_collector.py",
+                entrypoint.D151_SHA)
 
 
 if __name__ == "__main__":

@@ -158,10 +158,10 @@ class RecoveryTraceIdentityTests(unittest.TestCase):
         }
         with open(self.session_file, "w", encoding="utf-8") as handle:
             json.dump(legacy, handle)
-        writer = __import__("runtime.charge.session_atomic", fromlist=["atomic_session_write"])
+        writer = __import__("runtime.charge.session_atomic", fromlist=["compare_replace_session"])
         with patch("charge_controller.SESSION_FILE", self.session_file), \
              patch("runtime.charge.persistence.SESSION_FILE", self.session_file), \
-             patch("runtime.charge.persistence.atomic_session_write", wraps=writer.atomic_session_write) as atomic:
+             patch("runtime.charge.session_atomic.compare_replace_session", wraps=writer.compare_replace_session) as atomic:
             restored = ManagedChargeController(DummyHass())
             ok, _ = restored.try_restore_session(14.0, 1.0, 1.0)
         self.assertTrue(ok)
@@ -190,9 +190,10 @@ class RecoveryTraceIdentityTests(unittest.TestCase):
              patch("runtime.charge.persistence.SESSION_FILE", self.session_file), \
              patch("runtime.charge.session_atomic.os.replace", side_effect=OSError("disk full")):
             restored = ManagedChargeController(DummyHass())
-            ok, _ = restored.try_restore_session(14.0, 1.0, 1.0)
-        self.assertFalse(ok)
-        self.assertEqual(restored.current_stage, restored.STAGE_IDLE)
+            with self.assertRaisesRegex(RuntimeError, "restore canonical commit failed: 'NOT_COMMITTED'"):
+                restored.try_restore_session(14.0, 1.0, 1.0)
+        self.assertEqual(restored.current_stage, restored.STAGE_MAIN)
+        self.assertFalse(restored._stage_tracking_enabled)
         with open(self.session_file, "r", encoding="utf-8") as handle:
             self.assertEqual(handle.read(), original)
         with open(partial_temp, "r", encoding="utf-8") as handle:

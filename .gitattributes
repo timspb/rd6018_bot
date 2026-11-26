@@ -1,3 +1,10 @@
 # Auto detect text files and perform LF normalization
 * text=auto
 docs/operations/evidence/D146_D138_NODE104_PROFILE.json -text
+tools/acceptance_guard/source-manifest.json -text
+tools/acceptance_guard/__init__.py -text
+tools/acceptance_guard/guard.py -text
+tools/acceptance_guard/adapters.py -text
+tools/acceptance_guard/transient.py -text
+tools/acceptance_guard/pairing.py -text
+tools/acceptance_guard/takeover.py -text

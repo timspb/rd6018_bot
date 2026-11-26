@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import tempfile
@@ -7,7 +8,7 @@ import unittest
 from rd_adopted_hands_off_release import install_adopted_hands_off_release_retirement
 from rd_control_mode import RdControlMode
 from rd_managed_adoption import ManagedAdoptionState
-from runtime_safety import RuntimeSafetyError
+from runtime.safety.runtime_guard import RuntimeSafetyError
 
 
 class FakeCoordinator:
@@ -19,6 +20,7 @@ class FakeCoordinator:
         self._task = None
         self.verified_off_calls = 0
         self.persist_calls = 0
+        self.persist_error = None
 
     @property
     def active(self):
@@ -30,6 +32,8 @@ class FakeCoordinator:
 
     def _persist(self):
         self.persist_calls += 1
+        if self.persist_error is not None:
+            raise self.persist_error
         with open(self.state_file, "w", encoding="utf-8") as handle:
             json.dump(
                 {
@@ -70,6 +74,9 @@ class FakeManager:
         if self.behavior == "precommit-fail":
             self.release_in_progress = False
             raise RuntimeSafetyError("precommit failed")
+        if self.behavior == "precommit-cancel":
+            self.release_in_progress = False
+            raise asyncio.CancelledError()
 
         self.mode = RdControlMode.HANDS_OFF
         # Model the D061 monitor waking after durable HANDS_OFF commit but before the
@@ -80,6 +87,8 @@ class FakeManager:
         self.release_in_progress = False
         if self.behavior == "postcommit-warning":
             raise RuntimeSafetyError("edge ACK lost after durable HANDS_OFF")
+        if self.behavior == "postcommit-cancel":
+            raise asyncio.CancelledError()
         return True
 
 
@@ -103,6 +112,41 @@ class D061HandsOffReleaseRetirementTests(unittest.IsolatedAsyncioTestCase):
             rd_managed_live_adoption=coordinator,
             manual_session_manager=types.SimpleNamespace(is_active=manual_active),
         )
+
+    async def test_failed_terminal_journal_write_keeps_monitor_reference_attached(self):
+        class PendingTask:
+            def __init__(self):
+                self.cancel_calls = 0
+
+            def done(self):
+                return False
+
+            def cancel(self):
+                self.cancel_calls += 1
+
+        with tempfile.TemporaryDirectory() as tmp:
+            coordinator = FakeCoordinator(f"{tmp}/d061.json")
+            task = PendingTask()
+            coordinator._task = task
+            coordinator.persist_error = OSError("journal unavailable")
+            manager = FakeManager(coordinator)
+            app = self._app(coordinator)
+            intent_file = f"{tmp}/release.json"
+            self._intent(intent_file, coordinator.session_id)
+            # Install-time HANDS_OFF recovery must fail closed without detaching
+            # the still-running D061 monitor when its terminal journal write fails.
+            manager.mode = RdControlMode.HANDS_OFF
+
+            with self.assertRaises(OSError):
+                install_adopted_hands_off_release_retirement(
+                    app, manager, intent_file=intent_file
+                )
+
+            self.assertIs(coordinator._task, task)
+            self.assertEqual(task.cancel_calls, 0)
+            self.assertTrue(coordinator.active)
+            self.assertEqual(coordinator.last_status, "")
+            self.assertTrue(os.path.exists(intent_file))
 
     async def test_committed_hands_off_suppresses_d061_off_and_retires_journal(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -142,6 +186,43 @@ class D061HandsOffReleaseRetirementTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(coordinator.state, ManagedAdoptionState.INTERRUPTED)
             self.assertEqual(coordinator.verified_off_calls, 0)
             self.assertFalse(os.path.exists(intent_file))
+
+    async def test_precommit_cancellation_preserves_d061_and_clears_only_intent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            coordinator = FakeCoordinator(f"{tmp}/d061.json")
+            manager = FakeManager(coordinator, behavior="precommit-cancel")
+            app = self._app(coordinator)
+            intent_file = f"{tmp}/release.json"
+            install_adopted_hands_off_release_retirement(
+                app, manager, intent_file=intent_file
+            )
+
+            with self.assertRaises(asyncio.CancelledError):
+                await manager.enter_hands_off()
+
+            self.assertTrue(manager.pb_managed)
+            self.assertTrue(coordinator.active)
+            self.assertEqual(coordinator.verified_off_calls, 0)
+            self.assertFalse(os.path.exists(intent_file))
+
+    async def test_postcommit_cancellation_retires_d061_without_output_off(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            coordinator = FakeCoordinator(f"{tmp}/d061.json")
+            manager = FakeManager(coordinator, behavior="postcommit-cancel")
+            app = self._app(coordinator)
+            intent_file = f"{tmp}/release.json"
+            install_adopted_hands_off_release_retirement(
+                app, manager, intent_file=intent_file
+            )
+
+            with self.assertRaises(asyncio.CancelledError):
+                await manager.enter_hands_off()
+
+            self.assertTrue(manager.hands_off)
+            self.assertEqual(coordinator.state, ManagedAdoptionState.INTERRUPTED)
+            self.assertEqual(coordinator.verified_off_calls, 0)
+            self.assertFalse(os.path.exists(intent_file))
+            self.assertIn("cancellation", coordinator.last_status)
 
     async def test_precommit_failure_preserves_managed_d061_authority(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -255,6 +336,62 @@ class D061HandsOffReleaseRetirementTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(os.path.exists(intent_file))
             self.assertTrue(await coordinator._verified_off("managed restart containment"))
             self.assertEqual(coordinator.verified_off_calls, 1)
+
+    async def test_wrong_release_phase_never_retires_d061(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            coordinator = FakeCoordinator(
+                f"{tmp}/d061.json",
+                state=ManagedAdoptionState.OFF_PENDING,
+                session_id="current",
+            )
+            manager = FakeManager(coordinator, mode=RdControlMode.HANDS_OFF)
+            app = self._app(coordinator, manual_active=False)
+            intent_file = f"{tmp}/release.json"
+            with open(intent_file, "w", encoding="utf-8") as handle:
+                json.dump(
+                    {
+                        "version": 1,
+                        "session_id": "current",
+                        "phase": "retired",
+                        "saved_at_s": 1.0,
+                    },
+                    handle,
+                )
+
+            install_adopted_hands_off_release_retirement(
+                app, manager, intent_file=intent_file
+            )
+
+            self.assertEqual(coordinator.state, ManagedAdoptionState.OFF_PENDING)
+            self.assertTrue(os.path.exists(intent_file))
+
+    async def test_invalid_release_version_is_ignored_without_startup_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            coordinator = FakeCoordinator(
+                f"{tmp}/d061.json",
+                state=ManagedAdoptionState.OFF_PENDING,
+                session_id="current",
+            )
+            manager = FakeManager(coordinator, mode=RdControlMode.HANDS_OFF)
+            app = self._app(coordinator, manual_active=False)
+            intent_file = f"{tmp}/release.json"
+            with open(intent_file, "w", encoding="utf-8") as handle:
+                json.dump(
+                    {
+                        "version": "not-a-version",
+                        "session_id": "current",
+                        "phase": "release_requested",
+                        "saved_at_s": 1.0,
+                    },
+                    handle,
+                )
+
+            install_adopted_hands_off_release_retirement(
+                app, manager, intent_file=intent_file
+            )
+
+            self.assertEqual(coordinator.state, ManagedAdoptionState.OFF_PENDING)
+            self.assertTrue(os.path.exists(intent_file))
 
     async def test_unmatched_release_marker_never_retires_d061(self):
         with tempfile.TemporaryDirectory() as tmp:

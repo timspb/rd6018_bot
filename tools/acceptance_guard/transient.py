@@ -5,7 +5,6 @@ and edge lease. It deliberately provides no raw HA/ESP actuator operation.
 """
 import asyncio
 import argparse
-import fcntl
 import math
 import os
 from pathlib import Path
@@ -202,18 +201,13 @@ class TransientAcceptance:
     def _validate_target(self):
         try:
             v, current = float(self.target['voltage_v']), float(self.target['current_a'])
-            ovp, ocp = float(self.target['ovp_v']), float(self.target['ocp_a'])
         except (KeyError, TypeError, ValueError) as exc:
             raise RuntimeError('invalid safe target') from exc
-        if not all(math.isfinite(x) and x > 0 for x in (v, current, ovp, ocp)):
+        if not all(math.isfinite(x) and x > 0 for x in (v, current)):
             raise RuntimeError('target values must be finite and positive')
         if v > MAX_PROGRAMMED_V or v > LEOCH_CACAC_NORMAL_V:
             raise RuntimeError('target exceeds Leoch Ca/Ca ordinary authority')
-        if ovp > MAX_PROGRAMMED_V or ovp <= v:
-            raise RuntimeError('OVP must exceed target voltage and not exceed 15.5 V')
-        if ocp <= current:
-            raise RuntimeError('OCP must remain above the requested current')
-        return v, current, ovp, ocp
+        return v, current
 
     async def run(self):
         if (not math.isfinite(self.duration_s) or self.duration_s <= 0
@@ -246,8 +240,8 @@ class TransientAcceptance:
             await self._wait_for_ordinary_on_dwell()
             self._require_temperature(await self.client.get_all_live(), pre_enable=True)
             result = await self.client.safe_enable_output(
-                voltage_v=target[0], current_a=target[1], ovp_v=target[2],
-                ocp_a=target[3], recipe_voltage_ceiling_v=LEOCH_CACAC_NORMAL_V)
+                voltage_v=target[0], current_a=target[1],
+                recipe_voltage_ceiling_v=LEOCH_CACAC_NORMAL_V)
             if not bool(getattr(result, 'enabled', False)):
                 raise RuntimeError('canonical safe enable rejected')
             # The live window is wall-clock bounded. A tick includes readback
@@ -324,8 +318,6 @@ def main():
     parser = argparse.ArgumentParser(description='Supervised D061 transient acceptance window')
     parser.add_argument('--voltage-v', type=float, required=True)
     parser.add_argument('--current-a', type=float, required=True)
-    parser.add_argument('--ovp-v', type=float, required=True)
-    parser.add_argument('--ocp-a', type=float, required=True)
     parser.add_argument('--duration-s', type=float, required=True)
     parser.add_argument('--confirm-physical-preflight', action='store_true')
     parser.add_argument('--confirm-cutoff-tested', action='store_true')
@@ -431,8 +423,7 @@ async def _run_cli(args):
         tx = TransientAcceptance(client=client, lease=lease, stop_production=stop,
             verify_stopped=stopped, prove_single_owner=sole_owner,
             restore_production=restore, independent_off=independent_off,
-            target={'voltage_v': args.voltage_v, 'current_a': args.current_a,
-                    'ovp_v': args.ovp_v, 'ocp_a': args.ocp_a},
+            target={'voltage_v': args.voltage_v, 'current_a': args.current_a},
             duration_s=args.duration_s)
         try:
             if contained_recovery:

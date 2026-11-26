@@ -113,6 +113,13 @@ class NativeClipEvidenceTests(unittest.TestCase):
             with self.subTest(receipt=receipt):
                 self.assert_unknown(native_live(), receipt)
 
+    def test_committed_iset_comparison_uses_physical_register_tolerance(self):
+        live = native_live()
+        live["set_current_readback_v2"] = 0.73  # +0.03 A from committed 0.70 A
+        self.assertEqual(ClipStatus.PROVED_CLIPPED, classify(live).status)
+        live["set_current_readback_v2"] = 0.76  # +0.06 A is outside the band
+        self.assert_unknown(live)
+
     def test_wrong_identity_or_chemistry_is_rejected(self):
         self.assert_unknown(native_live(), accepted(), session_id="other")
         self.assert_unknown(native_live(), accepted(), battery_id="other")

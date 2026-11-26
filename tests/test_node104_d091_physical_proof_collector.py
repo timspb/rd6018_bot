@@ -6,6 +6,7 @@ import math
 from pathlib import Path
 import time
 import unittest
+from unittest.mock import patch
 
 SOURCE = Path(__file__).resolve().parents[1] / 'tools' / 'node104_d091_physical_proof_collector.py'
 SPEC = importlib.util.spec_from_file_location('node104_d091_collector', SOURCE)
@@ -15,7 +16,8 @@ SPEC.loader.exec_module(M)
 
 def snapshot():
     now = time.time()
-    ha_entity = {'last_reported': __import__('datetime').datetime.fromtimestamp(now, __import__('datetime').timezone.utc).isoformat(),
+    reported_epoch = now - 1.0
+    ha_entity = {'last_reported': __import__('datetime').datetime.fromtimestamp(reported_epoch, __import__('datetime').timezone.utc).isoformat(),
                  'attributes': {'unit_of_measurement': 'x'}}
     native_meta = {'status': 'ok', 'native_type': 'SensorState', 'age_s': 1.0,
                    'source': 'esp_native_api', 'object_id': 'output_state_code_v2'}
@@ -25,7 +27,9 @@ def snapshot():
                      'meta': {'status': 'ok', 'age_s': 1.0,
                               'native_type': 'SensorState' if key == 'edge_lease_ttl' else 'BinarySensorState',
                               'source': 'esp_native_api', 'object_id': M.EXPECTED_EDGE[key]}}
-    return {'captured_at_epoch': time.time(), 'host_machine_id': 'machine', 'service_main_pid': 0,
+    # Keep the HA report explicitly one second before capture. This is clearly
+    # fresh while avoiding zero-age/future rounding at the strict freshness boundary.
+    return {'captured_at_epoch': now, 'host_machine_id': 'machine', 'service_main_pid': 0,
             'matching_bot_process_count': 0, 'physical_device_count': 1,
             'device_info': {'project_name': M.EXPECTED_PROJECT, 'project_version': M.EXPECTED_VERSION,
                             'name': M.EXPECTED_NAME, 'model': M.EXPECTED_MODEL},
@@ -55,9 +59,11 @@ class PreservedSessionSoftwareReleaseTests(unittest.TestCase):
     def test_symlink_not_accepted(self):
         import tempfile
         with tempfile.TemporaryDirectory() as folder:
-            p=Path(folder)/'source';p.write_text('{}')
-            link=Path(folder)/'link';link.symlink_to(p)
-            with self.assertRaises(M.ProofError):M._session_state(link,software_release=True)
+            link=Path(folder)/'link'
+            link.write_text('{}')
+            with patch.object(Path, 'is_symlink', autospec=True,
+                              side_effect=lambda path: path == link):
+                with self.assertRaises(M.ProofError):M._session_state(link,software_release=True)
 
 class JournalClearProjectionTests(unittest.TestCase):
     def test_retired_v2_is_clear_only_after_disk_validation(self):
@@ -299,9 +305,13 @@ class CollectorProofTests(unittest.TestCase):
         self.assertTrue(all(meta['native_type'] == 'SensorState' for _, meta in values.values()))
         self.assertEqual(esp._state_cache['output_voltage']['NumberState'], 13.57)
         self.assertEqual(esp._state_cache['output_current']['NumberState'], .10)
-        self.assertLess(values['voltage'][1]['subscription_timestamp_monotonic'],
+        # A callback can be observed in the same monotonic clock tick as the
+        # transport cache update (notably on Windows). Freshness is established
+        # by receiving the post-subscription SensorState callback and its type,
+        # not by requiring a positive elapsed interval between two timestamps.
+        self.assertLessEqual(values['voltage'][1]['subscription_timestamp_monotonic'],
                         esp._state_updated_at['output_voltage'])
-        self.assertLess(values['current'][1]['subscription_timestamp_monotonic'],
+        self.assertLessEqual(values['current'][1]['subscription_timestamp_monotonic'],
                         esp._state_updated_at['output_current'])
 
         esp._state_subscription_remover = None

@@ -226,10 +226,9 @@ def build_operator_dashboard_keyboard(
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def install_dashboard_polish(app: Any, ui_module: Any) -> None:
+def install_dashboard_polish(app: Any) -> None:
     """Install the production operator card without changing controller semantics."""
 
-    ui_module.format_active_evidence = format_active_evidence_pretty
 
     def _compact_dashboard_caption(live, chart_mode: str, mode: str, idle_warning: str) -> str:
         battery_v = _finite(live.get("battery_voltage")) or 0.0
@@ -241,8 +240,6 @@ def install_dashboard_polish(app: Any, ui_module: Any) -> None:
         set_v = _finite(live.get("set_voltage"))
         set_i = _finite(live.get("set_current"))
         is_on = str(live.get("switch", "")).lower() == "on"
-        ovp_tr = str(live.get("ovp_triggered", "")).lower() == "on"
-        ocp_tr = str(live.get("ocp_triggered", "")).lower() == "on"
 
         controller = app.charge_controller
         lines = []
@@ -299,11 +296,6 @@ def install_dashboard_polish(app: Any, ui_module: Any) -> None:
                 lines.append(progress)
 
         alerts = []
-        if ovp_tr or ocp_tr:
-            active_protections = "/".join(
-                name for name, state in (("OVP", ovp_tr), ("OCP", ocp_tr)) if state
-            )
-            alerts.append(f"⚠️ {active_protections} сработала")
         if idle_warning:
             alerts.append("⚠️ Выход включён вне программы")
         try:

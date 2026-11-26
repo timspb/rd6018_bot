@@ -1,4 +1,5 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -6,14 +7,20 @@ from tools.node104_d090_transaction import digest, inventory
 from tools.d144_state_preserving_transition import OwnerTransition, TransitionError, transaction_slot
 
 class FakeService:
-    def __init__(self): self.running=True; self.stops=0
+    def __init__(self): self.running=True; self.stops=0; self.candidate_ready=True
     def active(self): return self.running
     def main_pid(self): return 123 if self.running else 0
     def stop(self): self.running=False; self.stops+=1
     def start(self): self.running=True
-    def stable(self): return self.running
+    def stable(self): return self.running and self.candidate_ready
 
 class D144Tests(unittest.TestCase):
+    # OwnerTransition relies on D090's durable journal/tree writes, including
+    # directory fsync. Keep the complete crash-boundary suite active on POSIX.
+    posix_directory_durability = unittest.skipUnless(
+        os.name == "posix", "requires POSIX directory fsync semantics"
+    )
+
     def test_engine_has_separate_journal(self):
         self.assertEqual(__import__("tools.d144_state_preserving_transition",fromlist=["JOURNAL"]).JOURNAL,"D144_TRANSACTION.json")
 
@@ -61,6 +68,7 @@ class D144Tests(unittest.TestCase):
             release_identity={'schema':'D144_RELEASE_IDENTITY_V1','source_sha':'a351c208cbf8666f881a4660df6a0b211170e857','candidate_identity_sha256':'b'*64},
             failpoint=failpoint,slot=slot)
 
+    @posix_directory_durability
     def test_cutover_preserves_state(self):
         self.assertEqual(self.tx().run()['phase'],'COMMITTED')
         self.assertEqual((self.root/'app/x').read_text(),'new')
@@ -88,6 +96,7 @@ class D144Tests(unittest.TestCase):
         with self.assertRaisesRegex(TransitionError, "unfinished"):
             transaction_slot(self.root)
 
+    @posix_directory_durability
     def test_repeated_upgrade_appends_history_and_keeps_each_rollback(self):
         first=self.tx().run()
         old_journal=(self.root/'D144_TRANSACTION.json').read_bytes()
@@ -107,6 +116,7 @@ class D144Tests(unittest.TestCase):
         self.assertTrue((self.root/'d144-backup-2').is_dir())
         self.assertEqual(transaction_slot(self.root),3)
 
+    @posix_directory_durability
     def test_repeated_upgrade_crash_restores_previous_release_and_preserves_history(self):
         self.tx().run()
         old_journal=(self.root/'D144_TRANSACTION.json').read_bytes()
@@ -126,6 +136,7 @@ class D144Tests(unittest.TestCase):
         self.assertEqual((self.root/'state/session').read_text(),state)
         self.assertEqual(transaction_slot(self.root),3)
 
+    @posix_directory_durability
     def test_realistic_legacy_started_journal_does_not_block_owner_transition(self):
         legacy = self.root / "D090_TRANSACTION.json"
         legacy.write_text(json.dumps({
@@ -141,11 +152,13 @@ class D144Tests(unittest.TestCase):
         self.assertEqual((self.root / ".deploy_sha").read_text(), "legacy")
         self.assertEqual((self.root / "state" / "session").read_text(), "RETIRED")
 
+    @posix_directory_durability
     def test_drift_rejected_before_stop(self):
         (self.root/'app/x').write_text('drift')
         with self.assertRaises(TransitionError):self.tx().run()
         self.assertEqual(self.service.stops,0)
 
+    @posix_directory_durability
     def test_crash_restore_preserves_new_state(self):
         def crash(phase):
             if phase=='AFTER_NEW_APP_RENAME_BEFORE_JOURNAL':
@@ -157,6 +170,23 @@ class D144Tests(unittest.TestCase):
         self.assertEqual(inventory(self.root/'venv'),self.old['venv'])
         self.assertEqual((self.root/'state/session').read_text(),'RETIRED updated')
 
+    @posix_directory_durability
+    def test_candidate_not_stable_is_contained_and_recover_restores_release(self):
+        self.service.candidate_ready = False
+        with self.assertRaisesRegex(TransitionError, "not positively stable"):
+            self.tx().run()
+        self.assertTrue(self.service.active())
+        self.assertEqual((self.root/'app/x').read_text(), 'new')
+        self.assertEqual((self.root/'state/session').read_text(), 'RETIRED')
+
+        self.service.candidate_ready = True
+        result = self.tx().recover()
+        self.assertEqual(result['phase'], 'RESTORED')
+        self.assertEqual(inventory(self.root/'app'), self.old['app'])
+        self.assertEqual(inventory(self.root/'venv'), self.old['venv'])
+        self.assertEqual((self.root/'state/session').read_text(), 'RETIRED')
+
+    @posix_directory_durability
     def test_crash_boundaries(self):
         points=('BACKUP_DURABLE','STOPPED','OLD_APP_RENAMED',
                 'NEW_APP_RENAMED','OLD_VENV_RENAMED',
@@ -171,6 +201,7 @@ class D144Tests(unittest.TestCase):
                 for name in ('app','venv'):
                     self.assertEqual(inventory(self.root/name),self.old[name])
 
+    @posix_directory_durability
     def test_crash_between_identity_and_commit_restores_marker(self):
         def fail(point):
             if point=='AFTER_IDENTITY_BEFORE_COMMIT':
@@ -183,12 +214,14 @@ class D144Tests(unittest.TestCase):
         self.assertFalse((self.root/'D144_INSTALLED_RELEASE.json').exists())
         self.assertEqual((self.root/'state/session').read_text(),'RETIRED updated')
 
+    @posix_directory_durability
     def test_unexpected_identity_rejected_before_stop(self):
         (self.root/'D144_INSTALLED_RELEASE.json').write_text('{}')
         with self.assertRaises(TransitionError):
             self.tx().run()
         self.assertEqual(self.service.stops,0)
 
+    @posix_directory_durability
     def test_prepared_crash_before_backup_settles_without_stop(self):
         def crash(point):
             if point == 'PREPARED':
@@ -201,6 +234,7 @@ class D144Tests(unittest.TestCase):
         self.assertEqual(inventory(self.root/'app'), self.old['app'])
         self.assertEqual(inventory(self.root/'venv'), self.old['venv'])
 
+    @posix_directory_durability
     def test_prepared_crash_drift_refuses_without_stop(self):
         def crash(point):
             if point == 'PREPARED':
@@ -213,6 +247,7 @@ class D144Tests(unittest.TestCase):
             self.tx().recover()
         self.assertEqual(self.service.stops, stops)
 
+    @posix_directory_durability
     def test_prepared_crash_stopped_service_refuses(self):
         def crash(point):
             if point == 'PREPARED':

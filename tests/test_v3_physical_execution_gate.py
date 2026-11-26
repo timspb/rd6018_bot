@@ -26,7 +26,7 @@ class _Transport:
 
 
 def _capability():
-    return HardwareCapability(True, True, 10, 18, .01, .1, 12, .01, True, True, True, True, True, True)
+    return HardwareCapability(True, True, 10, 18, .01, .1, 12, .01, True, True, True)
 
 
 class PhysicalExecutionGateTests(unittest.TestCase):
@@ -45,19 +45,19 @@ class PhysicalExecutionGateTests(unittest.TestCase):
         gate.arm("operator")
         audit = PhysicalBridgeExecutor(gate, transport)
         intent = SafeOutputIntent(OutputAction.ENABLE, 14.4, 2.0)
-        record = audit.execute(build_command_plan(intent, protection_ovp=14.45, protection_ocp=2.05), ExecutionPolicyDecision(True, "ok"), ExecutionLeaseState("bench", 1, 1, "active"), _capability())
+        record = audit.execute(build_command_plan(intent), ExecutionPolicyDecision(True, "ok"), ExecutionLeaseState("bench", 1, 1, "active"), _capability())
         self.assertEqual(record.result, "EXECUTED")
         self.assertEqual(transport.actions[-1], "enable")
         self.assertEqual(record.readback["output_state"], True)
         self.assertGreaterEqual(len(audit.audit.records), 2)
 
-    def test_disable_verifies_off_before_reset(self):
+    def test_disable_verifies_off_without_protection_reset(self):
         transport = _Transport(True)
         gate = PhysicalExecutionGate(PhysicalExecutionConfig(enabled=True))
         gate.arm("operator")
         executor = PhysicalBridgeExecutor(gate, transport)
         executor.execute(build_command_plan(SafeOutputIntent(OutputAction.DISABLE)), ExecutionPolicyDecision(True, "ok"), ExecutionLeaseState("bench", 1, 1, "active"), _capability())
-        self.assertLess(transport.actions.index("disable"), transport.actions.index("reset_protection"))
+        self.assertEqual(transport.actions, ["disable"])
         self.assertFalse(transport.output_state)
 
     def test_missing_manual_arm_is_rejected(self):

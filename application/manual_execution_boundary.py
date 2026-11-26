@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from time import time
 
-from .manual_phase_lifecycle import ManualPhaseDecision
+from runtime.charge.strategy.manual_phase_lifecycle import ManualPhaseDecision
 from .execution_port import ExecutionPort
 
 

@@ -1,8 +1,8 @@
-"""Canonical Telegram route for cancelling the compatibility Custom wizard."""
+"""Navigation-only compatibility route for stale Custom-cancel messages."""
 
 from __future__ import annotations
 
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable
 
 from aiogram import F
 
@@ -17,10 +17,9 @@ CUSTOM_CANCEL_CALLBACK_DATA = callback_data_for(UIAction.CANCEL_CUSTOM)
 def install_custom_cancel_route(
     app: Any,
     *,
-    cancel_state: Callable[[int], None],
     home_handler: Callable[[Any], Awaitable[None]],
 ) -> None:
-    """Install Custom wizard cancellation without historical runtime imports."""
+    """Return stale Custom-cancel messages to Home; no wizard state remains."""
 
     if bool(getattr(app, "_v3_custom_cancel_installed", False)):
         return
@@ -32,8 +31,6 @@ def install_custom_cancel_route(
     async def _custom_cancel(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
             return
-        user_id = int(getattr(getattr(call, "from_user", None), "id", 0) or 0)
-        cancel_state(user_id)
         try:
             await call.answer("Ручной режим отменен")
         except Exception:

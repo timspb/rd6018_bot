@@ -8,7 +8,7 @@ execution port while its caller holds the production owner lock.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Awaitable, Callable, Protocol
+from typing import Callable, Protocol
 
 from .session_recovery_guard import SessionRecoveryGuard
 
@@ -37,12 +37,10 @@ class SessionRecoveryService:
     def __init__(
         self,
         execution_port: SessionRecoveryPort,
-        apply_phase_protection: Callable[[float, float], Awaitable[None]],
         cap_current: Callable[[float], float],
         guard: SessionRecoveryGuard | None = None,
     ) -> None:
         self._port = execution_port
-        self._apply_phase_protection = apply_phase_protection
         self._cap_current = cap_current
         self._guard = guard or getattr(execution_port, "session_recovery_guard", None) or SessionRecoveryGuard()
 
@@ -57,11 +55,11 @@ class SessionRecoveryService:
         if not self._allowed():
             return False
         try:
-            await self._apply_phase_protection(voltage_v, current_a)
+            capped_current_a = self._cap_current(current_a)
             if not await self._port.program_voltage(voltage_v):
                 self._failed("voltage")
                 return False
-            if not await self._port.program_current(self._cap_current(current_a)):
+            if not await self._port.program_current(capped_current_a):
                 self._failed("current")
                 return False
             enabled = await self._port.request_verified_on()
@@ -79,11 +77,11 @@ class SessionRecoveryService:
         if not self._allowed():
             return RecoveryExecutionResult(False, "session_recovery_quarantined")
         try:
-            await self._apply_phase_protection(voltage_v, current_a)
+            capped_current_a = self._cap_current(current_a)
             if not await self._port.program_voltage(voltage_v):
                 self._failed("voltage")
                 return RecoveryExecutionResult(False, "voltage")
-            if not await self._port.program_current(self._cap_current(current_a)):
+            if not await self._port.program_current(capped_current_a):
                 self._failed("current")
                 return RecoveryExecutionResult(False, "current")
             if safe_wait:
@@ -106,7 +104,7 @@ class SessionRecoveryService:
         if not self._allowed():
             return RecoveryExecutionResult(False, "session_recovery_quarantined")
         try:
-            await self._apply_phase_protection(voltage_v, current_a)
+            capped_current_a = self._cap_current(current_a)
             if safe_wait:
                 off = await self._port.request_verified_off()
                 if not off:
@@ -115,7 +113,7 @@ class SessionRecoveryService:
             if not await self._port.program_voltage(voltage_v):
                 self._failed("voltage")
                 return RecoveryExecutionResult(False, "voltage", False if safe_wait else None)
-            if not await self._port.program_current(self._cap_current(current_a)):
+            if not await self._port.program_current(capped_current_a):
                 self._failed("current")
                 return RecoveryExecutionResult(False, "current", False if safe_wait else None)
             return RecoveryExecutionResult(True, output_confirmed=False if safe_wait else None)

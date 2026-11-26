@@ -26,7 +26,7 @@ class _AsyncTransport:
 
 
 def _capability():
-    return HardwareCapability(False, True, .01, 18, .01, .01, 12, .01, False, False, False, True, True, True)
+    return HardwareCapability(False, True, .01, 18, .01, .01, 12, .01, False, False, True)
 
 
 def _plan():

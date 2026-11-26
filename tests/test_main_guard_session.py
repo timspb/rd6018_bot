@@ -1,14 +1,10 @@
 """Canonical MAIN Guard persistence: offline temp files, no real node/actuator."""
 import copy
-import json
-from pathlib import Path
-import tempfile
 import unittest
 
 from runtime.charge.strategy.main_current_guard import MainCurrentGuard
 from runtime.charge.strategy.main_guard_session import (
     GUARD_KEY, GuardJournalError, read_guard, attach_guard,
-    atomic_write_guard_session,
 )
 
 
@@ -90,7 +86,6 @@ class MainGuardSessionContractTests(unittest.TestCase):
             proposal_id=pending.proposal_id, now_s=1801,
             measured_current_a=4, measured_current_fresh=True,
             current_limit_readback_a=5, current_readback_fresh=True,
-            ocp_limit_a=5.1, ocp_readback_fresh=True,
         )
         doc = attach_guard(doc, committed, now_s=1802, expected_revision=1)
         with self.assertRaisesRegex(GuardJournalError, "enlarged"):
@@ -130,7 +125,6 @@ class MainGuardSessionContractTests(unittest.TestCase):
             proposal_id=pending.proposal_id, now_s=1802,
             measured_current_a=4, measured_current_fresh=True,
             current_limit_readback_a=5, current_readback_fresh=True,
-            ocp_limit_a=5.1, ocp_readback_fresh=True,
         )
         next_doc = attach_guard(doc, proven, now_s=1803, expected_revision=1)
         self.assertEqual(next_doc[GUARD_KEY]["revision"], 2)
@@ -156,26 +150,6 @@ class MainGuardSessionContractTests(unittest.TestCase):
         self.assertEqual(restored.hardware_limit_a, 7.2)
         self.assertFalse(restored.last_output_on)
         self.assertEqual(rev, 1)
-
-    def test_atomic_replacement_same_file_and_revision(self):
-        with tempfile.TemporaryDirectory() as directory:
-            p = Path(directory) / "charge_session.json"
-            p.write_text(json.dumps(identity()), encoding="utf-8")
-            self.assertEqual(atomic_write_guard_session(
-                p, guard(), now_s=1, expected_revision=0), 1)
-            raw = json.loads(p.read_text(encoding="utf-8"))
-            self.assertEqual(raw["target_current"], 7.2)
-            self.assertIn(GUARD_KEY, raw)
-            self.assertFalse(list(p.parent.glob(".main-guard-*.tmp")))
-            self.assertEqual(atomic_write_guard_session(
-                p, guard(), now_s=2, expected_revision=1), 2)
-
-    def test_disk_failure_does_not_reinitialize_missing_guard(self):
-        with tempfile.TemporaryDirectory() as directory:
-            p = Path(directory) / "charge_session.json"
-            with self.assertRaisesRegex(GuardJournalError, "unavailable"):
-                atomic_write_guard_session(p, guard(), now_s=1, expected_revision=0)
-
 
 if __name__ == "__main__":
     unittest.main()

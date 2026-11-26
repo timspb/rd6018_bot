@@ -51,12 +51,6 @@ class HAESPConnector(IndependentPhysicalConnector):
     async def set_current(self, value: float) -> None:
         await self._set_number("control_current", value)
 
-    async def set_ovp(self, value: float) -> None:
-        await self._set_number("control_ovp", value)
-
-    async def set_ocp(self, value: float) -> None:
-        await self._set_number("control_ocp", value)
-
     async def enable_output(self) -> None:
         entity_id = self.transport.config.entities.get("control_output")
         if not entity_id:

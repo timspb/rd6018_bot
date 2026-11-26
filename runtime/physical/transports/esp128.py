@@ -3,6 +3,9 @@ from __future__ import annotations
 import os
 import time
 import asyncio
+import inspect
+import json
+import uuid
 from datetime import datetime, timezone
 from collections.abc import Callable
 from typing import Any
@@ -11,8 +14,13 @@ from aioesphomeapi import APIClient
 
 from runtime.config.models import PhysicalTransportConfig, RDConfig
 from runtime.output.bridge import HardwareCapability, HardwareSnapshot
+from runtime.output.command_receipt import OutputCommandReceipt
 
 from .base import ReadOnlyTransport
+from .esp128_callback_coherence import REQUIRED_NATIVE_CALLBACKS, native_batch_complete
+
+OUTPUT_COMMAND_TIMEOUT_S = 20.0
+OUTPUT_COMMAND_TERMINAL_STATES = {"APPLIED", "REJECTED", "OUTCOME_UNCERTAIN", "NOT_QUEUED", "CANCELED"}
 
 
 class ESPHomeTransport(ReadOnlyTransport):
@@ -35,6 +43,9 @@ class ESPHomeTransport(ReadOnlyTransport):
         # *new* register callback set before feeding the safety guard.
         self._reconnecting_subscription = False
         self._native_link_outage_since: float | None = None
+        self._native_connection_generation = 0
+        self._output_receipts: dict[str, dict[str, Any]] = {}
+        self._output_receipt_events: dict[str, asyncio.Event] = {}
 
     async def _connect(self):
         key = os.getenv(self.config.connection.key_env or "", "")
@@ -42,17 +53,31 @@ class ESPHomeTransport(ReadOnlyTransport):
             raise RuntimeError("ESPHome encryption key environment variable is not set")
         self.client = APIClient(self.config.connection.host, self.config.connection.port, None, noise_psk=key)
         await self.client.connect(login=True)
+        self._native_connection_generation += 1
         add_closed_callback = getattr(self.client, "add_connection_closed_callback", None)
         if callable(add_closed_callback):
-            self._connection_closed_remover = add_closed_callback(self._on_connection_closed)
+            client = self.client
+            generation = self._native_connection_generation
+            self._connection_closed_remover = add_closed_callback(
+                lambda event: self._on_connection_closed(
+                    event, connection_generation=generation, source_client=client
+                )
+            )
         self.entities, self.services = await self.client.list_entities_services()
         self._entities_by_key = {}
         for entity in self.entities:
             self._entities_by_key.setdefault(int(entity.key), []).append(entity)
 
-    def _on_connection_closed(self, _event: Any) -> None:
+    def _on_connection_closed(self, _event: Any, *,
+                              connection_generation: int | None = None,
+                              source_client: Any = None) -> None:
         """Invalidate the cached subscription when aioesphomeapi loses the link."""
+        if (connection_generation is not None
+                and (connection_generation != self._native_connection_generation
+                     or source_client is not self.client)):
+            return
         self._reconnecting_subscription = True
+        self._native_connection_generation += 1
         if self._native_link_outage_since is None:
             self._native_link_outage_since = time.monotonic()
         self._state_subscription_remover = None
@@ -60,6 +85,10 @@ class ESPHomeTransport(ReadOnlyTransport):
         self._state_updated_at.clear()
         self._state_reported_at.clear()
         self._state_types.clear()
+        self._output_receipts.clear()
+        for event in self._output_receipt_events.values():
+            event.set()
+        self._output_receipt_events.clear()
 
     async def _ensure_connected(self) -> None:
         client = self.client
@@ -72,8 +101,13 @@ class ESPHomeTransport(ReadOnlyTransport):
             self._reconnecting_subscription = True
         await self._connect()
 
-    def _on_state(self, state: Any) -> None:
+    def _on_state(self, state: Any, *, connection_generation: int | None = None,
+                  source_client: Any = None) -> None:
         """Retain only the latest primitive value for each entity."""
+        if (connection_generation is not None
+                and (connection_generation != self._native_connection_generation
+                     or source_client is not self.client)):
+            return
         key = getattr(state, "key", None)
         if key is None:
             return
@@ -96,6 +130,18 @@ class ESPHomeTransport(ReadOnlyTransport):
             self._state_updated_at[identity] = time.monotonic()
             self._state_reported_at[identity] = time.time()
             self._state_types[identity] = state_type
+            status_id = self.config.entities.get("output_command_status")
+            if state_type == "TextSensorState" and str(entity.object_id) == status_id and isinstance(value, str):
+                try:
+                    receipt = json.loads(value)
+                except (TypeError, ValueError):
+                    receipt = None
+                if isinstance(receipt, dict) and isinstance(receipt.get("request_id"), str):
+                    request_id = receipt["request_id"]
+                    event = self._output_receipt_events.get(request_id)
+                    if event is not None:
+                        self._output_receipts[request_id] = receipt
+                        event.set()
 
             # Keep the read-only object_id cache shape used by pinned D147/D148
             # collectors. ESPHome object_ids can collide across domains, so
@@ -216,7 +262,11 @@ class ESPHomeTransport(ReadOnlyTransport):
                    and (expected_entity_type is None
                         or type(item).__name__ == expected_entity_type)]
         entity = matches[0] if len(matches) == 1 else None
-        base = {"source": "esp_native_api", "object_id": object_id}
+        base = {
+            "source": "esp_native_api",
+            "object_id": object_id,
+            "connection_generation": self._native_connection_generation,
+        }
         if object_id is None:
             return None, {**base, "status": "missing", "age_s": None}
         if entity is None:
@@ -253,10 +303,18 @@ class ESPHomeTransport(ReadOnlyTransport):
         This is deliberately separate from lease-edge lookup: it is read-only and
         cannot expand the object whitelist used by press_button().
         """
-        await self._ensure_state_subscription()
-        await asyncio.sleep(0.5)
+        live = await self.get_live_values()
         object_id = self.config.entities.get("output_state")
-        value, meta = self._read_subscribed_state(object_id, "SensorInfo")
+        if self._reconnecting_subscription:
+            return None, {
+                "source": "esp_native_api",
+                "object_id": object_id,
+                "connection_generation": self._native_connection_generation,
+                "status": "unknown",
+                "age_s": None,
+            }
+        value = live.get("output_state")
+        meta = live.get("_meta", {}).get("output_state", {})
         if meta.get("status") != "ok":
             return value, meta
         if meta.get("native_type") != "SensorState":
@@ -299,7 +357,15 @@ class ESPHomeTransport(ReadOnlyTransport):
             self._state_updated_at.clear()
             self._state_reported_at.clear()
             self._state_types.clear()
-            remover = self.client.subscribe_states(self._on_state)
+            client = self.client
+            if client is None:
+                raise RuntimeError("ESPHome Native client is unavailable for state subscription")
+            generation = self._native_connection_generation
+            remover = client.subscribe_states(
+                lambda state: self._on_state(
+                    state, connection_generation=generation, source_client=client
+                )
+            )
             # Some aioesphomeapi versions return an unsubscribe callable and
             # others keep this subscription until APIConnection.disconnect().
             # close() bounds the connection lifetime; retain a no-op marker
@@ -332,11 +398,20 @@ class ESPHomeTransport(ReadOnlyTransport):
                 return "NumberInfo" if "NumberInfo" in kinds else "SensorInfo"
             return None
         def value(name):
-            expected = "SensorInfo" if name in {
+            if name == "control_output":
+                expected = "SwitchInfo"
+            elif name in {"autonomous_mode", "take_ok", "take_out", "boot_power"}:
+                expected = "BinarySensorInfo"
+            elif name == "output_command_status":
+                expected = "TextSensorInfo"
+            elif name in {
                 "voltage", "current", "temperature", "output_state", "protection_code",
                 "battery_voltage", "temp_int", "temp_ext", "power",
                 "configured_voltage", "configured_current", "ovp", "ocp",
-            } else "BinarySensorInfo" if name == "autonomous_mode" else "NumberInfo"
+            }:
+                expected = "SensorInfo"
+            else:
+                expected = "NumberInfo"
             object_id = self.config.entities.get(name)
             return self._read_subscribed_state(object_id, expected_type(name, object_id) or expected)
 
@@ -348,29 +423,33 @@ class ESPHomeTransport(ReadOnlyTransport):
             # initial callback batch may need a full Modbus poll (more than
             # 0.5s). Do not expose a half-populated cache to the existing
             # safety guard when the link has just been re-established.
-            required = (
-                "output_state", "voltage", "current", "battery_voltage",
-                "configured_voltage", "configured_current", "ovp", "ocp",
-                "temp_int", "temp_ext",
-            )
             for _ in range(40):  # at most 8s; never a safety bypass
-                ready = True
-                for name in required:
-                    if name not in self.config.entities:
-                        continue
-                    reading, meta = value(name)
-                    age = meta.get("age_s")
-                    if (reading is None or meta.get("status") != "ok"
-                            or not isinstance(age, (int, float))
-                            or isinstance(age, bool) or not 0 <= age <= 8):
-                        ready = False
-                        break
-                if ready:
+                callback_reads = {
+                    name: value(name) for name in REQUIRED_NATIVE_CALLBACKS
+                    if name in self.config.entities
+                }
+                if native_batch_complete(self.config.entities, callback_reads):
                     break
                 await asyncio.sleep(0.2)
-            self._reconnecting_subscription = False
+            # A bounded wait expiring is not proof that the Native baseline
+            # recovered. Keep ON blocked until a complete callback batch.
+            self._reconnecting_subscription = not native_batch_complete(
+                self.config.entities, callback_reads
+            )
 
-        reads = {key: value(key) for key in self.config.entities}
+        if self._reconnecting_subscription:
+            reads = {
+                key: (None, {
+                    "source": "esp_native_api",
+                    "object_id": self.config.entities.get(key),
+                    "connection_generation": self._native_connection_generation,
+                    "status": "unknown",
+                    "age_s": None,
+                })
+                for key in self.config.entities
+            }
+        else:
+            reads = {key: value(key) for key in self.config.entities}
         result = {key: item[0] for key, item in reads.items()}
         result["output_state_code_v2"] = result.get("output_state")
         raw_output = result.get("output_state")
@@ -410,11 +489,20 @@ class ESPHomeTransport(ReadOnlyTransport):
         for name, item in result.items():
             source = aliases.get(name, name)
             object_id = self.config.entities.get(source)
-            expected = "SensorInfo" if source in {
+            if source == "control_output":
+                expected = "SwitchInfo"
+            elif source in {"autonomous_mode", "take_ok", "take_out", "boot_power"}:
+                expected = "BinarySensorInfo"
+            elif source == "output_command_status":
+                expected = "TextSensorInfo"
+            elif source in {
                 "voltage", "current", "temperature", "output_state", "protection_code",
                 "battery_voltage", "temp_int", "temp_ext", "power",
                 "configured_voltage", "configured_current", "ovp", "ocp",
-            } else "BinarySensorInfo" if source == "autonomous_mode" else "NumberInfo"
+            }:
+                expected = "SensorInfo"
+            else:
+                expected = "NumberInfo"
             expected = expected_type(source, object_id) or expected
             entity = next((candidate for candidate in self.entities
                            if str(candidate.object_id) == str(object_id)
@@ -452,17 +540,7 @@ class ESPHomeTransport(ReadOnlyTransport):
         result["_meta"] = meta
         if self._native_link_outage_since is not None:
             # Retain the original connection-loss epoch across partial callbacks.
-            required = ("output_state", "voltage", "current", "battery_voltage",
-                        "configured_voltage", "configured_current", "ovp", "ocp",
-                        "temp_int", "temp_ext")
-            complete = all(
-                name not in self.config.entities
-                or (result.get(name) is not None
-                    and meta.get(name, {}).get("status") == "ok"
-                    and isinstance(meta[name].get("age_s"), (int, float))
-                    and 0 <= meta[name]["age_s"] <= 8)
-                for name in required
-            )
+            complete = native_batch_complete(self.config.entities, reads)
             if complete:
                 self._native_link_outage_since = None
             else:
@@ -470,27 +548,101 @@ class ESPHomeTransport(ReadOnlyTransport):
         return result
 
     async def disable_output(self) -> None:
-        """The only physical write exposed in the first verified-off phase."""
-        wanted = self.config.entities.get("control_output")
-        entity = next((item for item in self.entities if item.object_id == wanted), None)
-        if entity is None or self.client is None:
-            raise RuntimeError("ESPHome output control entity is not available")
-        self.client.switch_command(int(entity.key), False, int(entity.device_id))
+        await self.command_output(False)
+
+    async def command_output(self, enabled: bool) -> dict[str, Any]:
+        receipt = await self.command_output_with_receipt(enabled)
+        return json.loads(receipt.raw_terminal_identity)
+
+    async def command_output_with_receipt(self, enabled: bool) -> OutputCommandReceipt:
+        """Send one correlated static firmware action and await its subscribed receipt."""
+        await self._ensure_state_subscription()
+        client = self.client
+        if client is None or not bool(getattr(client, "is_connected", True)):
+            raise RuntimeError("ESPHome output command transport is unavailable")
+        if enabled and self._reconnecting_subscription:
+            raise RuntimeError("ESPHome Native readback baseline is not restored after reconnect")
+        connection_generation = self._native_connection_generation
+        service = next((item for item in self.services
+                        if str(getattr(item, "name", "")) == "rd6018_output_command"), None)
+        if service is None:
+            raise RuntimeError("ESPHome static output command action is unavailable")
+
+        request_id = uuid.uuid4().hex
+        event = asyncio.Event()
+        self._output_receipt_events[request_id] = event
+        self._output_receipts.pop(request_id, None)
+        deadline = time.monotonic() + OUTPUT_COMMAND_TIMEOUT_S
+        try:
+            result = client.execute_service(
+                service, {"request_id": request_id, "enabled": bool(enabled)})
+            if inspect.isawaitable(result):
+                await result
+
+            while True:
+                if (self.client is not client
+                        or self._native_connection_generation != connection_generation
+                        or not bool(getattr(client, "is_connected", True))):
+                    raise RuntimeError("ESPHome Native link dropped during output command")
+
+                receipt = self._output_receipts.get(request_id)
+                if isinstance(receipt, dict):
+                    state = receipt.get("state")
+                    if state in OUTPUT_COMMAND_TERMINAL_STATES:
+                        if state != "APPLIED":
+                            raise RuntimeError(f"ESPHome output command failed: {state}")
+                        if (receipt.get("target") is not bool(enabled)
+                                or type(receipt.get("observed_r18")) is not int
+                                or receipt.get("observed_r18") != (1 if enabled else 0)):
+                            raise RuntimeError("ESPHome APPLIED receipt does not match requested R18 state")
+                        completed = time.monotonic()
+                        return OutputCommandReceipt(
+                            request_id=request_id,
+                            requested_target=bool(enabled),
+                            terminal_status=state,
+                            observed_r18=receipt.get("observed_r18"),
+                            terminal_completed_monotonic=completed,
+                            connection_generation=connection_generation,
+                            raw_terminal_identity=json.dumps(receipt, sort_keys=True, separators=(",", ":")),
+                        )
+
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise asyncio.TimeoutError
+                event.clear()
+                # Recheck after clearing to close the callback-between-check-and-wait race.
+                receipt = self._output_receipts.get(request_id)
+                if isinstance(receipt, dict) and receipt.get("state") in OUTPUT_COMMAND_TERMINAL_STATES:
+                    continue
+                await asyncio.wait_for(event.wait(), timeout=remaining)
+        except asyncio.TimeoutError as exc:
+            raise RuntimeError("ESPHome output command receipt timed out; reconcile R18 before retry") from exc
+        finally:
+            self._output_receipt_events.pop(request_id, None)
+            self._output_receipts.pop(request_id, None)
 
     async def get_capabilities(self):
-        return HardwareCapability(True, True, 0.01, self.rd.max_voltage_v, 0.01, 0.01, self.rd.max_current_a, 0.01, True, True, False, True, True, True)
+        return HardwareCapability(True, True, 0.01, self.rd.max_voltage_v, 0.01, 0.01, self.rd.max_current_a, 0.01, True, True, True)
 
     async def health_check(self):
         await self.discover()
         return {"connected": True, "transport": self.config.name, "read_only": True, "entities": len(self.entities)}
 
     async def close(self):
+        # A subsequent connect is a new Native generation. It must earn a
+        # complete callback baseline before reads or ON admission can recover.
+        if self.client is not None:
+            self._reconnecting_subscription = True
         remover = self._state_subscription_remover
         self._state_subscription_remover = None
         self._state_cache.clear()
         self._state_updated_at.clear()
         self._state_reported_at.clear()
         self._state_types.clear()
+        self._output_receipts.clear()
+        for event in self._output_receipt_events.values():
+            event.set()
+        self._output_receipt_events.clear()
         self.entities = ()
         self.services = ()
         self._entities_by_key.clear()

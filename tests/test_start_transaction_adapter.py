@@ -25,9 +25,10 @@ class FakeHass:
             "temp_int": 30.0,
             "input_voltage": 60.0,
             "switch": "off",
+            "protection_code": 0,
             "ovp_triggered": "off",
             "ocp_triggered": "off",
-            "_freshness": {key: 0.0 for key in ("battery_voltage", "current", "temp_ext", "temp_int", "switch", "ovp_triggered", "ocp_triggered")},
+            "_freshness": {key: 0.0 for key in ("battery_voltage", "current", "temp_ext", "temp_int", "switch", "protection_code", "ovp_triggered", "ocp_triggered")},
         }
 
 

@@ -62,33 +62,6 @@ def install_mix_action_eligibility(app: Any) -> None:
     if bool(getattr(app, "_mix_action_eligibility_installed", False)):
         return
 
-    import operator_hmi
-
-    original_keyboard = operator_hmi.build_operator_keyboard
-
-    def build_keyboard(
-        app_arg: Any,
-        state: Any,
-        *,
-        actions: Any = None,
-    ) -> InlineKeyboardMarkup:
-        markup = (
-            original_keyboard(app_arg, state, actions=actions)
-            if actions is not None
-            else original_keyboard(app_arg, state)
-        )
-        if actions is not None:
-            return markup
-        if (
-            state.process_state is operator_hmi.HmiProcessState.HANDS_OFF
-            and bool(state.output_on)
-            and not potential_mix_setpoint(state.target_voltage_v)
-        ):
-            return filter_non_mix_actions(markup)
-        return markup
-
-    operator_hmi.build_operator_keyboard = build_keyboard
-
     async def entry_gate(handler: Any, event: Any, data: dict[str, Any]) -> Any:
         callback_data = str(getattr(event, "data", "") or "")
         if callback_data not in MIX_ENTRY_CALLBACKS:

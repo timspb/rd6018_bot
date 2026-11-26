@@ -20,7 +20,7 @@ class V3ChemistryMappingTests(unittest.TestCase):
 
     def test_domain_has_no_infrastructure_imports(self):
         root = pathlib.Path(__file__).parents[1] / "runtime" / "charge"
-        forbidden = {"pb_domain", "hass_api", "aiogram", "rd_control_mode", "safe_output", "bot_legacy"}
+        forbidden = {"hass_api", "aiogram", "rd_control_mode", "safe_output", "bot_legacy"}
         for path in root.rglob("*.py"):
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             for node in ast.walk(tree):

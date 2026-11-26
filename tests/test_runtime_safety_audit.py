@@ -1,8 +1,8 @@
 import unittest
 from types import SimpleNamespace
 
-from runtime_safety import RuntimeSafetyError
-from runtime_safety_strict import StrictRuntimeSafetyGuard
+from runtime.safety.runtime_guard import RuntimeSafetyError
+from runtime.safety.strict_guard import StrictRuntimeSafetyGuard
 
 
 class AuditHass:
@@ -87,7 +87,7 @@ class StrictRuntimeAuditTests(unittest.IsolatedAsyncioTestCase):
         guard.edge_lease_enforced = False
         guard.OFF_CONFIRMATION_WINDOW_S = 0.0
         guard.OFF_CONFIRMATION_POLL_S = 0.0
-        guard.install()
+        guard.install(patch_adapter=True)
         return app, guard
 
     async def test_post_enable_telemetry_exception_is_proved_off_before_escape(self):

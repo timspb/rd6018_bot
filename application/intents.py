@@ -42,12 +42,12 @@ IntentRoute = Callable[[OperatorIntent], CommandResult | Awaitable[CommandResult
 
 
 class IntentDispatcher:
-    """Route only non-actuating operator intents.
+    """Route typed intents to explicitly composed application handlers.
 
-    The dispatcher is deliberately not a controller facade.  A missing route
-    produces an accepted routing result so the preserved callback can continue
-    its existing presentation path; no runtime or actuator method is called.
-    Explicit routes may be injected by a later application adapter.
+    The dispatcher itself performs no runtime or physical operation. A route may
+    validate an intent or execute one narrow application state-owner command.
+    Unrouted execution kinds are rejected; unhandled read-only kinds may continue
+    through their preserved presentation callback.
     """
 
     READ_ONLY_KINDS = frozenset(

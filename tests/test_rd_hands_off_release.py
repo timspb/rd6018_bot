@@ -1,3 +1,4 @@
+import asyncio
 import json
 import tempfile
 import types
@@ -8,7 +9,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from manual_mode import ManualSessionState
 from rd_control_mode import RdControlMode, RdControlModeManager
 from rd_hands_off_release import _active_session_token, install_rd_hands_off_release
-from runtime_safety import RuntimeSafetyError
+from runtime.safety.runtime_guard import RuntimeSafetyError
 
 
 class FakeGuard:
@@ -90,9 +91,15 @@ class FakeManual:
 
 
 class FakeLease:
-    def __init__(self, *, prepare_error=None, release_error=None):
+    def __init__(
+        self, *, prepare_error=None, release_error=None,
+        cancel_prepare=False, cancel_release=False,
+    ):
         self.prepare_error = prepare_error
         self.release_error = release_error
+        self.cancel_prepare = cancel_prepare
+        self.cancel_release = cancel_release
+        self.after_prepare = None
         self.suspend_calls = 0
         self.resume_calls = 0
         self.prepare_calls = 0
@@ -109,14 +116,22 @@ class FakeLease:
 
     async def prepare_hands_off_release(self):
         self.prepare_calls += 1
+        if self.cancel_prepare:
+            raise asyncio.CancelledError()
         if self.prepare_error is not None:
             raise self.prepare_error
+        if callable(self.after_prepare):
+            self.after_prepare()
         return types.SimpleNamespace(generation=7)
 
     async def release_to_hands_off(self, *, expected_generation=None):
         self.release_calls += 1
         if expected_generation != 7:
             raise AssertionError("wrong release generation")
+        if self.cancel_release:
+            # Model the edge applying the release but losing the completion/ACK.
+            self.suspended = True
+            raise asyncio.CancelledError()
         if self.release_error is not None:
             raise self.release_error
         return types.SimpleNamespace(generation=8, armed=False)
@@ -257,6 +272,64 @@ class ActiveHandsOffReleaseTests(unittest.IsolatedAsyncioTestCase):
                 [("mix-trace", "RELEASED_TO_RD_HANDS_OFF")],
             )
             self.assertFalse(controller.is_active)
+
+    async def test_precommit_cancellation_restores_pb_and_edge_lease_renewals(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            controller = FakeController()
+            app, manager = self._manager(f"{tmp}/mode.json", controller=controller)
+            lease = FakeLease(cancel_prepare=True)
+            manager.guard.edge_lease_enforced = True
+            manager.guard.edge_safety_lease = lease
+
+            with self.assertRaises(asyncio.CancelledError):
+                await self._confirmed_release(app, manager)
+
+            self.assertTrue(manager.pb_managed)
+            self.assertTrue(controller.is_active)
+            self.assertFalse(manager.release_in_progress)
+            self.assertEqual(lease.suspend_calls, 1)
+            self.assertEqual(lease.resume_calls, 1)
+            self.assertEqual(lease.release_calls, 0)
+
+    async def test_d061_off_pending_that_appears_during_preflight_wins_before_commit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            controller = FakeController()
+            app, manager = self._manager(f"{tmp}/mode.json", controller=controller)
+            lease = FakeLease()
+            manager.guard.edge_lease_enforced = True
+            manager.guard.edge_safety_lease = lease
+            adoption = types.SimpleNamespace(off_pending=False)
+            app.rd_managed_live_adoption = adoption
+            lease.after_prepare = lambda: setattr(adoption, "off_pending", True)
+
+            with self.assertRaisesRegex(RuntimeSafetyError, "D061 verified Output OFF containment became pending"):
+                await self._confirmed_release(app, manager)
+
+            self.assertTrue(manager.pb_managed)
+            self.assertTrue(controller.is_active)
+            self.assertEqual(controller.stop_calls, 0)
+            self.assertFalse(manager.release_in_progress)
+            self.assertEqual(lease.resume_calls, 1)
+            self.assertEqual(lease.release_calls, 0)
+
+    async def test_postcommit_cancellation_finishes_software_retirement_without_rollback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            manual = FakeManual()
+            app, manager = self._manager(f"{tmp}/mode.json", manual=manual)
+            lease = FakeLease(cancel_release=True)
+            manager.guard.edge_lease_enforced = True
+            manager.guard.edge_safety_lease = lease
+
+            with self.assertRaises(asyncio.CancelledError):
+                await self._confirmed_release(app, manager)
+
+            self.assertTrue(manager.hands_off)
+            self.assertFalse(manager.release_in_progress)
+            self.assertEqual(lease.resume_calls, 0)
+            self.assertEqual(manual.state, ManualSessionState.STOPPED)
+            self.assertEqual(manual.retire_calls, 1)
+            with open(manager.state_file, "r", encoding="utf-8") as handle:
+                self.assertEqual(json.load(handle)["mode"], "hands_off")
 
     async def test_edge_release_preflight_failure_keeps_pb_authority_and_session(self):
         with tempfile.TemporaryDirectory() as tmp:

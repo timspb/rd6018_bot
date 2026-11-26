@@ -27,6 +27,49 @@ from runtime.ui.telegram.off_conditions import OFF_CALLBACK_DATA, OFF_PRESET_PRE
 
 logger = logging.getLogger("rd6018.ui")
 
+
+async def deliver_graph_edit(
+    app: Any,
+    chat_id: int,
+    user_id: int,
+    message_id: int,
+    *,
+    caption: str,
+    reply_markup: Any,
+    media: Any = None,
+) -> bool:
+    """Deliver one edit to the currently tracked graph workspace.
+
+    Graph samples, captions, rendering, and cache keys remain with their existing
+    dashboard owners. This function owns only Telegram edit delivery and its
+    existing best-effort error policy. It carries no lifecycle state of its own.
+    """
+    if app.user_graph_dashboard.get(int(user_id)) != int(message_id):
+        return False
+    try:
+        if media is None:
+            await app.bot.edit_message_caption(
+                chat_id=chat_id,
+                message_id=message_id,
+                caption=caption,
+                parse_mode=app.ParseMode.HTML,
+                reply_markup=reply_markup,
+            )
+        else:
+            await app.bot.edit_message_media(
+                chat_id=chat_id,
+                message_id=message_id,
+                media=media,
+                reply_markup=reply_markup,
+            )
+    except Exception as exc:
+        if "message is not modified" in str(exc).lower():
+            return True
+        kind = "caption" if media is None else "media"
+        logger.debug("graph %s refresh failed: %s", kind, exc)
+        return False
+    return True
+
 # A terminal callback closes an L3/L4 workspace. After its handler is finished the
 # semantic L2 panel must be republished as the newest message in the chat.
 _TERMINAL_CALLBACKS = {
@@ -75,7 +118,6 @@ _WORKSPACE_CALLBACKS = {
     "rd_managed_mix_status",
     "rd_hands_off_release_confirm",
     "operator_details",
-    "operator_graph",
     "operator_more",
     "operator_adopted_stop",
     "operator_managed_mix_stop",
@@ -163,12 +205,46 @@ class TerminalPanelManager:
         )
         return int(value) if value is not None else None
 
+    def is_current_graph_source(self, chat_id: int, user_id: int, message_id: int) -> bool:
+        """Reject graph callbacks from a message retired from the L2 panel."""
+        current = self.graph_id(chat_id, user_id)
+        if current is None:
+            current = getattr(self.app, "user_dashboard", {}).get(int(user_id))
+        if current is None:
+            current = getattr(self.app, "chat_dashboard", {}).get(int(chat_id))
+        return current is None or int(current) == int(message_id)
+
     def adopt_graph(self, chat_id: int, user_id: int, message_id: int) -> int:
         """Single authoritative bookkeeping of a published graph/message ID."""
         self.app.user_graph_dashboard[int(user_id)] = int(message_id)
         self.app.chat_graph_dashboard[int(chat_id)] = int(message_id)
         self._graph_user_by_chat[int(chat_id)] = int(user_id)
         return int(self.adopt(chat_id, user_id, message_id))
+
+    async def publish_graph_workspace(
+        self,
+        chat_id: int,
+        user_id: int,
+        send,
+        on_published,
+        refresh_callback,
+    ) -> int:
+        """Send and adopt one graph workspace through the terminal owner.
+
+        The caller owns graph data and cache contents. Publication bookkeeping,
+        callback ordering, and the existing refresh loop remain here. A failed
+        Telegram send leaves the previously tracked workspace untouched.
+        """
+        chat_id, user_id = int(chat_id), int(user_id)
+        # The caller may already hold this chat's non-reentrant lock through
+        # ensure_last/publish_last/render_graph. Do not acquire it twice here.
+        # Publication follows the pre-existing caller's serialization path.
+        sent = await send()
+        message_id = int(sent.message_id)
+        self.adopt_graph(chat_id, user_id, message_id)
+        on_published()
+        self.start_graph_refresh(refresh_callback)
+        return message_id
 
     def forget_graph(self, chat_id: int, user_id: int, message_id: int) -> None:
         """Retire only the exact graph ID; never erase a newer publication."""
@@ -184,6 +260,28 @@ class TerminalPanelManager:
             self.app.user_dashboard.pop(int(user_id), None)
         if self.app.chat_dashboard.get(int(chat_id)) == graph_id:
             self.app.chat_dashboard.pop(int(chat_id), None)
+
+    async def retire_graph_workspace_message(self, call: Any) -> None:
+        """Best-effort delete of the callback's old workspace before replacement."""
+        try:
+            await self.app.bot.delete_message(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+            )
+        except Exception:
+            # A missing/stale Telegram workspace is already retired for ordering.
+            pass
+
+    async def retire_graph_workspace_for_user(self, chat_id: int, user_id: int) -> None:
+        """Forget and best-effort delete the user's currently tracked graph."""
+        message_id = self.app.user_graph_dashboard.get(int(user_id))
+        if message_id is None:
+            return
+        self.forget_graph(chat_id, user_id, message_id)
+        try:
+            await self.app.bot.delete_message(chat_id, message_id)
+        except Exception:
+            pass
 
     async def publish_last(self, chat_id: int, user_id: int) -> int:
         """The only terminal publication path: serialize graph replacement."""
@@ -227,14 +325,59 @@ class TerminalPanelManager:
                 except Exception as exc:
                     logger.debug("periodic graph refresh failed: %s", exc)
 
-    async def render_graph(self, chat_id: int, user_id: int, render) -> None:
-        """Serialize operator-requested graph/range changes with background edits."""
+    async def render_graph(
+        self, chat_id: int, user_id: int, render, *, source_message_id: Optional[int] = None,
+    ) -> None:
+        """Serialize graph callbacks and ignore callbacks for retired graph IDs."""
         chat_id, user_id = int(chat_id), int(user_id)
         async with self._locks[chat_id]:
+            if source_message_id is not None and not self.is_current_graph_source(
+                chat_id, user_id, source_message_id,
+            ):
+                return
             await render()
             graph = self.graph_id(chat_id, user_id)
             if graph is not None:
                 self.adopt(chat_id, user_id, graph)
+
+    async def replace_graph_workspace(
+        self,
+        call: Any,
+        user_id: int,
+        edit,
+        send_replacement,
+        on_edited,
+        on_replaced,
+    ) -> bool:
+        """Edit or replace one captured graph under ``render_graph``'s lock.
+
+        Returns false for a callback whose source message is no longer current.
+        The caller supplies presentation-specific edit/send and bookkeeping
+        callbacks; this owner controls the ID fence and replacement ordering.
+        """
+        chat_id = int(call.message.chat.id)
+        source_id = int(call.message.message_id)
+        current_graph = self.graph_id(chat_id, user_id)
+        if not self.is_current_graph_source(chat_id, user_id, source_id):
+            return False
+        if current_graph is None:
+            self.adopt_graph(chat_id, user_id, source_id)
+
+        if edit is not None:
+            try:
+                await edit()
+            except Exception as exc:
+                if "message is not modified" in str(exc).lower():
+                    on_edited()
+                    return True
+            else:
+                on_edited()
+                return True
+
+        await self.retire_graph_workspace_message(call)
+        sent = await send_replacement()
+        on_replaced(sent)
+        return True
 
     async def _delete_previous_panel(
         self,
@@ -330,8 +473,13 @@ class TerminalPanelManager:
         user_id = int(user_id or 0)
         async with self._locks[chat_id]:
             previous = self._panel_by_chat.get(chat_id)
+            # Telegram owns publication; the established Application read-only
+            # port owns integration access. Keep recovery-time lookup so installed
+            # production wrappers and a rebound connector remain current.
+            from application.operator_read_source import OperatorReadSource
+
             try:
-                live = await self.app.hass.get_all_live()
+                live = await OperatorReadSource(self.app).read_live()
             except Exception as exc:
                 logger.warning("/start text fallback HA read failed; rendering degraded panel: %s", exc)
                 live = {}
@@ -341,7 +489,7 @@ class TerminalPanelManager:
             import operator_hmi as hmi
 
             state = hmi.build_operator_hmi_state(self.app, live)
-            text = hmi.render_operator_panel(state)
+            text = hmi.render_operator_panel_for_app(self.app, state)
             markup = hmi.build_operator_keyboard(self.app, state)
             sent = await self.app.bot.send_message(
                 chat_id=chat_id,
@@ -370,9 +518,9 @@ class TerminalPanelManager:
             user_id = event.from_user.id if event.from_user else 0
             data = str(event.data or "")
 
-            # Chart range buttons edit the current L2 graph in-place. They
-            # are not submenu navigation; periodic updates must continue.
-            if data.startswith("operator_graph_"):
+            # Opening or changing a chart shows the current L2 graph, not an
+            # L3 submenu; neither action may suspend the 60-second refresh.
+            if data == "operator_graph" or data.startswith("operator_graph_"):
                 self.leave_workspace(chat_id)
                 self.adopt(chat_id, user_id)
                 return
@@ -432,3 +580,27 @@ class TerminalPanelManager:
                     self.adopt(chat_id, user_id, panel_id)
                     return
             await self.ensure_last(chat_id, user_id)
+
+
+def retire_graph_tracking_for_message(app: Any, chat_id: int, user_id: int, message_id: int) -> None:
+    """Retire only matching graph indexes on photo-to-text workspace replacement.
+
+    A newer published graph must never be removed. Panel publication remains
+    exclusively with the existing TerminalPanelManager.
+    """
+    graph_by_user = getattr(app, "user_graph_dashboard", None)
+    graph_by_chat = getattr(app, "chat_graph_dashboard", None)
+    if not isinstance(graph_by_user, dict) and not isinstance(graph_by_chat, dict):
+        return
+    graph_message_id = (
+        graph_by_user.get(user_id) if isinstance(graph_by_user, dict) else None
+    )
+    chat_graph_message_id = (
+        graph_by_chat.get(chat_id) if isinstance(graph_by_chat, dict) else None
+    )
+    if graph_message_id != message_id and chat_graph_message_id != message_id:
+        return
+    if isinstance(graph_by_user, dict) and graph_by_user.get(user_id) == message_id:
+        graph_by_user.pop(user_id, None)
+    if isinstance(graph_by_chat, dict) and graph_by_chat.get(chat_id) == message_id:
+        graph_by_chat.pop(chat_id, None)

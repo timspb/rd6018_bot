@@ -17,6 +17,16 @@ def _callbacks(markup):
 
 
 class StartRouteIsolationTests(unittest.TestCase):
+    def test_battery_start_callback_uses_captured_composed_route(self):
+        source = (pathlib.Path(__file__).parents[1] / "production_bootstrap.py").read_text(encoding="utf-8")
+        start = source.index('F.data == "v2_battery_start"')
+        end = source.index("    install_ui_support(", start)
+        callback = source[start:end]
+        composition = source[:start]
+        self.assertIn("battery_start_route = app._v3_production_start_route", composition)
+        self.assertIn("await battery_start_route.submit(intent)", callback)
+        self.assertNotIn("app._v3_production_start_route", callback)
+
     def test_start_feedback_reports_active_execution_result(self):
         result = SimpleNamespace(
             accepted=True,
@@ -44,6 +54,39 @@ class StartRouteIsolationTests(unittest.TestCase):
         feedback = production_bot_ui.format_start_feedback(result)
         self.assertIn("DRY_RUN", feedback)
         self.assertIn("не запускался", feedback)
+
+    def test_start_feedback_is_owned_by_pure_hmi_component(self):
+        from runtime.ui.components.hmi_values import format_start_feedback
+        self.assertIs(production_bot_ui.format_start_feedback, format_start_feedback)
+
+    def test_start_feedback_consumes_typed_read_only_route_result(self):
+        from runtime.ui.components.hmi_values import StartFeedbackResult, format_start_feedback
+        from typing import Protocol
+        self.assertEqual(format_start_feedback.__annotations__["result"], "StartFeedbackResult")
+        self.assertIn(Protocol, StartFeedbackResult.__bases__)
+
+    def test_start_feedback_contract_flows_through_telegram_injections(self):
+        from typing import get_args, get_type_hints
+        from runtime.ui.components.hmi_values import StartFeedbackResult
+        from runtime.ui.telegram import charge
+
+        feedback_contracts = (
+            (charge.handle_capacity_input, "format_start_feedback"),
+        )
+        for function, parameter in feedback_contracts:
+            with self.subTest(function=function.__name__):
+                annotation = get_type_hints(function)[parameter]
+                self.assertIs(get_args(annotation)[0][0], StartFeedbackResult)
+
+    def test_start_feedback_rejection_and_unknown_mode_are_truthful(self):
+        from runtime.ui.components.hmi_values import format_start_feedback
+        rejected = SimpleNamespace(accepted=False, trace_id="trace", reason="lease_not_ready")
+        self.assertEqual(format_start_feedback(rejected), "START отклонён: lease_not_ready")
+        accepted = SimpleNamespace(
+            accepted=True, trace_id="abcd1234long", reason="accepted",
+            port_result=SimpleNamespace(mode=SimpleNamespace(value="queued")),
+        )
+        self.assertEqual(format_start_feedback(accepted), "✅ START QUEUED: accepted (abcd1234)")
 
     def test_production_profile_start_has_one_transactional_owner(self):
         self.assertFalse(hasattr(production_bot_ui, "_start_profile"))
@@ -96,7 +139,11 @@ class StartRouteIsolationTests(unittest.TestCase):
         start = source.index('F.data == "v2_quick_start"')
         end = source.index('F.data.startswith("v2_bat_intent_")', start)
         callback = source[start:end]
-        self.assertIn("_v3_production_start_route", callback)
+        self.assertIn("production_start_route", callback)
+        composition = (pathlib.Path(__file__).parents[1] / "production_bot_ui.py").read_text(encoding="utf-8")
+        self.assertIn("start_route=app._v3_production_start_route",
+                      (pathlib.Path(__file__).parents[1] / "production_bootstrap.py").read_text(encoding="utf-8"))
+        self.assertIn("production_start_route = (", composition)
         self.assertNotIn("_start_profile", callback)
         self.assertNotIn("Compatibility/rollback compositions", callback)
         self.assertIn("await route.submit(intent)", callback)
@@ -109,14 +156,23 @@ class StartRouteIsolationTests(unittest.TestCase):
         self.assertNotIn("_refresh_dashboard_after_selection", callback)
 
     def test_legacy_capacity_input_uses_v3_route_when_composed(self):
-        source = (pathlib.Path(__file__).parents[1] / "runtime" / "production_runtime.py").read_text(encoding="utf-8")
+        root = pathlib.Path(__file__).parents[1]
+        source = (root / "runtime" / "production_runtime.py").read_text(encoding="utf-8")
         start = source.index("async def handle_ah_input")
         end = source.index("async def handle_dialog_mode", start)
-        callback = source[start:end]
-        self.assertIn("_v3_production_start_route", callback)
-        self.assertIn("await route.submit(intent)", callback)
-        self.assertIn("BatteryCondition.UNKNOWN", callback)
-        self.assertIn("direct legacy START is retired", callback)
+        adapter = source[start:end]
+        self.assertIn('globals().get("_v3_production_start_route")', adapter)
+        self.assertIn("await handle_capacity_input(", adapter)
+        self.assertIn("route=route", adapter)
+        self.assertNotIn("route.submit(", adapter)
+
+        owner_source = (root / "runtime" / "ui" / "telegram" / "charge.py").read_text(encoding="utf-8")
+        owner_start = owner_source.index("async def handle_capacity_input")
+        owner_end = owner_source.index("CHARGE_CALLBACK_DATA", owner_start)
+        owner = owner_source[owner_start:owner_end]
+        self.assertIn("await route.submit(intent)", owner)
+        self.assertIn("BatteryCondition.UNKNOWN", owner)
+        self.assertIn("direct legacy START is retired", owner)
         for forbidden in (
             "charge_controller.start(",
             "hass.set_ovp(",
@@ -125,7 +181,7 @@ class StartRouteIsolationTests(unittest.TestCase):
             "hass.set_current(",
             "hass.turn_on(",
         ):
-            self.assertNotIn(forbidden, callback)
+            self.assertNotIn(forbidden, adapter + owner)
 
 
 if __name__ == "__main__":

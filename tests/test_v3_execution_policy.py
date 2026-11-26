@@ -28,10 +28,10 @@ class V3ExecutionPolicyTests(unittest.TestCase):
         intent = SafeOutputIntent(OutputAction.DISABLE)
         self.assertTrue(self.policy.evaluate(intent, SafetyDecision(False, "hard stop")).allowed)
 
-    def test_reset_requires_safe_state(self):
-        intent = SafeOutputIntent(OutputAction.RESET_PROTECTION, target_ovp=15.0, target_ocp=3.0, source="mix")
-        safety = SafetyDecision(True, "ok")
-        self.assertFalse(self.policy.evaluate(intent, safety, ExecutionPolicyContext(unsafe_state=True)).allowed)
+    def test_protection_reset_is_not_a_supported_output_intent(self):
+        from runtime.output.exceptions import InvalidOutputIntent
+        with self.assertRaises(InvalidOutputIntent):
+            SafeOutputIntent("reset_protection", source="mix")
 
 
 

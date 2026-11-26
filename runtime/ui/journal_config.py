@@ -1,0 +1,8 @@
+"""Single owner for journal UI limits; presentation only, not charge policy."""
+
+JOURNAL_PAGE_SIZE = 8
+JOURNAL_DEFAULT_SHOWN = 25
+JOURNAL_TIME_CHARS = 5
+JOURNAL_RAW_HTML_MAX = 250
+JOURNAL_STAGE_HTML_MAX = 60
+JOURNAL_SUMMARY_HTML_MAX = 180

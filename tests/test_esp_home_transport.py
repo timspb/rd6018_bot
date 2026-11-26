@@ -47,6 +47,14 @@ class NumberInfo:
         self.key, self.object_id, self.device_id = key, object_id, device_id
 
 
+class SwitchInfo(SensorInfo):
+    pass
+
+
+class SwitchState(_SensorState):
+    pass
+
+
 class _ButtonInfo:
     def __init__(self, key, object_id, device_id=1):
         self.key = key
@@ -207,7 +215,7 @@ class ESPHomeTransportSubscriptionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_output_heartbeat_is_native_callback_not_cache_fetch_time(self):
         import time
-        from runtime_safety import RuntimeSafetyGuard
+        from runtime.safety.runtime_guard import RuntimeSafetyGuard
 
         transport = ESPHomeTransport(_config(), RDConfig(60.0, 18.0, 1000.0))
         first = await transport.get_live_values()
@@ -227,7 +235,12 @@ class ESPHomeTransportSubscriptionTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(guard._is_post_command(unchanged, before, command_epoch))
 
         # Only the actual native SensorState callback advances the heartbeat.
-        transport._on_state(SensorState(3, 0.0))
+        # Windows wall-clock resolution can round two genuine callbacks to
+        # the same epoch. Advance only the transport callback timestamp so
+        # the test checks ordering without weakening the guard's strict rule.
+        with patch("runtime.physical.transports.esp128.time.time",
+                   return_value=command_epoch + 1.0):
+            transport._on_state(SensorState(3, 0.0))
         updated = guard._output_evidence(await transport.get_live_values())
         self.assertGreater(updated.heartbeat_epoch, before.heartbeat_epoch)
         self.assertTrue(guard._is_post_command(updated, before, command_epoch))
@@ -318,11 +331,15 @@ class ESPHomeTransportSubscriptionTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(measured["value"], 0.0)
             self.assertEqual(measured["meta"]["entity_type"], "SensorInfo")
             self.assertEqual(measured["meta"]["native_key"], 1)
-            setpoint = d106._native_record("set_voltage_v", "rd_voltage", transport,
-                                          tuple(transport.entities), time.time())
-            self.assertEqual(setpoint["value"], 14.72)
-            self.assertEqual(setpoint["meta"]["entity_type"], "NumberInfo")
-            self.assertEqual(setpoint["meta"]["native_key"], 20)
+            # An operator setpoint NumberInfo is not an independent RD
+            # readback. If mapped to the measured ID, D106 must reject it.
+            with self.assertRaisesRegex(
+                d106.ro.ProofError, "readback aliases measured channel",
+            ):
+                d106._native_record(
+                    "set_voltage_v", "rd_voltage", transport,
+                    tuple(transport.entities), time.time(),
+                )
             await transport.close()
 
     async def test_concurrent_reads_still_use_one_subscription(self):
@@ -343,6 +360,86 @@ class ESPHomeTransportSubscriptionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(_FakeClient.remove_calls, 1)
         await transport.close()
         self.assertEqual(_FakeClient.remove_calls, 2)
+
+    async def test_close_reconnect_requires_new_native_baseline_before_output_admission(self):
+        transport = ESPHomeTransport(_config(), RDConfig(60.0, 18.0, 1000.0))
+        await transport.get_live_values()
+        await transport.close()
+        self.assertTrue(transport._reconnecting_subscription)
+
+        _FakeClient.emit_initial = False
+        with self.assertRaisesRegex(RuntimeError, "baseline is not restored"):
+            await transport.command_output(True)
+        self.assertEqual(_FakeClient.subscribe_calls, 2)
+        self.assertEqual(_FakeClient.instances[-1].handler_count(), 1)
+        self.assertTrue(transport._reconnecting_subscription)
+        native_output, native_meta = await transport.get_physical_output_report()
+        self.assertIsNone(native_output)
+        self.assertEqual(native_meta["status"], "unknown")
+        partial = await transport.get_live_values()
+        self.assertIsNone(partial["output_state_code_v2"])
+        self.assertEqual(partial["_meta"]["voltage"]["status"], "unknown")
+        await transport.close()
+
+    async def test_late_old_connection_closed_event_cannot_invalidate_new_subscription(self):
+        transport = ESPHomeTransport(_config(), RDConfig(60.0, 18.0, 1000.0))
+        await transport.get_live_values()
+        old_client = _FakeClient.instances[0]
+        old_closed_callback = next(iter(old_client.closed_callbacks))
+        old_client.disconnected = True
+        _FakeClient.emit_initial = False
+        await transport.get_live_values()
+        new_client = _FakeClient.instances[-1]
+        new_callback = next(iter(new_client.callbacks))
+        generation = transport._native_connection_generation
+
+        old_closed_callback(RuntimeError("late close notification"))
+
+        self.assertIs(transport.client, new_client)
+        self.assertEqual(transport._native_connection_generation, generation)
+        self.assertIs(transport._state_subscription_remover is not None, True)
+        self.assertEqual(new_client.handler_count(), 1)
+        self.assertTrue(transport._reconnecting_subscription)
+        new_callback(SensorState(3, 0.0))
+        await transport.close()
+
+    async def test_cancellation_during_reconnect_wait_keeps_generation_baseline_blocked(self):
+        transport = ESPHomeTransport(_config(), RDConfig(60.0, 18.0, 1000.0))
+        await transport.get_live_values()
+        old_client = _FakeClient.instances[0]
+        old_callback = next(iter(old_client.callbacks))
+        old_client.disconnected = True
+        _FakeClient.emit_initial = False
+        waiting = asyncio.Event()
+        release = asyncio.Event()
+
+        async def block_reconnect_wait(seconds):
+            if seconds == 0.5:
+                return
+            if seconds == 0.2:
+                waiting.set()
+                await release.wait()
+
+        with patch("runtime.physical.transports.esp128.asyncio.sleep",
+                   new=block_reconnect_wait):
+            task = asyncio.create_task(transport.get_live_values())
+            await waiting.wait()
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+
+        generation = transport._native_connection_generation
+        for key, value, state_type in (
+            (1, 14.72, SensorState), (2, 0.25, SensorState),
+            (3, 1.0, SensorState), (4, 14.75, NumberState),
+        ):
+            old_callback(state_type(key, value))
+        self.assertTrue(transport._reconnecting_subscription)
+        self.assertEqual(transport._native_connection_generation, generation)
+        self.assertEqual(transport._state_cache, {})
+        with self.assertRaisesRegex(RuntimeError, "baseline is not restored"):
+            await transport.command_output(True)
+        await transport.close()
 
     async def test_subscription_failure_does_not_leave_partial_state(self):
         _FakeClient.fail_subscribe = True
@@ -415,7 +512,12 @@ class ESPHomeTransportSubscriptionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_physical_output_report_uses_configured_sensor_not_edge_whitelist(self):
         transport = ESPHomeTransport(_config(), RDConfig(60.0, 18.0, 1000.0))
-        value, attrs = await transport.get_physical_output_report()
+        from hass_api import HassClient
+        from runtime.physical.connectors.esp_direct import ESPDirectConnector
+        connector = ESPDirectConnector.__new__(ESPDirectConnector)
+        connector.transport = transport
+        hass = HassClient("", "", backend=connector)
+        value, attrs = await hass.get_native_physical_output_report()
         self.assertEqual(value, 0.0)
         self.assertEqual(attrs["native_type"], "SensorState")
         self.assertIsInstance(attrs["subscription_timestamp_monotonic"], float)
@@ -590,6 +692,71 @@ class ESPHomeTransportSubscriptionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(wrong["native_type"], "SimpleNamespace")
         await transport.close()
 
+    def test_native_reconnect_coherence_requires_valid_independent_callback_age(self):
+        from runtime.physical.transports.esp128_callback_coherence import native_batch_complete
+        configured = {"output_state": "rd_output", "configured_voltage": "rd_set_voltage"}
+        readings = {
+            "output_state": (0.0, {"status": "ok", "age_s": 0.5}),
+            "configured_voltage": (16.5, {"status": "ok", "age_s": 0.7}),
+        }
+        self.assertTrue(native_batch_complete(configured, readings))
+        for invalid in (None, -0.1, 8.1, float("nan"), True):
+            with self.subTest(age=invalid):
+                degraded = dict(readings)
+                degraded["configured_voltage"] = (16.5, {"status": "ok", "age_s": invalid})
+                self.assertFalse(native_batch_complete(configured, degraded))
+        self.assertFalse(native_batch_complete(configured, {
+            "output_state": readings["output_state"],
+        }))
+
+    async def test_independent_battery_and_set_voltage_callback_loss_does_not_invent_outage(self):
+        # UI incident: an aged battery callback and missing Vset readback can
+        # coexist without a Native TCP outage. One sensor recovery does not
+        # refresh the other's timestamp or create a synthetic disconnect.
+        transport = ESPHomeTransport(_config(), RDConfig(60.0, 18.0, 1000.0))
+        transport.config.entities["battery_voltage"] = "rd_battery"
+        original_inventory = _FakeClient.list_entities_services
+
+        async def with_battery(client):
+            entities, services = await original_inventory(client)
+            entities.append(SensorInfo(22, "rd_battery"))
+            return entities, services
+
+        with patch.object(_FakeClient, "list_entities_services", with_battery):
+            try:
+                await transport.get_live_values()
+                client = _FakeClient.instances[-1]
+                for callback in tuple(client.callbacks):
+                    callback(SensorState(22, 12.75))
+                battery_identity = ("SensorInfo", 22)
+                number_identity = ("NumberInfo", 4)
+                transport._state_updated_at[battery_identity] -= 23.7
+                transport._state_cache.pop(number_identity)
+                transport._state_types.pop(number_identity)
+                first = await transport.get_live_values()
+                self.assertIsNone(first["set_voltage_readback_v2"])
+                self.assertEqual(first["_meta"]["set_voltage_readback_v2"]["status"], "unknown")
+                self.assertGreater(first["_meta"]["battery_voltage"]["age_s"], 20.0)
+                self.assertNotIn("_native_link_outage_since", first)
+
+                for callback in tuple(client.callbacks):
+                    callback(NumberState(4, 16.5))
+                second = await transport.get_live_values()
+                self.assertEqual(second["set_voltage_readback_v2"], 16.5)
+                self.assertLess(second["_meta"]["set_voltage_readback_v2"]["age_s"], 8.0)
+                self.assertGreater(second["_meta"]["battery_voltage"]["age_s"], 20.0)
+                self.assertNotIn("_native_link_outage_since", second)
+
+                for callback in tuple(client.callbacks):
+                    callback(SensorState(22, 12.76))
+                recovered = await transport.get_live_values()
+                self.assertLess(recovered["_meta"]["battery_voltage"]["age_s"], 8.0)
+                self.assertEqual(recovered["set_voltage_readback_v2"], 16.5)
+                self.assertNotIn("_native_link_outage_since", recovered)
+                self.assertEqual(len(_FakeClient.instances), 1)
+            finally:
+                await transport.close()
+
     async def test_reconnect_waits_for_delayed_complete_native_register_batch(self):
         transport = ESPHomeTransport(_config(), RDConfig(60.0, 18.0, 1000.0))
         await transport.get_live_values()
@@ -633,7 +800,60 @@ class ESPHomeTransportSubscriptionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(live["set_voltage_readback_v2"])
         self.assertEqual(live["_meta"]["set_voltage_readback_v2"]["status"], "unknown")
         self.assertIn("_native_link_outage_since", live)
+        # An incomplete reconnect must not release ON admission even if
+        # the bounded callback wait has expired.
+        self.assertTrue(transport._reconnecting_subscription)
+        with self.assertRaisesRegex(RuntimeError, "baseline is not restored"):
+            await transport.command_output(True)
+        # A later complete callback batch may release the same reconnect
+        # without a second TCP outage or an automatic ON command.
+        for callback in tuple(_FakeClient.instances[-1].callbacks):
+            callback(SensorState(1, 14.72))
+            callback(SensorState(2, 0.0))
+            callback(SensorState(3, 0.0))
+            callback(NumberState(4, 14.75))
+        recovered = await transport.get_live_values()
         self.assertFalse(transport._reconnecting_subscription)
+        self.assertNotIn("_native_link_outage_since", recovered)
+        await transport.close()
+
+    async def test_late_callback_from_old_connection_cannot_satisfy_native_baseline(self):
+        transport = ESPHomeTransport(_config(), RDConfig(60.0, 18.0, 1000.0))
+        await transport.get_live_values()
+        old_client = _FakeClient.instances[0]
+        old_callback = next(iter(old_client.callbacks))
+        old_generation = transport._native_connection_generation
+
+        old_client.disconnected = True
+        _FakeClient.emit_initial = False
+        live = await transport.get_live_values()
+        new_client = _FakeClient.instances[-1]
+        new_generation = transport._native_connection_generation
+        self.assertIsNot(old_client, new_client)
+        self.assertTrue(transport._reconnecting_subscription)
+        self.assertIsNone(live["output_state_code_v2"])
+
+        # Simulate an already-dispatched callback from the old subscription
+        # arriving after the reconnect cache has been cleared.
+        for key, value, state_type in (
+            (1, 14.72, SensorState), (2, 0.25, SensorState),
+            (3, 1.0, SensorState), (4, 14.75, NumberState),
+        ):
+            old_callback(state_type(key, value))
+
+        from hass_api import HassClient
+        from runtime.physical.connectors.esp_direct import ESPDirectConnector
+        connector = ESPDirectConnector.__new__(ESPDirectConnector)
+        connector.transport = transport
+        hass = HassClient("", "", backend=connector)
+        value, attrs = await hass.get_native_physical_output_report()
+        self.assertIsNone(value)
+        self.assertEqual(attrs["status"], "unknown")
+        self.assertEqual(attrs["source"], "esp_native_api")
+        self.assertEqual(attrs["connection_generation"], new_generation)
+        self.assertIsNone(attrs.get("subscription_timestamp_monotonic"))
+        self.assertTrue(transport._reconnecting_subscription)
+        self.assertGreater(new_generation, old_generation)
         await transport.close()
 
     async def test_reconnects_when_cached_client_reports_disconnected(self):

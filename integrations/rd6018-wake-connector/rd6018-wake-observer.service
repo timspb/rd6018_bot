@@ -1,0 +1,34 @@
+[Unit]
+Description=RD6018 read-only event observer (30-minute summaries, urgent alarms)
+After=network-online.target rd6018-bot.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/rd6018-wake-observer
+EnvironmentFile=/etc/rd6018-wake-observer.env
+ExecStart=/usr/bin/python3 /opt/rd6018-wake-observer/observer.py --config /etc/rd6018-wake-observer.json
+Restart=always
+RestartSec=15
+StateDirectory=rd6018-wake-observer
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectControlGroups=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ReadWritePaths=/var/lib/rd6018-wake-observer
+AmbientCapabilities=CAP_DAC_READ_SEARCH
+CapabilityBoundingSet=CAP_DAC_READ_SEARCH
+RestrictSUIDSGID=yes
+LockPersonality=yes
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

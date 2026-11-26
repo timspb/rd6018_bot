@@ -12,12 +12,17 @@ from rd_ownership_recovery import (
     install_rd_ownership_recovery,
     release_unmanaged_live_output_to_hands_off,
 )
-from runtime_safety import RuntimeSafetyError
+from runtime.safety.runtime_guard import RuntimeSafetyError
+from runtime.ui.components.hmi_action_keyboard import _ownership_recovery_keyboard
 
 
 class DummyCallbackRegistry:
+    def __init__(self):
+        self.routes = []
+
     def __call__(self, *args, **kwargs):
         def decorator(func):
+            self.routes.append(func)
             return func
         return decorator
 
@@ -25,6 +30,7 @@ class DummyCallbackRegistry:
 class DummyRouter:
     def __init__(self):
         self.callback_query = DummyCallbackRegistry()
+        self.routes = self.callback_query.routes
 
 
 class FakeLease:
@@ -33,6 +39,8 @@ class FakeLease:
         self.suspended = False
         self.released = False
         self.release_error = None
+        self.cancel_prepare = False
+        self.cancel_release = False
         self.config = types.SimpleNamespace(max_modbus_age_s=20.0)
 
     async def read_state(self):
@@ -57,6 +65,8 @@ class FakeLease:
     async def prepare_hands_off_release(self):
         if not self.suspended or not self.armed:
             raise RuntimeError("not prepared")
+        if self.cancel_prepare:
+            raise asyncio.CancelledError()
         return types.SimpleNamespace(generation=7)
 
     async def release_to_hands_off(self, *, expected_generation=None):
@@ -66,6 +76,8 @@ class FakeLease:
             raise RuntimeError("generation mismatch")
         self.released = True
         self.armed = False
+        if self.cancel_release:
+            raise asyncio.CancelledError()
         return await self.read_state()
 
 
@@ -114,6 +126,10 @@ class FakeManager:
     def pb_managed(self):
         return self.mode is RdControlMode.PB_MANAGED
 
+    @property
+    def release_in_progress(self):
+        return bool(self._release_in_progress)
+
     def _write_mode(self, mode):
         self.writes.append(mode)
 
@@ -156,6 +172,39 @@ class OwnershipRecoveryTransactionTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(lease.released)
         self.assertTrue(lease.suspended)
 
+    async def test_precommit_cancellation_resumes_lease_and_keeps_pb_authority(self):
+        lease = FakeLease(armed=True)
+        lease.cancel_prepare = True
+        guard = FakeGuard(lease)
+        manager = FakeManager(guard)
+        app = self._app(manager)
+
+        with self.assertRaises(asyncio.CancelledError):
+            await release_unmanaged_live_output_to_hands_off(app, manager)
+
+        self.assertTrue(manager.pb_managed)
+        self.assertEqual(manager.writes, [])
+        self.assertFalse(manager.release_in_progress)
+        self.assertFalse(lease.suspended)
+        self.assertFalse(lease.released)
+
+    async def test_postcommit_cancellation_keeps_durable_hands_off_without_resume(self):
+        lease = FakeLease(armed=True)
+        lease.cancel_release = True
+        guard = FakeGuard(lease)
+        manager = FakeManager(guard)
+        app = self._app(manager)
+
+        with self.assertRaises(asyncio.CancelledError):
+            await release_unmanaged_live_output_to_hands_off(app, manager)
+
+        self.assertTrue(manager.hands_off)
+        self.assertEqual(manager.writes, [RdControlMode.HANDS_OFF])
+        self.assertFalse(manager.release_in_progress)
+        self.assertTrue(lease.suspended)
+        self.assertTrue(lease.released)
+        self.assertEqual(manager.cleared_restore, 1)
+
     async def test_ambiguous_edge_ack_never_rolls_back_durable_hands_off(self):
         lease = FakeLease(armed=True)
         lease.release_error = RuntimeError("synthetic lost ack")
@@ -172,16 +221,15 @@ class OwnershipRecoveryTransactionTests(unittest.IsolatedAsyncioTestCase):
 
 class OwnershipRecoveryHmiTests(unittest.TestCase):
     def setUp(self):
-        self.original_keyboard = hmi.build_operator_keyboard
-        hmi.build_operator_keyboard = lambda app, state, **kwargs: InlineKeyboardMarkup(
+        self.base_markup = InlineKeyboardMarkup(
             inline_keyboard=[
                 [InlineKeyboardButton(text="info", callback_data="operator_details")],
                 [InlineKeyboardButton(text="refresh", callback_data="operator_refresh")],
             ]
         )
 
-    def tearDown(self):
-        hmi.build_operator_keyboard = self.original_keyboard
+    def _keyboard(self, app, state, *, actions=None):
+        return _ownership_recovery_keyboard(app, state, self.base_markup, actions=actions)
 
     @staticmethod
     def _app(*, hands_off=False, adoption=True):
@@ -239,11 +287,21 @@ class OwnershipRecoveryHmiTests(unittest.TestCase):
             output_on=True,
         )
 
-        callbacks = self._callbacks(hmi.build_operator_keyboard(app, state))
+        callbacks = self._callbacks(self._keyboard(app, state))
 
         self.assertIn("rd_ownership_adopt", callbacks)
         self.assertIn("rd_ownership_hands_off", callbacks)
         self.assertIn("rd_ownership_output_off", callbacks)
+        self.assertEqual(
+            [[button.callback_data for button in row] for row in self._keyboard(app, state).inline_keyboard],
+            [
+                ["rd_ownership_adopt"],
+                ["rd_ownership_hands_off"],
+                ["rd_ownership_output_off"],
+                ["operator_details"],
+                ["operator_refresh"],
+            ],
+        )
 
     def test_idle_exposes_general_purpose_psu_hands_off(self):
         app, manager = self._app()
@@ -254,8 +312,23 @@ class OwnershipRecoveryHmiTests(unittest.TestCase):
             output_on=False,
         )
 
-        callbacks = self._callbacks(hmi.build_operator_keyboard(app, state))
+        callbacks = self._callbacks(self._keyboard(app, state))
         self.assertIn("rd_ownership_hands_off", callbacks)
+
+    def test_ownership_keyboard_is_bound_to_installed_app(self):
+        from application.operator_actions import OperatorActionsView
+
+        app, manager = self._app()
+        foreign, _ = self._app()
+        install_rd_ownership_recovery(app, manager)
+        state = self._state(hmi.HmiProcessState.IDLE, hmi.HmiAuthority.NONE, output_on=False)
+        actions = OperatorActionsView.for_state("IDLE", safety_allowed=True)
+
+        foreign_callbacks = self._callbacks(self._keyboard(foreign, state, actions=actions))
+        self.assertNotIn("rd_ownership_hands_off", foreign_callbacks)
+        self.assertIn("operator_refresh", foreign_callbacks)
+        own_callbacks = self._callbacks(self._keyboard(app, state, actions=actions))
+        self.assertIn("rd_ownership_hands_off", own_callbacks)
 
     def test_hands_off_off_exposes_return_to_pb_control(self):
         app, manager = self._app(hands_off=True)
@@ -266,8 +339,19 @@ class OwnershipRecoveryHmiTests(unittest.TestCase):
             output_on=False,
         )
 
-        callbacks = self._callbacks(hmi.build_operator_keyboard(app, state))
+        callbacks = self._callbacks(self._keyboard(app, state))
         self.assertIn("rd_hands_off_disable", callbacks)
+        self.assertEqual(
+            [(button.text, button.callback_data) for button in self._keyboard(app, state).inline_keyboard[0]],
+            [("🔒 Вернуть контроль заряда", "rd_hands_off_disable")],
+        )
+
+    def test_hands_off_on_never_exposes_pb_restore(self):
+        app, manager = self._app(hands_off=True)
+        install_rd_ownership_recovery(app, manager)
+        state = self._state(hmi.HmiProcessState.HANDS_OFF, hmi.HmiAuthority.EXTERNAL, output_on=True)
+
+        self.assertNotIn("rd_hands_off_disable", self._callbacks(self._keyboard(app, state)))
 
     def test_active_managed_session_hides_rd_release_button(self):
         app, manager = self._app()
@@ -279,7 +363,7 @@ class OwnershipRecoveryHmiTests(unittest.TestCase):
             output_on=True,
         )
 
-        callbacks = self._callbacks(hmi.build_operator_keyboard(app, state))
+        callbacks = self._callbacks(self._keyboard(app, state))
         self.assertNotIn("rd_hands_off_release_confirm", callbacks)
 
     def test_snapshot_actions_path_exposes_hands_off(self):
@@ -290,7 +374,7 @@ class OwnershipRecoveryHmiTests(unittest.TestCase):
         state = self._state(hmi.HmiProcessState.IDLE, hmi.HmiAuthority.NONE, output_on=False)
         actions = OperatorActionsView.for_state("IDLE", safety_allowed=True)
 
-        callbacks = self._callbacks(hmi.build_operator_keyboard(app, state, actions=actions))
+        callbacks = self._callbacks(self._keyboard(app, state, actions=actions))
 
         self.assertIn("rd_ownership_hands_off", callbacks)
 
@@ -303,9 +387,178 @@ class OwnershipRecoveryHmiTests(unittest.TestCase):
         state = self._state(hmi.HmiProcessState.RUNNING, hmi.HmiAuthority.AUTO, output_on=True)
         actions = OperatorActionsView.for_state("CHARGING", safety_allowed=True)
 
-        callbacks = self._callbacks(hmi.build_operator_keyboard(app, state, actions=actions))
+        callbacks = self._callbacks(self._keyboard(app, state, actions=actions))
 
         self.assertIn("rd_hands_off_release_confirm", callbacks)
+        self.assertEqual(
+            [(button.text, button.callback_data) for button in self._keyboard(app, state, actions=actions).inline_keyboard[0]],
+            [("🔓 Отпустить РД", "rd_hands_off_release_confirm")],
+        )
+
+    def test_snapshot_release_requires_pb_managed_active_session(self):
+        from application.operator_actions import OperatorActionsView
+
+        app, manager = self._app(hands_off=True)
+        app.charge_controller.is_active = True
+        install_rd_ownership_recovery(app, manager)
+        state = self._state(hmi.HmiProcessState.RUNNING, hmi.HmiAuthority.AUTO, output_on=True)
+        actions = OperatorActionsView.for_state("CHARGING", safety_allowed=True)
+
+        self.assertNotIn("rd_hands_off_release_confirm", self._callbacks(self._keyboard(app, state, actions=actions)))
+
+    def test_idle_none_path_keeps_ownership_button_at_end_and_uses_each_apps_manager(self):
+        first, _ = self._app()
+        second, second_manager = self._app(hands_off=True)
+        install_rd_ownership_recovery(first, first.rd_control_mode_manager)
+        route_count = len(first.router.routes)
+        self.assertGreater(route_count, 0)
+        install_rd_ownership_recovery(first, first.rd_control_mode_manager)
+        self.assertEqual(len(first.router.routes), route_count)
+        install_rd_ownership_recovery(second, second_manager)
+        state = self._state(hmi.HmiProcessState.IDLE, hmi.HmiAuthority.NONE, output_on=False)
+
+        first_markup = self._keyboard(first, state)
+        second_markup = self._keyboard(second, state)
+        self.assertEqual(
+            [[button.callback_data for button in row] for row in first_markup.inline_keyboard],
+            [["operator_details"], ["operator_refresh"], ["rd_ownership_hands_off"]],
+        )
+        self.assertEqual(self._callbacks(second_markup), ["operator_details", "operator_refresh"])
+        self.assertEqual(len(first.router.routes), len(second.router.routes))
+
+    def test_unknown_output_filter_removes_restore_and_containment_actions(self):
+        from operator_output_truth import filter_keyboard_for_output_truth
+
+        app, _manager = self._app(hands_off=True)
+        install_rd_ownership_recovery(app, app.rd_control_mode_manager)
+        state = self._state(hmi.HmiProcessState.HANDS_OFF, hmi.HmiAuthority.EXTERNAL, output_on=False)
+        object.__setattr__(state, "_output_state_known", False)
+        markup = self._keyboard(app, state)
+        filtered = filter_keyboard_for_output_truth(app, state, markup, hmi)
+
+        self.assertNotIn("rd_hands_off_disable", self._callbacks(filtered))
+        self.assertIn("rd_hands_off_output_off", self._callbacks(filtered))
+
+    def test_autonomous_boundary_never_offers_ownership_or_bot_output_off(self):
+        from operator_output_truth import filter_keyboard_for_output_truth
+
+        app, _manager = self._app()
+        install_rd_ownership_recovery(app, app.rd_control_mode_manager)
+        app.rd_autonomous_mode = types.SimpleNamespace(
+            manager=types.SimpleNamespace(edge_autonomous=True),
+            _entry_transition_pending=False,
+            _entry_uncertain=False,
+        )
+        state = self._state(hmi.HmiProcessState.CONTAINMENT, hmi.HmiAuthority.CONTAINMENT, output_on=True)
+        markup = self._keyboard(app, state)
+        filtered = filter_keyboard_for_output_truth(app, state, markup, hmi)
+
+        callbacks = self._callbacks(filtered)
+        self.assertNotIn("rd_ownership_adopt", callbacks)
+        self.assertNotIn("rd_ownership_hands_off", callbacks)
+        self.assertNotIn("rd_ownership_output_off", callbacks)
+
+    def test_installer_does_not_replace_process_global_keyboard_builder(self):
+        builder = hmi.build_operator_keyboard
+        app, manager = self._app()
+
+        install_rd_ownership_recovery(app, manager)
+
+        self.assertIs(hmi.build_operator_keyboard, builder)
+        self.assertNotIn("hmi.build_operator_keyboard =", __import__("inspect").getsource(install_rd_ownership_recovery))
+
+
+class RegisteredOutputOffCallbackTests(unittest.IsolatedAsyncioTestCase):
+    async def test_registered_output_off_reports_success_after_verified_off_and_disarm(self):
+        events, registered, answers = [], [], []
+
+        class Registry:
+            def __call__(self, filter_expr):
+                def register(callback):
+                    registered.append(callback)
+                    return callback
+                return register
+
+        class Guard:
+            async def _ensure_output_off(self, reason, entity):
+                events.append(("off", reason, entity))
+
+            async def _disarm_edge_lease_best_effort(self):
+                events.append(("disarm",))
+
+        manager = types.SimpleNamespace(hands_off=False, guard=Guard())
+        app = types.SimpleNamespace(
+            router=types.SimpleNamespace(callback_query=Registry()),
+            charge_controller=types.SimpleNamespace(is_active=False),
+            manual_session_manager=types.SimpleNamespace(is_active=False),
+            _check_chat_and_respond=lambda _call: _return_true(),
+            ENTITY_MAP={"switch": "switch.rd6018_output"},
+        )
+        install_rd_ownership_recovery(app, manager)
+        callback = next(fn for fn in registered if fn.__name__ == "_ownership_output_off")
+
+        async def answer(text, **kwargs):
+            answers.append((text, kwargs))
+
+        async def message_answer(text):
+            answers.append(("message", text))
+
+        await callback(types.SimpleNamespace(
+            answer=answer, message=types.SimpleNamespace(answer=message_answer)
+        ))
+
+        self.assertEqual([event[0] for event in events], ["off", "disarm"])
+        self.assertEqual(events[0][1:], (
+            "explicit operator shutdown of unmanaged Output", "switch.rd6018_output"
+        ))
+        self.assertEqual(answers[0][0], "Output OFF подтверждён")
+        self.assertEqual(answers[1], (
+            "message", "⏹ Output подтверждён OFF. Pb-control остаётся активным."
+        ))
+
+    async def test_registered_output_off_failure_never_reports_success_or_disarms(self):
+        registered, answers = [], []
+
+        class Registry:
+            def __call__(self, filter_expr):
+                def register(callback):
+                    registered.append(callback)
+                    return callback
+                return register
+
+        class Guard:
+            async def _ensure_output_off(self, *_args):
+                raise RuntimeError("synthetic verified-OFF failure")
+
+            async def _disarm_edge_lease_best_effort(self):
+                raise AssertionError("lease disarm must follow verified OFF")
+
+        manager = types.SimpleNamespace(hands_off=False, guard=Guard())
+        app = types.SimpleNamespace(
+            router=types.SimpleNamespace(callback_query=Registry()),
+            charge_controller=types.SimpleNamespace(is_active=False),
+            manual_session_manager=types.SimpleNamespace(is_active=False),
+            _check_chat_and_respond=lambda _call: _return_true(),
+            ENTITY_MAP={"switch": "switch.rd6018_output"},
+        )
+        install_rd_ownership_recovery(app, manager)
+        callback = next(fn for fn in registered if fn.__name__ == "_ownership_output_off")
+
+        async def answer(text, **kwargs):
+            answers.append((text, kwargs))
+
+        async def message_answer(text):
+            answers.append(("message", text))
+
+        await callback(types.SimpleNamespace(
+            answer=answer, message=types.SimpleNamespace(answer=message_answer)
+        ))
+
+        self.assertEqual(answers, [("synthetic verified-OFF failure", {"show_alert": True})])
+
+
+async def _return_true():
+    return True
 
 
 if __name__ == "__main__":

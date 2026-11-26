@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import os
 import shutil
 import tempfile
 import time
@@ -49,6 +50,10 @@ class Node104TransactionTests(unittest.TestCase):
             with self.subTest(name=name), self.assertRaises(RuntimeError):
                 MODULE._safe_relative(name)
 
+    @unittest.skipUnless(
+        os.name == "posix",
+        "POSIX permission-bit mismatch requires chmod/st_mode semantics; Windows remains covered by byte-integrity checks",
+    )
     def test_manifest_verification_rejects_mode_mismatch(self):
         import hashlib
         with tempfile.TemporaryDirectory() as temp:
@@ -68,9 +73,28 @@ class Node104TransactionTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "manifest mismatch"):
                 MODULE.verify_manifest(root, manifest)
 
+    def test_manifest_verification_rejects_content_mismatch_portably(self):
+        import hashlib
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            payload = root / "artifact.py"
+            payload.write_bytes(b"SOURCE = True\n")
+            manifest = {
+                "node": MODULE.EXPECTED_NODE,
+                "service": MODULE.EXPECTED_SERVICE,
+                "files": [{"path": "artifact.py", "mode": payload.stat().st_mode & 0o777,
+                           "size": payload.stat().st_size,
+                           "sha256": hashlib.sha256(payload.read_bytes()).hexdigest()}],
+            }
+            MODULE.verify_manifest(root, manifest)
+            payload.write_bytes(b"SOURCE = Nope\n")
+            with self.assertRaisesRegex(RuntimeError, "manifest mismatch"):
+                MODULE.verify_manifest(root, manifest)
+
     @unittest.skipUnless(
-        shutil.which("git") is not None and (Path(__file__).parents[1] / ".git").exists(),
-        "Git stage test requires VCS checkout (runs in CI; source.tar has no .git)",
+        os.name == "posix" and shutil.which("git") is not None
+        and (Path(__file__).parents[1] / ".git").exists(),
+        "stage round-trip requires Git plus POSIX chmod/st_mode mode preservation; Windows archive identity is tested separately",
     )
     def test_stage_is_exact_sha_and_digest_verified(self):
         repo = Path(__file__).parents[1]
@@ -83,6 +107,31 @@ class Node104TransactionTests(unittest.TestCase):
             self.assertTrue(marker["tree_verified"])
             self.assertEqual(MODULE.sha256(release / MODULE.MANIFEST_NAME), marker["manifest_sha256"])
             MODULE.verify_manifest(release / "tree", manifest)
+
+    @unittest.skipUnless(
+        shutil.which("git") is not None and (Path(__file__).parents[1] / ".git").exists(),
+        "Git archive identity test requires VCS checkout",
+    )
+    def test_source_manifest_archive_identity_is_portable(self):
+        repo = Path(__file__).parents[1]
+        sha = MODULE.run("git", "-C", str(repo), "rev-parse", "HEAD")
+        manifest = MODULE.source_manifest(repo, sha)
+        with tempfile.TemporaryDirectory() as temp:
+            archive = Path(temp) / "source.tar"
+            with archive.open("wb") as stream:
+                MODULE.subprocess.run(
+                    ["git", "-C", str(repo), "archive", "--format=tar", sha],
+                    check=True, stdout=stream,
+                )
+            self.assertEqual(MODULE.sha256(archive), manifest["archive_sha256"])
+            with MODULE.tarfile.open(archive) as bundle:
+                archive_files = {member.name: member for member in bundle.getmembers() if member.isfile()}
+                self.assertEqual({item["path"] for item in manifest["files"]}, set(archive_files))
+                for item in manifest["files"]:
+                    member = archive_files[item["path"]]
+                    content = bundle.extractfile(member).read()
+                    self.assertEqual(item["size"], len(content))
+                    self.assertEqual(item["sha256"], __import__("hashlib").sha256(content).hexdigest())
 
     def test_simulated_swap_is_atomic_and_leaves_durable_backup(self):
         with tempfile.TemporaryDirectory() as temp:

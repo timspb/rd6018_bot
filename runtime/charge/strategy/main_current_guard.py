@@ -2,7 +2,7 @@
 
 This module computes proposals only. It has no clock, persistence or hardware
 adapter; callers supply timestamps and must commit only after independent fresh
-set-current and OCP readbacks.
+measured-current and Iset readbacks.
 """
 
 from __future__ import annotations
@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 import math
 from typing import Any, Mapping
+
+from rd6018_telemetry import CURRENT_SETPOINT_READBACK_TOLERANCE_A
 
 
 SCHEMA_VERSION = 1
@@ -21,8 +23,10 @@ RATCHET_INTERVAL_S = 1800.0
 # This conservative source-only bound must be calibrated before activation.
 MAX_CONTINUOUS_SAMPLE_GAP_S = 90.0
 CURRENT_HEADROOM_A = 1.0
-READBACK_TOLERANCE_A = 0.02
-ACK_TIMEOUT_S = 120.0
+# Backwards-compatible strategy name for the shared hardware tolerance.
+READBACK_TOLERANCE_A = CURRENT_SETPOINT_READBACK_TOLERANCE_A
+# Include setter latency and the full 120-second postwrite confirmation window.
+ACK_TIMEOUT_S = 180.0
 
 
 class GuardError(ValueError):
@@ -142,8 +146,7 @@ class MainCurrentGuard:
 
     def commit(self, *, proposal_id: str, now_s: float, measured_current_a: float | None,
                measured_current_fresh: bool, current_limit_readback_a: float | None,
-               current_readback_fresh: bool, ocp_limit_a: float | None = None,
-               ocp_readback_fresh: bool = False) -> "MainCurrentGuard":
+               current_readback_fresh: bool) -> "MainCurrentGuard":
         pending = self.pending
         now = _time(now_s)
         if self.fault:
@@ -174,10 +177,10 @@ class MainCurrentGuard:
     def return_after_verified_desulfation(
         self, *, now_s: float, from_stage: str, to_stage: str,
         output_off_proven: bool, current_readback_a: float | None,
-        ocp_readback_a: float | None, readbacks_fresh: bool,
+        readbacks_fresh: bool,
         segment_id: str,
     ) -> "MainCurrentGuard":
-        """Start a new MAIN epoch only after safe reset of Iset/OCP.
+        """Start a new MAIN epoch only after verified current-setpoint reset.
 
         Caller owns the full protected physical transaction and durable session
         transition; this pure method merely certifies its readback evidence.

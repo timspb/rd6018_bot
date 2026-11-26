@@ -1,9 +1,13 @@
 import unittest
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
+
+from aiogram.types import Message
 
 import sg_ui
 from manual_mode import ManualChargeRequest
-from manual_text import _another_dialog_owns_text, _format_start, manual_help_text, parse_manual_command
+from manual_text import (ManualTextMiddleware, _another_dialog_owns_text, _format_start,
+                         manual_help_text, parse_manual_command)
 
 
 class ManualTextV2Tests(unittest.TestCase):
@@ -98,9 +102,14 @@ class ManualTextV2Tests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "неизвестное условие"):
             parse_manual_command("14.7 5 bananas")
 
+    def test_pending_capacity_dialog_owns_numeric_input(self):
+        user_id = 4241
+        app = SimpleNamespace(awaiting_ah={user_id: "AGM"})
+        self.assertTrue(_another_dialog_owns_text(app, user_id))
+
     def test_pending_specific_gravity_dialog_owns_six_numeric_values(self):
         user_id = 4242
-        app = SimpleNamespace(custom_mode_state={}, awaiting_ah={})
+        app = SimpleNamespace(awaiting_ah={})
         sg_ui._pending_sg_battery[user_id] = object()
         try:
             self.assertTrue(_another_dialog_owns_text(app, user_id))
@@ -111,6 +120,37 @@ class ManualTextV2Tests(unittest.TestCase):
                 parse_manual_command(payload)
         finally:
             sg_ui._pending_sg_battery.pop(user_id, None)
+
+
+
+class ManualTextMiddlewareRoutingTests(unittest.IsolatedAsyncioTestCase):
+    @staticmethod
+    def _message(text: str):
+        message = Mock(spec=Message)
+        message.text = text
+        message.from_user = SimpleNamespace(id=7)
+        message.answer = AsyncMock()
+        return message
+
+    async def test_retired_numeric_setpoint_inputs_stop_before_catch_all(self):
+        middleware = ManualTextMiddleware(SimpleNamespace(awaiting_ah={}))
+        handler = AsyncMock()
+        for raw in ("15.00 1.00", "15.00 1.00 2:30"):
+            with self.subTest(raw=raw):
+                message = self._message(raw)
+                await middleware(handler, message, {})
+                handler.assert_not_awaited()
+                message.answer.assert_awaited_once()
+                handler.reset_mock()
+
+    async def test_pending_capacity_input_is_delegated_to_profile_handler(self):
+        middleware = ManualTextMiddleware(SimpleNamespace(awaiting_ah={7: "AGM"}))
+        handler = AsyncMock(return_value="delegated")
+        message = self._message("70")
+        result = await middleware(handler, message, {})
+        self.assertEqual(result, "delegated")
+        handler.assert_awaited_once_with(message, {})
+        message.answer.assert_not_awaited()
 
 
 if __name__ == "__main__":

@@ -2,17 +2,17 @@
 
 No independently owned database or background task. Executed only *inside*
 the existing GuardExecutionOwnerLock by the already existing ExecutionPort
-MAIN current/OCP reduction transaction.
+MAIN current-setpoint reduction transaction.
 """
 from __future__ import annotations
 
 import asyncio
-import json
 from pathlib import Path
 import time
 from typing import Any, Callable
 
 from application.guard_execution_owner_lock import GuardExecutionOwnerLock
+from runtime.charge.persistence import read_canonical_session
 from runtime.charge.session_atomic import atomic_session_write, complete_session_document
 from runtime.charge.strategy.main_current_guard import MainCurrentGuard
 from runtime.charge.strategy.main_guard_session import (
@@ -26,7 +26,7 @@ class MainGuardCheckpointError(RuntimeError):
 class CanonicalMainGuardCheckpoint:
     """Write pending and post-readback ACK in the existing charge_session.json.
 
-    The lock must already be held across preflight, hardware Iset/OCP and the
+    The lock must already be held across preflight, hardware Iset and the
     two durable writes. A stale/missing/conflicting journal never gets silently
     reset. No caller other than the charge runtime should own this instance.
     """
@@ -48,11 +48,10 @@ class CanonicalMainGuardCheckpoint:
             raise MainGuardCheckpointError("canonical_execution_owner_lock_required")
         if self.path.is_symlink() or not self.path.is_file():
             raise MainGuardCheckpointError("canonical_session_missing_or_symlink")
-        try:
-            existing = json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, ValueError) as exc:
-            raise MainGuardCheckpointError("canonical_session_unreadable") from exc
-        if type(existing) is not dict or existing.get("state") == "retired":
+        existing = read_canonical_session(self.path)
+        if existing is None:
+            raise MainGuardCheckpointError("canonical_session_unreadable")
+        if existing.get("state") == "retired":
             raise MainGuardCheckpointError("not_an_active_canonical_session")
         host = self.controller
         sid = getattr(host, "_v2_trace_session_id", None)
@@ -103,7 +102,9 @@ class CanonicalMainGuardCheckpoint:
             next_doc = complete_session_document(host, next_doc,
                                                  previous=existing, now_s=now_epoch)
             atomic_session_write(self.path, next_doc, allow_nan=False)
-            stored = json.loads(self.path.read_text(encoding="utf-8"))
+            stored = read_canonical_session(self.path)
+            if stored is None:
+                raise MainGuardCheckpointError("canonical_guard_postwrite_unreadable")
             recorded, revision = read_guard(
                 stored, session_id=sid, battery_id=bid,
                 now_s=float(self.monotonic_now()))
@@ -121,10 +122,11 @@ class CanonicalMainGuardCheckpoint:
             # possibly committed; do not silently restore wider authority.
             committed_or_ambiguous = True
             try:
-                disk = json.loads(self.path.read_text(encoding="utf-8"))
-                disk_snapshot = disk.get(GUARD_KEY, {}).get("snapshot")
-                committed_or_ambiguous = disk_snapshot == snapshot
-            except (OSError, ValueError, AttributeError, TypeError):
+                disk = read_canonical_session(self.path)
+                if disk is not None:
+                    disk_snapshot = disk.get(GUARD_KEY, {}).get("snapshot")
+                    committed_or_ambiguous = disk_snapshot == snapshot
+            except (AttributeError, TypeError):
                 pass
             if not committed_or_ambiguous:
                 host._main_current_guard = old_current

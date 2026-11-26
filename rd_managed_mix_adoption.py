@@ -50,177 +50,6 @@ __all__ = [
 ]
 
 
-def _install_hmi_composition(app: Any, coordinator: ManagedMixAdoptionCoordinator) -> None:
-    import operator_hmi
-
-    if bool(getattr(operator_hmi, "_d062_managed_mix_wrapped", False)):
-        return
-    original_state = operator_hmi.build_operator_hmi_state
-    original_keyboard = operator_hmi.build_operator_keyboard
-    original_details = operator_hmi.render_operator_details
-    original_more = operator_hmi._more_keyboard
-
-    def battery_label() -> str:
-        pieces = [coordinator.battery_id]
-        if coordinator.chemistry is not None:
-            pieces.append(coordinator.chemistry.value)
-        if coordinator.capacity_ah > 0:
-            pieces.append(f"{coordinator.capacity_ah:g} Ah")
-        return " · ".join(piece for piece in pieces if piece)
-
-    def progress(regulator: str) -> str:
-        used = coordinator.total_active_elapsed_s / 3600.0
-        limit_s = coordinator.hard_limit_s
-        limit = "?" if limit_s is None else f"{limit_s / 3600.0:g}"
-        if coordinator.off_pending:
-            return f"Output OFF containment · Mix budget {used:.1f}/{limit}ч"
-        if coordinator.finish_hold_started_at_s is not None:
-            held = max(0.0, time.time() - coordinator.finish_hold_started_at_s)
-            return f"Δ подтверждена · выдержка {held / 3600.0:.1f}/2ч · Mix {used:.1f}/{limit}ч"
-        criterion = (
-            "Imin → ΔI"
-            if regulator == "CV"
-            else ("Vmax → ΔV" if regulator == "CC" else "CV/CC Delta")
-        )
-        return f"MIX_ADOPTED · {criterion} → 2ч → OFF · бюджет {used:.1f}/{limit}ч"
-
-    def build_state(app_arg: Any, live: Any) -> Any:
-        state = original_state(app_arg, live)
-        if coordinator.active or coordinator.off_pending:
-            authority = coordinator.current_authority
-            return replace(
-                state,
-                process_state=operator_hmi.HmiProcessState.ADOPTED_MIX,
-                authority=operator_hmi.HmiAuthority.ADOPTED_MIX,
-                title=(
-                    "RD6018 · MIX ПОД УПРАВЛЕНИЕМ"
-                    if coordinator.active
-                    else "RD6018 · MIX · OFF PENDING"
-                ),
-                battery_label=battery_label(),
-                target_voltage_v=(
-                    float(authority.set_voltage_v)
-                    if authority is not None
-                    else state.target_voltage_v
-                ),
-                current_limit_a=(
-                    float(authority.set_current_a)
-                    if authority is not None
-                    else state.current_limit_a
-                ),
-                progress=progress(state.regulator),
-                attention="warning" if coordinator.off_pending else state.attention,
-            )
-        return state
-
-    def build_keyboard(
-        app_arg: Any,
-        state: Any,
-        *,
-        actions: Any = None,
-    ) -> InlineKeyboardMarkup:
-        if coordinator.active or coordinator.off_pending:
-            return InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [
-                        InlineKeyboardButton(
-                            text="⏹ Остановить Mix",
-                            callback_data="operator_managed_mix_stop",
-                        )
-                    ],
-                    [
-                        InlineKeyboardButton(text="ℹ Подробнее", callback_data="operator_details"),
-                        InlineKeyboardButton(text="📈 График", callback_data="operator_graph"),
-                    ],
-                    [
-                        InlineKeyboardButton(text="🔋 АКБ", callback_data="v2_batteries"),
-                    ],
-                ]
-            )
-        markup = (
-            original_keyboard(app_arg, state, actions=actions)
-            if actions is not None
-            else original_keyboard(app_arg, state)
-        )
-        if actions is not None:
-            return markup
-        if (
-            state.process_state is operator_hmi.HmiProcessState.HANDS_OFF
-            and bool(state.output_on)
-        ):
-            rows = [list(row) for row in markup.inline_keyboard]
-            rows.insert(
-                1,
-                [
-                    InlineKeyboardButton(
-                        text="🎯 Забрать Mix под управление",
-                        callback_data="rd_managed_mix",
-                    )
-                ],
-            )
-            return InlineKeyboardMarkup(inline_keyboard=rows)
-        return markup
-
-    def details(app_arg: Any, state: Any, live: Any) -> str:
-        if coordinator.active or coordinator.off_pending:
-            authority = coordinator.current_authority
-            used = coordinator.total_active_elapsed_s / 3600.0
-            limit_s = coordinator.hard_limit_s
-            limit_h = None if limit_s is None else limit_s / 3600.0
-            ovp = finite_float(live.get("ovp"))
-            ocp = finite_float(live.get("ocp"))
-            authority_text = (
-                f"Authority current: {authority.set_voltage_v:.2f}V/{authority.set_current_a:.2f}A"
-                if authority is not None
-                else "Authority current: —"
-            )
-            protections = (
-                f"Защиты RD: OVP {ovp:.2f}V · OCP {ocp:.2f}A"
-                if ovp is not None and ocp is not None
-                else "Защиты RD: —"
-            )
-            return (
-                "<b>MIX_ADOPTED · managed ownership</b>\n\n"
-                f"АКБ: {html.escape(battery_label() or '—')}\n"
-                f"Output: {'ON' if state.output_on else 'OFF'} · {html.escape(state.regulator)}\n"
-                f"Prior age: {coordinator.prior_elapsed_s / 3600.0:.2f}ч "
-                f"(<code>{html.escape(coordinator.prior_age_source or '—')}</code>)\n"
-                f"Active budget: {used:.2f}/{limit_h if limit_h is not None else '?'}ч\n"
-                f"{authority_text}\n"
-                f"{protections}\n\n"
-                "Delta evidence начата заново после edge adoption; Recorder не переносит Imin/Vmax. "
-                "Нормальный финиш — verified OFF, без SAFE_WAIT/Storage.\n"
-                f"Последнее: <code>{html.escape(coordinator.last_status or '—')}</code>"
-            )
-        return original_details(app_arg, state, live)
-
-    def more(state: Any) -> InlineKeyboardMarkup:
-        markup = original_more(state)
-        if coordinator.active or coordinator.off_pending:
-            rows: list[list[InlineKeyboardButton]] = []
-            for row in markup.inline_keyboard:
-                converted: list[InlineKeyboardButton] = []
-                for button in row:
-                    if button.callback_data == "rd_live_mix_status":
-                        converted.append(
-                            InlineKeyboardButton(
-                                text="🎯 Статус Managed Mix",
-                                callback_data="rd_managed_mix_status",
-                            )
-                        )
-                    else:
-                        converted.append(button)
-                rows.append(converted)
-            return InlineKeyboardMarkup(inline_keyboard=rows)
-        return markup
-
-    operator_hmi.build_operator_hmi_state = build_state
-    operator_hmi.build_operator_keyboard = build_keyboard
-    operator_hmi.render_operator_details = details
-    operator_hmi._more_keyboard = more
-    operator_hmi._d062_managed_mix_wrapped = True
-
-
 def _hours_text(seconds: float) -> str:
     return f"{max(0.0, float(seconds)) / 3600.0:.2f} ч"
 
@@ -234,11 +63,10 @@ def _preview_text(preview: ManagedMixPreview) -> str:
         f"АКБ: <code>{html.escape(preview.battery_id)}</code> · "
         f"{preview.chemistry.value} · {preview.capacity_ah:g} Ah\n"
         f"RD: {fp.set_voltage_v:.2f} V / {fp.set_current_a:.2f} A · "
-        f"OVP {fp.ovp_v:.2f} / OCP {fp.ocp_a:.2f}\n"
         f"Prior active Mix: {_hours_text(preview.prior_age.elapsed_s)} · "
         f"{preview.prior_age.source.value}\n"
         f"Остаток chemistry budget сейчас: <b>{remaining_h:.2f} ч</b> из {limit_h:g} ч.\n\n"
-        "На takeover бот не пишет Output/V/I/OVP/OCP. Delta начинается с нуля только после adoption. "
+        "На takeover бот не пишет Output/V/I. Delta начинается с нуля только после adoption. "
         "Возраст на Execute может только увеличиться: новый Recorder snapshot не может уменьшить уже "
         "принятый prior-age floor. Если Delta подтверждена до исчерпания budget, sticky 2ч hold может "
         "закончиться после границы budget; если hold не начата к границе — "
@@ -265,7 +93,6 @@ def install_managed_mix_adoption(
     if not install_ui:
         return coordinator
 
-    _install_hmi_composition(app, coordinator)
     confirmations = ConfirmationStore()
     pending: dict[tuple[int, int], dict[str, Any]] = {}
 
@@ -546,7 +373,7 @@ def install_managed_mix_adoption(
         await call.answer("MIX_ADOPTED активен")
         await call.message.answer(
             "🎯 <b>Текущий Mix принят под PB_MANAGED.</b>\n"
-            "Output/V/I/OVP/OCP на takeover не переписывались. Prior-age budget зафиксирован "
+            "Output/V/I на takeover не переписывались. Prior-age budget зафиксирован "
             "консервативно; Delta считается только из новых post-adoption source reports.",
             parse_mode=app.ParseMode.HTML,
         )

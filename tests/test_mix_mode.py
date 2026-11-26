@@ -1,11 +1,12 @@
 import types
 import unittest
+from unittest.mock import AsyncMock, patch
 
 from aiogram.enums import ParseMode
 
 from battery_fault_engine import DiagnosticAuthority
 from pb_domain import BatteryCondition
-from safe_output import EnableResult, SafetyViolation
+from runtime.safety.output_policy import EnableResult, SafetyViolation
 from runtime.charge.diagnostics import update_diagnostic_context
 from mix_mode import (
     PendingMixStart,
@@ -235,7 +236,14 @@ class V2MixOnlyTests(unittest.IsolatedAsyncioTestCase):
         )
         message = FakeMessage()
 
-        ok = await start_mix_transactional(app, message, PENDING)
+        # Keep the real diagnostic veto, but isolate persisted-history I/O:
+        # this test does not own the process-wide battery-registry connection.
+        with patch(
+            "runtime.charge.diagnostics.refresh_stored_diagnostics",
+            new=AsyncMock(),
+        ) as refresh:
+            ok = await start_mix_transactional(app, message, PENDING)
+            refresh.assert_awaited_once_with(app.charge_controller)
 
         self.assertFalse(ok)
         self.assertFalse(app.charge_controller.is_active)

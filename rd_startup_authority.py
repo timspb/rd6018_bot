@@ -5,7 +5,7 @@ import contextvars
 import logging
 from typing import Any, Awaitable, Callable, Optional
 
-from runtime_safety import RuntimeSafetyError
+from runtime.safety.runtime_guard import RuntimeSafetyError
 
 logger = logging.getLogger("rd6018.startup_authority")
 
@@ -100,71 +100,13 @@ class RdStartupAuthorityGate:
         self.deferred_restore_error = ""
 
     def _install_hass_gate(self) -> None:
-        hass = self.app.hass
-        if bool(getattr(hass, "_rd_startup_authority_gate_wrapped", False)):
-            return
-        original_get_all_live = hass.get_all_live
-        original_turn_on = hass.turn_on
-        original_turn_off = hass.turn_off
-        original_set_voltage = hass.set_voltage
-        original_set_current = hass.set_current
-        original_set_ovp = hass.set_ovp
-        original_set_ocp = hass.set_ocp
-
-        async def get_all_live() -> dict[str, Any]:
-            if self.nonautonomous_ready:
-                return await original_get_all_live()
-            raw = await self.guard._raw_live()
-            self.manager._observe_edge_mode(raw)
-            return raw
-
-        async def guarded(action: str, fn: Callable[..., Awaitable[Any]], *args: Any) -> bool:
-            if not self.recovery_scope and not self.managed_actuation_ready:
-                raise self._blocked(action)
-            return bool(await fn(*args))
-
-        async def turn_on(entity_id: Optional[str] = None) -> bool:
-            return await guarded("Output ON", original_turn_on, entity_id)
-        async def turn_off(entity_id: Optional[str] = None) -> bool:
-            # A durable quarantine can prevent managed startup reconciliation.
-            # The operator's verified-OFF clearance must still reach the
-            # existing safety-wrapped OFF owner. This grants OFF only, never
-            # ON, setpoints, or ordinary managed control.
-            recovery_guard = getattr(self.app, "session_recovery_guard", None)
-            quarantined = getattr(recovery_guard, "quarantined", False) is True
-            if (quarantined and self.candidate_autonomous is False
-                    and getattr(self.manager, "edge_autonomous", None) is False):
-                return bool(await original_turn_off(entity_id))
-            return await guarded("Output OFF", original_turn_off, entity_id)
-        async def set_voltage(value: float) -> bool:
-            return await guarded("voltage write", original_set_voltage, value)
-        async def set_current(value: float) -> bool:
-            return await guarded("current write", original_set_current, value)
-        async def set_ovp(value: float) -> bool:
-            return await guarded("OVP write", original_set_ovp, value)
-        async def set_ocp(value: float) -> bool:
-            return await guarded("OCP write", original_set_ocp, value)
-
-        hass.get_all_live = get_all_live
-        hass.turn_on = turn_on
-        hass.turn_off = turn_off
-        hass.set_voltage = set_voltage
-        hass.set_current = set_current
-        hass.set_ovp = set_ovp
-        hass.set_ocp = set_ocp
-        hass._rd_startup_authority_gate_wrapped = True
+        """Legacy no-op: startup actuation policy is owned by ExecutionPort."""
+        return
 
     def _install_application_gate(self) -> None:
         controller = getattr(self.app, "charge_controller", None)
-        if controller is not None and not bool(getattr(controller, "_rd_startup_authority_start_wrapped", False)):
-            original_start = controller.start
-            def start(*args: Any, **kwargs: Any) -> Any:
-                if not self.managed_actuation_ready:
-                    raise self._blocked("automatic charge start")
-                return original_start(*args, **kwargs)
-            controller.start = start
-            controller._rd_startup_authority_start_wrapped = True
-
+        # Canonical automatic START admission is owned by ExecutionPort before
+        # controller state mutation. Restore remains a distinct startup-recovery gate.
         if controller is not None and callable(getattr(controller, "try_restore_session", None)) and not bool(getattr(controller, "_rd_startup_authority_restore_wrapped", False)):
             original_restore = controller.try_restore_session
             def restore(*args: Any, **kwargs: Any) -> Any:
@@ -233,7 +175,7 @@ class RdStartupAuthorityGate:
         self.reconciliation_complete = True
         self.managed_recovery_complete = False
         self.reconciliation_error = ""
-        self.manager._edge_autonomous = True
+        self.manager._record_edge_autonomous(True)
         # Never revive a managed session observed before an AUTONOMOUS startup.
         self.discard_deferred_restore_request()
 
@@ -242,7 +184,7 @@ class RdStartupAuthorityGate:
         self.reconciliation_complete = True
         self.managed_recovery_complete = True
         self.reconciliation_error = ""
-        self.manager._edge_autonomous = False
+        self.manager._record_edge_autonomous(False)
         logger.info("Managed startup authority ready: reconciliation and recovery complete")
 
     async def reconcile(

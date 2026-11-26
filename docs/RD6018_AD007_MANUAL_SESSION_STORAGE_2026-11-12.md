@@ -1,0 +1,16 @@
+# RD6018 AD-007 — Manual Session Storage Boundary / 2026-11-12
+**MAIN PROJECT OBJECTIVE: COMPLETE DECOMPOSITION / MODULARITY. ChatGPT architect & acceptor; Codex CLI Luna hands only.**
+
+## Source observations
+- `manual_mode.ManualSessionManager` owns live Manual session state, start/stop/cooling and its identity. It currently also serializes and writes `manual_session_v2.json` inside `_document`, `_persist`, `_restore_as_interrupted`.
+- Document fields: version=2, state, request, started_at, paused_total_s, cooling_started_at, stop_reason, phase_transition_reason, finish_hold_started_at, saved_at, session_identity. Existing JSON is a distinct state file from canonical AUTO `charge_session.json`; DO NOT reuse the guarded AUTO journal writer and DO NOT mutate its lifecycle.
+- Restart of persisted ARMING/ACTIVE/COOLING becomes INTERRUPTED; never Output ON automatically. Loader assumes JSON object; malformed list/string/null can produce AttributeError and must not crash startup. Durability uses tmp+replace but no fsync and not unique temp suffix; unknown behavior on failed replace.
+- Read-only P5-7 report `.recipe-studio-local/REPORT_MOD_P5_7_MANUAL_PERSIST_AUDIT_20261112.txt`. No physical node104 proof.
+
+## Architect decision
+1. ManualSessionManager remains sole mutable owner of state and restart transitions. Storage is a SIMPLE procedural adapter with `read_manual_session_document(path)` and `write_manual_session_document(path, document)`; no extra manager singleton, schema engine, periodic worker or authorization.
+2. Location `runtime/charge/manual_session_store.py`, not `session_atomic.py` which explicitly belongs to AUTO guarded `charge_session.json`. Two storage functions have zero imports from manual_mode, HA/ESP, Telegram or production_runtime.
+3. Reader: on missing/corrupt/non-mapping JSON, return None (untrusted state), log safely, never energize Output. Preserve existing legacy mapping fields and version semantics; validation of nested request/identity belongs to caller's existing restore logic. Existing valid V2 document loads unchanged.
+4. Writer: same six? NO — preserve exact 11-key Manual V2 document as supplied by session, UTF-8 ensure_ascii=False indent=2; temporary file same directory, atomic os.replace and file fsync, no parallel writer. Do not treat write acknowledgment as physical OFF evidence. If write fails, failure is reported to caller, with old target preserved and leftover temp cleaned; existing `_persist` caller may retain its historical best-effort error behavior until separately approved.
+5. P5-7A implement just adapter + tempfile fake tests; P5-7B cutover `_persist` and `_restore_as_interrupted` to adapter and keep existing methods as compatibility, no changes to physical pathways or restart state transition. Add regression on malformed root and fail-closed interrupt; no automatic ON.
+6. Keep all source WIP and currently running P5-6 work untouched. No staging/commits/push and no node104 deploy until full safety/release acceptance.

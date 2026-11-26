@@ -22,11 +22,10 @@ import subprocess
 import tempfile
 import time
 import uuid
-from typing import NamedTuple
+from typing import Callable, Protocol
 
 import node104_d102_bench_admission as d102
-import fcntl
-from typing import Callable, Protocol
+from node104_d106_proof_types import TransactionError, TrialOffProof
 
 import node104_d090_release as release
 
@@ -57,53 +56,6 @@ TRIAL_PHASES = ("PREPARED", "STOPPED", "BACKUP_DURABLE",
                 "NEW_VENV_RENAMED", "TRIAL_RUNNING", "TRIAL_STOPPED",
                 "TRIAL_RESTORING", "TRIAL_RESTORED")
 TRIAL_FINAL_PHASE = "TRIAL_RESTORED"
-
-
-class TrialOffProof(NamedTuple):
-    """Extra independent physical authority proof; never a device action.
-
-    D090 PhysicalOffProof alone does not contain the autonomous mode,
-    protection R16, lease remaining, or programmed limits. The trial requires
-    these fields from a separately reviewed observer even when offline.
-    """
-    captured_at_epoch: float
-    autonomous: bool
-    lease_armed: bool
-    lease_remaining_s: float
-    lease_ttl_s: int
-    protection_code: int
-    modbus_age_s: float
-    set_voltage_v: float
-    set_current_a: float
-    ovp_v: float
-    ocp_a: float
-    challenge: str
-
-    def validate(self) -> None:
-        import math
-        numbers = (self.captured_at_epoch, self.lease_remaining_s,
-                   self.modbus_age_s, self.set_voltage_v, self.set_current_a,
-                   self.ovp_v, self.ocp_a)
-        if any(type(x) not in (int, float) or not math.isfinite(x) for x in numbers):
-            raise TransactionError("trial proof has invalid numeric readings")
-        if (type(self.autonomous) is not bool or type(self.lease_armed) is not bool
-                or type(self.lease_ttl_s) is not int
-                or type(self.protection_code) is not int
-                or type(self.challenge) is not str or len(self.challenge) < 16):
-            raise TransactionError("trial proof has invalid edge types/challenge")
-        if not (0 <= time.time() - self.captured_at_epoch <= 30):
-            raise TransactionError("trial edge proof stale or in the future")
-        if (self.autonomous or self.lease_armed or self.lease_remaining_s != 0
-                or self.lease_ttl_s != 900 or self.protection_code != 0
-                or not 0 <= self.modbus_age_s <= 20
-                or not 0 <= self.set_voltage_v <= 15.5
-                or self.set_current_a < 0 or self.ovp_v < self.set_voltage_v
-                or self.ocp_a < 0):
-            raise TransactionError("trial edge state is not safe OFF/unmanaged")
-
-
-class TransactionError(RuntimeError):
-    pass
 
 
 def _transaction_locked(method):
@@ -371,7 +323,7 @@ class D090Transaction:
             raise TransactionError("trial edge challenge replay")
         self._trial_challenges.add(value.challenge)
         if reference is not None:
-            for field in ("set_voltage_v", "set_current_a", "ovp_v", "ocp_a"):
+            for field in ("set_voltage_v", "set_current_a"):
                 expected = reference.get(field)
                 if type(expected) not in (int, float) or abs(getattr(value, field) - expected) > .02:
                     raise TransactionError("trial programmed setpoints/protections changed")
@@ -422,6 +374,10 @@ class D090Transaction:
 
     @contextmanager
     def _locked(self):
+        # Read-only inventory consumers can run offline on Windows. D090's
+        # transaction lock remains POSIX-only and imports fcntl at its boundary.
+        import fcntl
+
         if self._lock_depth:
             self._lock_depth += 1
             try:
@@ -790,7 +746,7 @@ if not result.wasSuccessful():
             "candidate": candidate.name, "backup": "d104-" + ident,
             "baseline": baseline, "candidate_inventory": inventory(candidate),
             "edge_setpoints": {field: getattr(edge, field) for field in
-                               ("set_voltage_v", "set_current_a", "ovp_v", "ocp_a")},
+                               ("set_voltage_v", "set_current_a")},
         }
         _atomic_json(self.journal, record)
         try:
@@ -876,7 +832,7 @@ if not result.wasSuccessful():
         baseline = record.get("baseline")
         edges = record.get("edge_setpoints")
         if type(baseline) is not dict or type(edges) is not dict or set(edges) != {
-                "set_voltage_v", "set_current_a", "ovp_v", "ocp_a"}:
+                "set_voltage_v", "set_current_a"}:
             raise TransactionError("trial preimage/edge identity missing")
         backup = self.backup_root / str(record["backup"])
         expected = record.get("backup_inventory")

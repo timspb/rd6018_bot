@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 from diagnostic_probe import current_readback_evidence
 from rd6018_telemetry import canonical_programmed_readback
-from runtime_safety import RuntimeSafetyError, RuntimeSafetyGuard
+from runtime.safety.runtime_guard import RuntimeSafetyError, RuntimeSafetyGuard
 
 
 def live_state(*, v2_age_s=0.0, include_v2=True, legacy_current=2.0, v2_current=2.0):
@@ -15,18 +15,12 @@ def live_state(*, v2_age_s=0.0, include_v2=True, legacy_current=2.0, v2_current=
         "temp_int": 32.0,
         "input_voltage": 64.0,
         "switch": "on",
-        "ovp_triggered": "off",
-        "ocp_triggered": "off",
         "set_voltage": 14.8,
         "set_current": legacy_current,
-        "ovp": 14.9,
-        "ocp": 2.1,
         "set_voltage_readback_v2": 14.8,
-        "ovp_readback_v2": 14.9,
-        "ocp_readback_v2": 2.1,
         "_meta": {},
     }
-    for key in ("set_voltage_readback_v2", "ovp_readback_v2", "ocp_readback_v2"):
+    for key in ("set_voltage_readback_v2",):
         live["_meta"][key] = {"status": "ok", "age_s": 0.0}
     if include_v2:
         live["set_current_readback_v2"] = v2_current
@@ -78,15 +72,6 @@ class FakeHass:
             }
         return True
 
-    async def set_ovp(self, value):
-        self.live["ovp"] = float(value)
-        return True
-
-    async def set_ocp(self, value):
-        self.live["ocp"] = float(value)
-        return True
-
-
 class DelayedCurrentMirrorHass(FakeHass):
     def __init__(self, live, *, visible_after=3):
         super().__init__(live)
@@ -132,7 +117,7 @@ class CurrentReadbackAuthorityTests(unittest.IsolatedAsyncioTestCase):
         guard.READBACK_VERIFY_ATTEMPTS = 1
         guard.READBACK_VERIFY_DELAY_S = 0.0
         guard.CURRENT_READBACK_VERIFY_TIMEOUT_S = 0.0
-        guard.install()
+        guard.install(patch_adapter=True)
         return guard
 
     async def test_fresh_v2_current_readback_is_runtime_authority(self):

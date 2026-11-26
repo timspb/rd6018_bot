@@ -1,0 +1,763 @@
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import math
+import os
+import time
+from pathlib import Path
+from dataclasses import asdict, dataclass
+from enum import Enum
+from typing import Any, Optional
+
+from runtime.safety.variables import (
+    MAX_STAGE_CURRENT_A,
+    PROTECTION_OCP_MARGIN_A,
+    PROTECTION_OVP_MARGIN_V,
+)
+
+MAX_STAGE_CURRENT = float(MAX_STAGE_CURRENT_A.default)
+OCP_OFFSET = float(PROTECTION_OCP_MARGIN_A.default)
+OVP_OFFSET = float(PROTECTION_OVP_MARGIN_V.default)
+from config import MAX_MANUAL_VOLTAGE
+from rd6018_telemetry import RegulationMode, finite_float, resolve_regulation
+from runtime.charge.profiles.manual import ManualChargeProfile, load_manual_profile
+from application.manual_identity_integration import ManualIdentityIntegrationAdapter
+from application.manual_execution_boundary import ManualExecutionBoundary
+from application.execution_intent.models import ExecutionIntent, SafetyContext
+from application.execution_port import get_or_create_execution_port
+from application.manual_phase_lifecycle import ManualPhaseLifecycle
+from v3_core.canonical_events import EventType
+
+
+MANUAL_SESSION_FILE = "manual_session_v2.json"
+MANUAL_DELTA_BLANKING_SEC = 120.0
+MANUAL_DELTA_CONFIRM_COUNT = 3
+MANUAL_DELTA_CONFIRM_INTERVAL_SEC = 60.0
+MANUAL_POLL_SEC = 5.0
+MANUAL_COOLING_PAUSE_C = 40.0
+MANUAL_COOLING_RESUME_C = 35.0
+MANUAL_TEMP_CRITICAL_C = 45.0
+MANUAL_MIX_VOLTAGE_THRESHOLD_V = 15.8
+MANUAL_MIX_FINISH_HOLD_SEC = 2 * 60 * 60
+MANUAL_DEFAULT_MAIN_TAIL_CURRENT_A = 0.30
+
+logger = logging.getLogger("rd6018.manual")
+
+
+class ManualSessionState(str, Enum):
+    IDLE = "idle"
+    ARMING = "arming"
+    ACTIVE = "active"
+    COOLING = "cooling"
+    INTERRUPTED = "interrupted"
+    STOPPED = "stopped"
+    FAILED = "failed"
+
+
+@dataclass(frozen=True)
+class ManualStopConditions:
+    max_active_seconds: Optional[float] = None
+    voltage_ge_v: Optional[float] = None
+    voltage_le_v: Optional[float] = None
+    current_ge_a: Optional[float] = None
+    current_le_a: Optional[float] = None
+    delta: Optional[float] = None
+
+    def __post_init__(self) -> None:
+        numeric = (
+            self.max_active_seconds,
+            self.voltage_ge_v,
+            self.voltage_le_v,
+            self.current_ge_a,
+            self.current_le_a,
+            self.delta,
+        )
+        for value in numeric:
+            if value is not None and not math.isfinite(float(value)):
+                raise ValueError("manual stop conditions must be finite")
+        if self.max_active_seconds is not None and self.max_active_seconds <= 0:
+            raise ValueError("max_active_seconds must be positive")
+        if self.delta is not None and self.delta <= 0:
+            raise ValueError("delta must be positive when enabled")
+
+
+@dataclass(frozen=True)
+class ManualChargeRequest:
+    voltage_v: float
+    current_a: float
+    stop: ManualStopConditions = ManualStopConditions()
+    battery_id: str = ""
+    capacity_ah: Optional[float] = None
+    notes: str = ""
+    profile: Optional[ManualChargeProfile] = None
+    stage: str = "main"
+
+    def __post_init__(self) -> None:
+        voltage = float(self.voltage_v)
+        current = float(self.current_a)
+        if not math.isfinite(voltage) or not (0.0 < voltage <= float(MAX_MANUAL_VOLTAGE)):
+            raise ValueError(f"manual voltage must be >0 and <= {MAX_MANUAL_VOLTAGE:.1f}V")
+        if not math.isfinite(current) or not (0.0 < current <= float(MAX_STAGE_CURRENT)):
+            raise ValueError(f"manual current must be >0 and <= {MAX_STAGE_CURRENT:.1f}A")
+        if self.capacity_ah is not None and (
+            not math.isfinite(float(self.capacity_ah)) or self.capacity_ah <= 0
+        ):
+            raise ValueError("capacity_ah must be positive when present")
+        if self.stage not in {"main", "mix"}:
+            raise ValueError("manual stage must be main or mix")
+
+    @classmethod
+    def from_profile(cls, profile: ManualChargeProfile, *, battery_id: str = "", capacity_ah: Optional[float] = None) -> "ManualChargeRequest":
+        return cls(
+            voltage_v=profile.main.voltage_v,
+            current_a=profile.main.current_a,
+            battery_id=battery_id,
+            capacity_ah=capacity_ah,
+            notes="configured staged Manual profile",
+            profile=profile,
+            stage="main",
+        )
+
+    @property
+    def ovp_v(self) -> float:
+        return float(self.voltage_v) + float(OVP_OFFSET)
+
+    @property
+    def ocp_a(self) -> float:
+        return float(self.current_a) + float(OCP_OFFSET)
+
+    @property
+    def operation_mode(self) -> str:
+        return self.stage if self.profile is not None else ("mix" if float(self.voltage_v) >= MANUAL_MIX_VOLTAGE_THRESHOLD_V else "main")
+
+    @property
+    def operation_mode_label(self) -> str:
+        return "Ручной МИКС" if self.operation_mode == "mix" else "Ручной Основной"
+
+
+@dataclass(frozen=True)
+class ManualUIIntent:
+    """Validated operator intent produced by the Manual UI wizard."""
+
+    user_id: int
+    chat_id: int
+    voltage_v: float
+    current_a: float
+    delta: float
+    time_limit_hours: float
+    capacity_ah: float
+
+    def __post_init__(self) -> None:
+        values = (self.voltage_v, self.current_a, self.delta, self.time_limit_hours, self.capacity_ah)
+        if any(not math.isfinite(float(value)) for value in values):
+            raise ValueError("Manual UI values must be finite")
+        if not 12.0 <= float(self.voltage_v) <= 17.0:
+            raise ValueError("Manual UI voltage must be between 12 and 17 V")
+        if not 0.1 <= float(self.current_a) <= MAX_STAGE_CURRENT:
+            raise ValueError("Manual UI current is outside the safety envelope")
+        if not 0.005 <= float(self.delta) <= 0.1:
+            raise ValueError("Manual UI delta is outside the supported range")
+        if not 0.0 < float(self.time_limit_hours) <= 72.0:
+            raise ValueError("Manual UI time limit must be between 0 and 72 hours")
+        if not 10.0 <= float(self.capacity_ah) <= 300.0:
+            raise ValueError("Manual UI capacity must be between 10 and 300 Ah")
+
+    @classmethod
+    def from_dialog(cls, *, user_id: int, chat_id: int, params: dict[str, float]) -> "ManualUIIntent":
+        return cls(
+            user_id=int(user_id), chat_id=int(chat_id),
+            voltage_v=float(params["main_voltage"]), current_a=float(params["main_current"]),
+            delta=float(params["delta"]), time_limit_hours=float(params["time_limit"]),
+            capacity_ah=float(params["capacity"]),
+        )
+
+    def to_request(self) -> ManualChargeRequest:
+        return ManualChargeRequest(
+            voltage_v=self.voltage_v, current_a=self.current_a,
+            stop=ManualStopConditions(
+                max_active_seconds=self.time_limit_hours * 3600.0, delta=self.delta,
+            ),
+            capacity_ah=self.capacity_ah, notes="Manual UI request",
+        )
+
+
+class ManualSessionManager:
+    """Explicit manual authority: operator rules + non-bypassable hard safety.
+
+    No Pb chemistry transition is executed here.  A configured timer/delta/threshold is
+    an operator stop condition, not an automatic recipe decision.  OVP/OCP are always
+    derived from the requested V/I and are never user-overridable.
+    """
+
+    def __init__(self, app: Any, *, session_file: str = MANUAL_SESSION_FILE) -> None:
+        self.app = app
+        self.session_file = session_file
+        self.state = ManualSessionState.IDLE
+        self.request: Optional[ManualChargeRequest] = None
+        self.started_at = 0.0
+        self.paused_total_s = 0.0
+        self.cooling_started_at: Optional[float] = None
+        self.stop_reason = ""
+        self.phase_transition_reason = ""
+        self._task: Optional[asyncio.Task] = None
+        self._vmax: Optional[float] = None
+        self._imin: Optional[float] = None
+        self._delta_confirmations = 0
+        self._last_delta_confirmation = 0.0
+        self.finish_hold_started_at: Optional[float] = None
+        self.main_min_confirmations = 0
+        self.main_min_hold_started_at: Optional[float] = None
+        self._last_main_min_confirmation = 0.0
+        self.main_tail_current_threshold_a = MANUAL_DEFAULT_MAIN_TAIL_CURRENT_A
+        self.identity_integration = ManualIdentityIntegrationAdapter()
+        self.phase_lifecycle = ManualPhaseLifecycle()
+        # Construction must remain compatible with persistence-only restore
+        # callers that provide no live app/Hass object. Actual execution still
+        # fails closed when the V2 owner is unavailable.
+        self.execution_port = get_or_create_execution_port(self.app)
+        self.execution_boundary = ManualExecutionBoundary(self.execution_port)
+        self.identity_restore_resolution = "AMBIGUOUS"
+        self._manual_start_event_emitted = False
+        self._restore_as_interrupted()
+
+    def _transition_state(self, new_state: ManualSessionState, reason: str) -> None:
+        old_state = self.state
+        self.state = new_state
+        if old_state is not new_state:
+            logger.info(
+                "MANUAL_TRANSITION old=%s new=%s reason=%s owner=manual timestamp=%.3f",
+                old_state.value,
+                new_state.value,
+                reason,
+                time.time(),
+            )
+            if self.identity_integration.identity is not None and self._manual_start_event_emitted:
+                self.identity_integration.emit(
+                    event_type=EventType.PHASE_TRANSITION,
+                    phase_before=old_state.value,
+                    phase_after=new_state.value,
+                    reason=reason,
+                )
+
+    @property
+    def is_active(self) -> bool:
+        return self.state in {
+            ManualSessionState.ARMING,
+            ManualSessionState.ACTIVE,
+            ManualSessionState.COOLING,
+        }
+
+    @property
+    def session_identity(self):
+        """Read-only identity view for diagnostics/evidence consumers."""
+        return self.identity_integration.identity
+
+    @property
+    def canonical_events(self):
+        """In-memory canonical events; no writer or transport is invoked."""
+        return self.identity_integration.events
+
+    @property
+    def active_elapsed_s(self) -> float:
+        if self.started_at <= 0:
+            return 0.0
+        now = time.time()
+        pause = self.paused_total_s
+        if self.cooling_started_at is not None:
+            pause += max(0.0, now - self.cooling_started_at)
+        return max(0.0, now - self.started_at - pause)
+
+    def _document(self) -> dict[str, Any]:
+        return {
+            "version": 2,
+            "state": self.state.value,
+            "request": asdict(self.request) if self.request is not None else None,
+            "started_at": self.started_at,
+            "paused_total_s": self.paused_total_s,
+            "cooling_started_at": self.cooling_started_at,
+            "stop_reason": self.stop_reason,
+            "phase_transition_reason": self.phase_transition_reason,
+            "finish_hold_started_at": self.finish_hold_started_at,
+            "saved_at": time.time(),
+            "session_identity": self.identity_integration.identity_payload(),
+        }
+
+    def _persist(self) -> None:
+        tmp = f"{self.session_file}.tmp"
+        try:
+            with open(tmp, "w", encoding="utf-8") as handle:
+                json.dump(self._document(), handle, ensure_ascii=False, indent=2)
+            os.replace(tmp, self.session_file)
+        except OSError:
+            try:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+            except OSError:
+                pass
+
+    def _restore_as_interrupted(self) -> None:
+        if not os.path.exists(self.session_file):
+            return
+        try:
+            with open(self.session_file, "r", encoding="utf-8") as handle:
+                raw = json.load(handle)
+        except (OSError, json.JSONDecodeError, TypeError):
+            return
+        request_raw = raw.get("request")
+        restore_decision = self.identity_integration.restore(raw.get("session_identity"), now=time.time())
+        self.identity_restore_resolution = restore_decision.resolution.value
+        if isinstance(request_raw, dict):
+            stop_raw = request_raw.get("stop") or {}
+            try:
+                profile = None
+                if isinstance(request_raw.get("profile"), dict):
+                    profile = load_manual_profile(
+                        Path(__file__).resolve().parent / "config" / "charge" / "manual.yaml",
+                        battery_id=str(request_raw.get("battery_id") or "") or None,
+                    )
+                self.request = ManualChargeRequest(
+                    voltage_v=float(request_raw["voltage_v"]),
+                    current_a=float(request_raw["current_a"]),
+                    stop=ManualStopConditions(**stop_raw),
+                    battery_id=str(request_raw.get("battery_id") or ""),
+                    capacity_ah=request_raw.get("capacity_ah"),
+                    notes=str(request_raw.get("notes") or ""),
+                    profile=profile,
+                    stage=str(request_raw.get("stage") or "main"),
+                )
+            except (KeyError, TypeError, ValueError):
+                self.request = None
+        previous = str(raw.get("state") or "")
+        saved_hold = raw.get("finish_hold_started_at")
+        if saved_hold is not None:
+            try:
+                self.finish_hold_started_at = float(saved_hold)
+            except (TypeError, ValueError):
+                self.finish_hold_started_at = None
+        if previous in {
+            ManualSessionState.ARMING.value,
+            ManualSessionState.ACTIVE.value,
+            ManualSessionState.COOLING.value,
+        }:
+            # A process restart never silently re-energizes Manual.  The persisted
+            # request remains available for operator review/re-authorization.
+            self._transition_state(
+                ManualSessionState.INTERRUPTED,
+                "process_restart_requires_operator_reauthorization",
+            )
+            self.stop_reason = "process_restart_requires_operator_reauthorization"
+            self.started_at = float(raw.get("started_at") or 0.0)
+            self.paused_total_s = float(raw.get("paused_total_s") or 0.0)
+            self.cooling_started_at = None
+            self._persist()
+
+    def _reset_delta_tracking(self) -> None:
+        self._vmax = None
+        self._imin = None
+        self._delta_confirmations = 0
+        self._last_delta_confirmation = 0.0
+
+    async def start(self, request: ManualChargeRequest) -> bool:
+        if self.is_active:
+            raise RuntimeError("manual session is already active")
+        if bool(getattr(self.app.charge_controller, "is_active", False)):
+            raise RuntimeError("automatic charge controller is active")
+
+        self.request = request
+        self.identity_integration.create_for_start(
+            profile=request.battery_id or request.operation_mode,
+            source="manual",
+            created_at=time.time(),
+        )
+        self._manual_start_event_emitted = False
+        self._transition_state(ManualSessionState.ARMING, "operator_start")
+        self.started_at = time.time()
+        self.paused_total_s = 0.0
+        self.cooling_started_at = None
+        self.stop_reason = ""
+        self.phase_transition_reason = ""
+        self.phase_lifecycle.reset()
+        self._reset_delta_tracking()
+        self.main_min_confirmations = 0
+        self.main_min_hold_started_at = None
+        self._last_main_min_confirmation = 0.0
+        self.finish_hold_started_at = None
+        self._persist()
+
+        start_intent = ExecutionIntent(
+            requested_voltage_v=request.voltage_v,
+            requested_current_a=request.current_a,
+            requested_mode="MANUAL_START",
+            source_decision_id=f"manual_start:{self.identity_integration.identity.trace_id}",
+            safety_context=SafetyContext(
+                telemetry_state="FRESH",
+                lease_state="V2_PHYSICAL_OWNER",
+                verification_state="REQUIRED",
+                limits_reference="existing V2 guarded setter policy",
+            ),
+        )
+        result = await self.execution_port.enable(
+            start_intent,
+            identity=self.identity_integration.identity,
+            ovp_v=request.ovp_v,
+            ocp_a=request.ocp_a,
+            recipe_voltage_ceiling_v=float(MAX_MANUAL_VOLTAGE),
+        )
+        if not result.verified:
+            self.stop_reason = result.reason or "safe_enable_failed"
+            self._transition_state(ManualSessionState.FAILED, self.stop_reason)
+            self._persist()
+            return False
+
+        self._transition_state(ManualSessionState.ACTIVE, "safe_enable_confirmed")
+        self.identity_integration.emit(
+            event_type=EventType.SESSION_STARTED,
+            phase_before=ManualSessionState.ARMING.value,
+            phase_after=ManualSessionState.ACTIVE.value,
+            reason="safe_enable_confirmed",
+        )
+        self._manual_start_event_emitted = True
+        self._persist()
+        self._task = asyncio.create_task(self._run(), name="rd6018-manual-session")
+        return True
+
+    async def stop(self, reason: str = "operator_stop") -> bool:
+        self.stop_reason = str(reason)
+        confirmed = False
+        try:
+            stop_intent = ExecutionIntent(
+                requested_voltage_v=0.0,
+                requested_current_a=0.0,
+                requested_mode="MANUAL_STOP",
+                source_decision_id=f"manual_stop:{self.identity_integration.identity.trace_id if self.identity_integration.identity else 'legacy'}",
+                safety_context=SafetyContext(verification_state="REQUIRED", lease_state="V2_PHYSICAL_OWNER"),
+            )
+            confirmed = (await self.execution_port.disable(
+                stop_intent,
+                identity=self.identity_integration.identity,
+                reason=self.stop_reason,
+            )).verified
+        finally:
+            self._transition_state(
+                ManualSessionState.STOPPED if confirmed else ManualSessionState.FAILED,
+                self.stop_reason,
+            )
+            self.cooling_started_at = None
+            self._persist()
+            if self.identity_integration.identity is not None:
+                self.identity_integration.emit(
+                    event_type=EventType.SESSION_STOPPED,
+                    phase_before=ManualSessionState.ACTIVE.value,
+                    phase_after=self.state.value,
+                    reason=self.stop_reason,
+                )
+        return confirmed
+
+    async def _enter_cooling(self) -> None:
+        if self.state is ManualSessionState.COOLING:
+            return
+        stop_intent = ExecutionIntent(
+            requested_voltage_v=0.0,
+            requested_current_a=0.0,
+            requested_mode="MANUAL_COOLING_STOP",
+            source_decision_id=f"manual_cooling:{self.identity_integration.identity.trace_id if self.identity_integration.identity else 'legacy'}",
+            safety_context=SafetyContext(verification_state="REQUIRED", lease_state="V2_PHYSICAL_OWNER"),
+        )
+        if not (await self.execution_port.disable(stop_intent, identity=self.identity_integration.identity, reason="thermal_pause")).verified:
+            self.stop_reason = "cooling_output_off_unconfirmed"
+            self._transition_state(ManualSessionState.FAILED, self.stop_reason)
+            self._persist()
+            return
+        self._transition_state(ManualSessionState.COOLING, "thermal_pause")
+        self.cooling_started_at = time.time()
+        self._delta_confirmations = 0
+        self._last_delta_confirmation = 0.0
+        self.finish_hold_started_at = None
+        self._persist()
+
+    async def _resume_after_cooling(self) -> None:
+        if self.state is not ManualSessionState.COOLING or self.request is None:
+            return
+        now = time.time()
+        if self.cooling_started_at is not None:
+            self.paused_total_s += max(0.0, now - self.cooling_started_at)
+        self.cooling_started_at = None
+        self._transition_state(ManualSessionState.ARMING, "cooling_resume_prepare")
+        self._persist()
+        resume_intent = ExecutionIntent(
+            requested_voltage_v=self.request.voltage_v,
+            requested_current_a=self.request.current_a,
+            requested_mode="MANUAL_RESUME",
+            source_decision_id=f"manual_resume:{self.identity_integration.identity.trace_id if self.identity_integration.identity else 'legacy'}",
+            safety_context=SafetyContext(
+                telemetry_state="FRESH",
+                lease_state="V2_PHYSICAL_OWNER",
+                verification_state="REQUIRED",
+                limits_reference="existing V2 guarded setter policy",
+            ),
+        )
+        result = await self.execution_port.enable(
+            resume_intent,
+            identity=self.identity_integration.identity,
+            ovp_v=self.request.ovp_v,
+            ocp_a=self.request.ocp_a,
+            recipe_voltage_ceiling_v=float(MAX_MANUAL_VOLTAGE),
+        )
+        if not result.verified:
+            self.stop_reason = result.reason or "cooling_resume_failed"
+            self._transition_state(ManualSessionState.FAILED, self.stop_reason)
+            self._persist()
+            return
+        self._transition_state(ManualSessionState.ACTIVE, "cooling_resume_confirmed")
+        # Cooling breaks continuity-dependent delta confirmation, but extrema remain
+        # useful as historical diagnostics only; start a fresh stop-condition segment.
+        self._reset_delta_tracking()
+        self.finish_hold_started_at = None
+        self._persist()
+
+    def _threshold_reason(self, voltage: float, current: float) -> Optional[str]:
+        assert self.request is not None
+        stop = self.request.stop
+        if stop.max_active_seconds is not None and self.active_elapsed_s >= stop.max_active_seconds:
+            return "manual_time_limit"
+        if stop.voltage_ge_v is not None and voltage >= stop.voltage_ge_v:
+            return "manual_voltage_ge"
+        if stop.voltage_le_v is not None and voltage <= stop.voltage_le_v:
+            return "manual_voltage_le"
+        if stop.current_ge_a is not None and current >= stop.current_ge_a:
+            return "manual_current_ge"
+        if stop.current_le_a is not None and current <= stop.current_le_a:
+            return "manual_current_le"
+        return None
+
+    def _delta_reason(self, live: dict[str, Any], *, now: float) -> Optional[str]:
+        assert self.request is not None
+        if self.request.operation_mode != "mix":
+            return None
+        threshold = self.request.stop.delta
+        if self.request.profile is not None:
+            threshold = (
+                self.request.profile.mix.delta_current_a
+                if resolve_regulation(live) is RegulationMode.CV
+                else self.request.profile.mix.delta_voltage_v
+            )
+        if threshold is None or now - self.started_at < MANUAL_DELTA_BLANKING_SEC:
+            return None
+
+        voltage = finite_float(live.get("battery_voltage"))
+        current = finite_float(live.get("current"))
+        if voltage is None or current is None:
+            return None
+        mode = resolve_regulation(live)
+        candidate = False
+        if mode is RegulationMode.CV:
+            if self._imin is None or current < self._imin:
+                self._imin = current
+                self._delta_confirmations = 0
+                self._last_delta_confirmation = 0.0
+                logger.info(
+                    "MANUAL_EVIDENCE kind=minimum event=update mode=CV value=%.3f timestamp=%.3f",
+                    current,
+                    now,
+                )
+            elif current >= self._imin + threshold:
+                candidate = True
+        elif mode is RegulationMode.CC:
+            if self._vmax is None or voltage > self._vmax:
+                self._vmax = voltage
+                self._delta_confirmations = 0
+                self._last_delta_confirmation = 0.0
+                logger.info(
+                    "MANUAL_EVIDENCE kind=maximum event=update mode=CC value=%.3f timestamp=%.3f",
+                    voltage,
+                    now,
+                )
+            elif voltage <= self._vmax - threshold:
+                candidate = True
+        else:
+            self._delta_confirmations = 0
+            return None
+
+        if not candidate:
+            self._delta_confirmations = 0
+            return None
+        confirmation_interval = (
+            self.request.profile.mix.confirmation_interval_seconds
+            if self.request.profile is not None
+            else MANUAL_DELTA_CONFIRM_INTERVAL_SEC
+        )
+        confirmation_count = (
+            self.request.profile.mix.confirmation_count
+            if self.request.profile is not None
+            else MANUAL_DELTA_CONFIRM_COUNT
+        )
+        if (
+            self._last_delta_confirmation
+            and now - self._last_delta_confirmation < confirmation_interval
+        ):
+            return None
+        self._last_delta_confirmation = now
+        self._delta_confirmations += 1
+        logger.info(
+            "MANUAL_EVIDENCE kind=delta event=confirmation mode=%s count=%d reference=%.3f threshold=%.3f timestamp=%.3f",
+            mode.value,
+            self._delta_confirmations,
+            self._imin if mode is RegulationMode.CV else self._vmax,
+            threshold,
+            now,
+        )
+        if self._delta_confirmations >= confirmation_count:
+            return "manual_delta_confirmed"
+        return None
+
+    def _main_tail_reason(self, live: dict[str, Any]) -> Optional[str]:
+        assert self.request is not None
+        if self.request.operation_mode != "main":
+            return None
+        voltage = finite_float(live.get("battery_voltage"))
+        current = finite_float(live.get("current"))
+        if voltage is None or current is None:
+            return None
+        if resolve_regulation(live) is not RegulationMode.CV:
+            return None
+        if voltage < float(self.request.voltage_v) - 0.20:
+            return None
+        if self.request.profile is not None:
+            decision = self.phase_lifecycle.evaluate_main(
+                profile=self.request.profile,
+                voltage_v=voltage,
+                current_a=current,
+                is_cv=True,
+            )
+            self.main_min_confirmations = self.phase_lifecycle.confirmations
+            self.main_min_hold_started_at = self.phase_lifecycle.hold_started_at
+            if decision is not None:
+                return "manual_main_to_mix"
+        elif self._imin is None or current <= self.main_tail_current_threshold_a:
+            return "manual_main_cv_imin"
+        return None
+
+    async def _advance_profile_to_mix(self) -> None:
+        assert self.request is not None and self.request.profile is not None
+        stage = self.request.profile.mix
+        decision = self.phase_lifecycle.last_decision
+        if decision is None or self.identity_integration.identity is None:
+            logger.warning("MAIN -> MIX denied: V3 decision or lifecycle identity missing")
+            return
+        if not await self.execution_boundary.apply(
+            decision,
+            identity=self.identity_integration.identity,
+        ):
+            await self.stop("manual_main_to_mix_update_failed")
+            return
+        previous_stage = self.request.stage
+        self.request = ManualChargeRequest(
+            voltage_v=stage.voltage_v,
+            current_a=stage.current_a,
+            battery_id=self.request.battery_id,
+            capacity_ah=self.request.capacity_ah,
+            notes=self.request.notes,
+            profile=self.request.profile,
+            stage="mix",
+        )
+        self.stop_reason = ""
+        self.phase_transition_reason = "manual_main_to_mix"
+        if self.identity_integration.identity is not None and self._manual_start_event_emitted:
+            self.identity_integration.emit(
+                event_type=EventType.PHASE_TRANSITION,
+                phase_before=previous_stage or "main",
+                phase_after="mix",
+                reason=self.phase_transition_reason,
+            )
+        self._persist()
+
+    def _mix_hold_reason(self, *, now: float) -> Optional[str]:
+        if self.request is None or self.request.operation_mode != "mix":
+            return None
+        if self.finish_hold_started_at is None:
+            return None
+        hold_hours = (
+            self.request.profile.mix.hold_hours
+            if self.request.profile is not None
+            else MANUAL_MIX_FINISH_HOLD_SEC / 3600.0
+        )
+        if now - float(self.finish_hold_started_at) >= hold_hours * 3600.0:
+            logger.info(
+                "MANUAL_EVIDENCE kind=delta event=hold_complete mode=mix hold_hours=%.2f timestamp=%.3f",
+                hold_hours,
+                now,
+            )
+            return "manual_mix_delta_hold_complete"
+        return None
+
+    async def observe_once(self) -> None:
+        if not self.is_active or self.request is None:
+            return
+        live = await self.app.hass.get_all_live()
+        temp = finite_float(live.get("temp_ext"))
+        if temp is None:
+            # V2 runtime safety already fails closed on missing critical telemetry.
+            return
+        if temp >= MANUAL_TEMP_CRITICAL_C:
+            await self.stop("manual_critical_battery_temperature")
+            return
+        if self.state is ManualSessionState.COOLING:
+            if temp <= MANUAL_COOLING_RESUME_C:
+                await self._resume_after_cooling()
+            return
+        if temp >= MANUAL_COOLING_PAUSE_C:
+            await self._enter_cooling()
+            return
+
+        voltage = finite_float(live.get("battery_voltage"))
+        current = finite_float(live.get("current"))
+        if voltage is None or current is None:
+            return
+        now = time.time()
+        reason = self._threshold_reason(voltage, current)
+        if reason is None:
+            reason = self._main_tail_reason(live)
+        if reason == "manual_main_to_mix":
+            await self._advance_profile_to_mix()
+            return
+        if reason is None:
+            reason = self._mix_hold_reason(now=now)
+        if reason is None:
+            reason = self._delta_reason(live, now=now)
+            if reason == "manual_delta_confirmed":
+                self.finish_hold_started_at = now
+                self._persist()
+                logger.info(
+                    "MANUAL_EVIDENCE kind=delta event=hold_start mode=mix hold_hours=%.2f timestamp=%.3f",
+                    self.request.profile.mix.hold_hours if self.request.profile is not None else MANUAL_MIX_FINISH_HOLD_SEC / 3600.0,
+                    now,
+                )
+                reason = None
+        if reason is not None:
+            await self.stop(reason)
+
+    async def _run(self) -> None:
+        try:
+            while self.is_active:
+                await self.observe_once()
+                if not self.is_active:
+                    break
+                await asyncio.sleep(MANUAL_POLL_SEC)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            self.stop_reason = f"manual_runtime_error:{type(exc).__name__}"
+            try:
+                stop_intent = ExecutionIntent(
+                    requested_voltage_v=0.0,
+                    requested_current_a=0.0,
+                    requested_mode="MANUAL_ERROR_STOP",
+                    source_decision_id=f"manual_error:{self.identity_integration.identity.trace_id if self.identity_integration.identity else 'legacy'}",
+                    safety_context=SafetyContext(verification_state="REQUIRED", lease_state="V2_PHYSICAL_OWNER"),
+                )
+                await self.execution_port.disable(stop_intent, identity=self.identity_integration.identity, reason=self.stop_reason)
+            finally:
+                self._transition_state(ManualSessionState.FAILED, self.stop_reason)
+                self._persist()

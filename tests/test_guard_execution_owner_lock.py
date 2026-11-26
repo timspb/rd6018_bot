@@ -114,7 +114,7 @@ class GuardOwnerLockTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(RuntimeError):
             port.bind_guard_owner_lock(asyncio.Lock())
 
-    async def test_execution_port_serializes_nested_setters_and_allows_emergency_off(self):
+    async def test_execution_port_emergency_off_bypasses_lock_while_setter_is_held(self):
         events = []
         entered = asyncio.Event()
         release = asyncio.Event()
@@ -135,20 +135,146 @@ class GuardOwnerLockTests(unittest.IsolatedAsyncioTestCase):
 
         port = ExecutionPort(Owner())
         port.bind_guard_owner_lock(self.lock)
-        first = asyncio.create_task(port.apply_current_with_ocp(
-            target_current_a=2.0, current_set_a=1.0, target_ocp_a=None,
-            max_stage_current_a=12.0, ocp_offset_a=1.0, has_ocp=False,
-            stabilize_delay_s=0,
-        ))
+        first = asyncio.create_task(port.program_current(2.0))
         await asyncio.wait_for(entered.wait(), 1)
         second = asyncio.create_task(port.program_voltage(14.4))
         await asyncio.sleep(0)
         self.assertEqual(events, [("current_start", 2.0)])
-        await port.request_verified_off()
+        await port.request_emergency_off()
         self.assertEqual(events[-1], ("OFF", None))
         release.set()
         await asyncio.wait_for(asyncio.gather(first, second), 1)
         self.assertEqual(events[1:], [("OFF", None), ("current_end", 2.0), ("voltage", 14.4)])
+
+    async def test_emergency_off_task_preempts_held_normal_owner_without_releasing_it(self):
+        events = []
+        normal_entered = asyncio.Event()
+        release_normal = asyncio.Event()
+        off_entered = asyncio.Event()
+        off_finished = asyncio.Event()
+
+        class Owner:
+            output_on = True
+
+            async def set_current(self, value):
+                events.append(("current_start", value))
+                normal_entered.set()
+                await release_normal.wait()
+                events.append(("current_end", value))
+                return True
+
+            async def set_voltage(self, value):
+                events.append(("voltage", value))
+                return True
+
+            async def turn_on(self):
+                events.append(("ON", None))
+                self.output_on = True
+                return True
+
+            async def turn_off(self):
+                off_entered.set()
+                events.append(("OFF_start", None))
+                self.output_on = False
+                events.append(("OFF_done", None))
+                off_finished.set()
+                return True
+
+        owner = Owner()
+        port = ExecutionPort(owner)
+        port.bind_guard_owner_lock(self.lock)
+        normal = asyncio.create_task(port.program_current(2.0))
+        await normal_entered.wait()
+        self.assertTrue(self.lock.locked())
+        self.assertIs(self.lock.owner_task, normal)
+
+        async def emergency():
+            return await port.request_emergency_off()
+
+        emergency_task = asyncio.create_task(emergency())
+        # The OFF owner call must start and finish while the normal transaction
+        # still owns the app lock; event barriers make the interleave explicit.
+        await asyncio.wait_for(off_entered.wait(), timeout=1)
+        self.assertTrue(await asyncio.wait_for(emergency_task, timeout=1))
+        await off_finished.wait()
+        self.assertFalse(owner.output_on)
+        self.assertTrue(self.lock.locked())
+        self.assertIs(self.lock.owner_task, normal)
+        self.assertEqual(events, [
+            ("current_start", 2.0), ("OFF_start", None), ("OFF_done", None),
+        ])
+
+        release_normal.set()
+        self.assertTrue(await asyncio.wait_for(normal, timeout=1))
+        self.assertFalse(self.lock.locked())
+        self.assertFalse(owner.output_on)
+        self.assertNotIn(("ON", None), events)
+        self.assertEqual(events[-1], ("current_end", 2.0))
+
+    async def test_emergency_off_failure_is_not_reported_as_verified(self):
+        for outcome in (False, RuntimeError("ambiguous OFF")):
+            with self.subTest(outcome=type(outcome).__name__):
+                called = asyncio.Event()
+
+                class Owner:
+                    async def turn_off(self):
+                        called.set()
+                        if isinstance(outcome, BaseException):
+                            raise outcome
+                        return outcome
+
+                port = ExecutionPort(Owner())
+                port.bind_guard_owner_lock(self.lock)
+                async with self.lock:
+                    normal_owner = asyncio.current_task()
+                    operation = asyncio.create_task(port.request_emergency_off())
+                    await asyncio.wait_for(called.wait(), timeout=1)
+                    if isinstance(outcome, BaseException):
+                        with self.assertRaisesRegex(RuntimeError, "ambiguous OFF"):
+                            await asyncio.wait_for(operation, timeout=1)
+                    else:
+                        self.assertIs(await asyncio.wait_for(operation, timeout=1), False)
+                    self.assertTrue(self.lock.locked())
+                    self.assertIs(self.lock.owner_task, normal_owner)
+
+    async def test_emergency_off_receipt_does_not_fabricate_missing_owner_receipt(self):
+        class Owner:
+            async def turn_off_with_receipt(self):
+                return None
+
+        port = ExecutionPort(Owner())
+        self.assertIsNone(await port.request_emergency_off_receipt())
+
+    async def test_execution_port_enable_reenters_owner_lock_in_same_task(self):
+        from application.execution_intent.models import ExecutionIntent, SafetyContext
+
+        class Owner:
+            async def safe_enable_output(self, **kwargs):
+                # START already owns the lock; the port's normal wrapper must
+                # reenter it in this same task instead of deadlocking.
+                self.assertion = kwargs
+                return type("Result", (), {"enabled": True, "detail": "ok"})()
+
+        owner = Owner()
+        port = ExecutionPort(owner)
+        port.bind_guard_owner_lock(self.lock)
+        intent = ExecutionIntent(14.4, 2.0, "AUTO", "test", SafetyContext())
+        identity = type("Identity", (), {"session_id": "s", "trace_id": "t"})()
+
+        async def start_owner():
+            async with self.lock:
+                self.assertEqual(self.lock.depth, 1)
+                result = await port.enable(
+                    intent, identity=identity, recipe_voltage_ceiling_v=16.5,
+                )
+                self.assertTrue(result.verified)
+                self.assertEqual(self.lock.depth, 1)
+                return result
+
+        result = await asyncio.wait_for(start_owner(), timeout=1)
+        self.assertTrue(result.accepted)
+        self.assertEqual(owner.assertion["voltage_v"], 14.4)
+        self.assertFalse(self.lock.locked())
 
     async def test_production_factory_reuses_one_app_port_and_lock(self):
         from application.execution_port import get_or_create_execution_port

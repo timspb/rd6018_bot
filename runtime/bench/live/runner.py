@@ -17,8 +17,6 @@ _REQUIRED_LIVE_FIELDS = (
     "measured_current",
     "configured_voltage",
     "configured_current",
-    "ovp",
-    "ocp",
     "temperature",
     "battery_voltage",
 )

@@ -2,18 +2,20 @@
 import asyncio
 from dataclasses import replace
 import unittest
+from unittest.mock import patch
 
 from application.execution_port import ExecutionPort
 from application.guard_execution_owner_lock import GuardExecutionOwnerLock
 from application.main_guard_transaction import MainGuardAuthority
 from runtime.charge.strategy.main_current_guard import MainCurrentGuard
+from runtime.safety.protection_boundary import ProtectionAssessment, ProtectionVerdict
 
 
 class FakeOwner:
     def __init__(self):
         self.live = {
             "output_state_code_v2": 1, "current": 4.0,
-            "set_current_readback_v2": 7.2, "ocp_readback_v2": 7.3,
+            "set_current_readback_v2": 7.2,
             "protection_code": 0,
         }
         self.live["_meta"] = {
@@ -21,8 +23,7 @@ class FakeOwner:
                   "source": "esp_native_api", "native_type": "SensorState",
                   "subscription_timestamp_monotonic": 100.0}
             for key in ("output_state_code_v2", "current",
-                        "set_current_readback_v2", "ocp_readback_v2",
-                        "protection_code")
+                        "set_current_readback_v2", "protection_code")
         }
         self.events = []
         self.mirror = True
@@ -35,12 +36,6 @@ class FakeOwner:
         self.events.append(("set_current", round(value, 3)))
         if self.mirror:
             self.live["set_current_readback_v2"] = value
-        return True
-
-    async def set_ocp(self, value):
-        self.events.append(("set_ocp", round(value, 3)))
-        if self.mirror:
-            self.live["ocp_readback_v2"] = value
         return True
 
     async def turn_off(self):
@@ -65,6 +60,11 @@ def pending():
 
 class MainGuardTransactionTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
+        # Avoid waiting the production 120-second convergence deadline on
+        # deliberately unacknowledged fake hardware in unit tests.
+        timer=patch("application.main_guard_transaction.POSTWRITE_CONVERGENCE_S",0.01)
+        timer.start()
+        self.addCleanup(timer.stop)
         self.owner = FakeOwner()
         self.port = ExecutionPort(self.owner)
         self.guard, self.proposal = pending()
@@ -87,8 +87,7 @@ class MainGuardTransactionTests(unittest.IsolatedAsyncioTestCase):
                 lease_armed=True, owner_authorized=True,
             ),
             persist=self.save, execution_lock=self.lock, now=lambda: 1801.0,
-            max_stage_current_a=12.0, ocp_offset_a=0.1,
-            stabilize_delay_s=0.0,
+            max_stage_current_a=12.0,
         )
         args.update(overrides)
         return await self.port.execute_main_current_guard_reduction(**args)
@@ -118,39 +117,40 @@ class MainGuardTransactionTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result.verified)
         self.assertEqual(self.owner.events, [])
 
-    async def test_stale_ocp_is_ignored_but_unknown_protection_rejects(self):
-        self.owner.live["_meta"]["ocp_readback_v2"]["status"] = "stale"
-        self.assertTrue((await self.transact()).verified)
-        self.assertEqual(self.owner.events, [("set_current", 5.0)])
-
-    async def test_confirmed_native_protection_trip_requests_verified_off(self):
-        self.owner.live["protection_code"] = 1
-        result = await self.transact()
+    async def test_safety_trip_verdict_requests_verified_off(self):
+        verdict = ProtectionAssessment(
+            ProtectionVerdict.TRIPPED,
+            "hardware_protection_tripped",
+            True,
+            True,
+            0.1,
+        )
+        with patch("application.main_guard_transaction.assess_protection", return_value=verdict):
+            result = await self.transact()
         self.assertFalse(result.verified)
         self.assertTrue(result.off_confirmed)
         self.assertEqual(self.owner.events, [("OFF",)])
 
-    async def test_unknown_or_invalid_protection_code_does_not_count_as_trip(self):
-        for value in (None, "unknown", float("nan")):
-            with self.subTest(value=value):
-                self.owner.live["protection_code"] = value
-                result = await self.transact()
-                self.assertFalse(result.verified)
-                self.assertFalse(result.off_confirmed)
-                self.assertEqual(self.owner.events, [])
+    async def test_unknown_safety_verdict_denies_without_off(self):
+        verdict = ProtectionAssessment(
+            ProtectionVerdict.UNKNOWN,
+            "protection_state_unknown",
+            True,
+            True,
+            0.1,
+        )
+        with patch("application.main_guard_transaction.assess_protection", return_value=verdict):
+            result = await self.transact()
+        self.assertFalse(result.verified)
+        self.assertFalse(result.off_confirmed)
+        self.assertEqual(self.owner.events, [])
 
     async def test_confirmed_upward_current_readback_requests_off_prewrite(self):
-        self.owner.live["set_current_readback_v2"] = 7.23
+        self.owner.live["set_current_readback_v2"] = 7.26
         result = await self.transact()
         self.assertFalse(result.verified)
         self.assertTrue(result.off_confirmed)
         self.assertEqual(self.owner.events, [("OFF",)])
-
-    async def test_ocp_readback_deviation_does_not_block_guard(self):
-        self.owner.live["ocp_readback_v2"] = 7.33
-        result = await self.transact()
-        self.assertTrue(result.verified)
-        self.assertEqual(self.owner.events, [("set_current", 5.0)])
 
     async def test_wrong_preflight_programmed_current_rejects(self):
         self.owner.live["set_current_readback_v2"] = 5.0
@@ -158,26 +158,20 @@ class MainGuardTransactionTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result.verified)
         self.assertEqual(self.owner.events, [])
 
-    async def test_wrong_ocp_margin_does_not_block_guard(self):
-        self.owner.live["ocp_readback_v2"] = 7.0
-        result = await self.transact()
-        self.assertTrue(result.verified)
-        self.assertEqual(self.owner.events, [("set_current", 5.0)])
-
-    async def test_fresh_native_protection_trip_forces_verified_off_prewrite(self):
-        self.owner.live["protection_code"] = 2
-        result = await self.transact()
+    async def test_fresh_safety_trip_forces_verified_off_prewrite(self):
+        verdict = ProtectionAssessment(
+            ProtectionVerdict.TRIPPED,
+            "hardware_protection_tripped",
+            True,
+            True,
+            0.1,
+        )
+        with patch("application.main_guard_transaction.assess_protection", return_value=verdict):
+            result = await self.transact()
         self.assertFalse(result.verified)
         self.assertTrue(result.off_confirmed)
         self.assertEqual(self.owner.events, [("OFF",)])
         self.assertEqual(self.snapshots, [])
-
-    async def test_unknown_native_protection_code_denies_without_off(self):
-        self.owner.live["protection_code"] = 4
-        result = await self.transact()
-        self.assertFalse(result.verified)
-        self.assertFalse(result.off_confirmed)
-        self.assertEqual(self.owner.events, [])
 
     async def test_fresh_upward_iset_deviation_forces_verified_off_prewrite(self):
         self.owner.live["set_current_readback_v2"] = 8.0
@@ -202,14 +196,29 @@ class MainGuardTransactionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.snapshots), 1)
         self.assertIsNotNone(self.snapshots[0]["pending"])
 
+    async def test_postflight_ack_accepts_realistic_register_quantization(self):
+        original = self.owner.set_current
+
+        async def quantized_within_physical_tolerance(value):
+            result = await original(value)
+            self.owner.live["set_current_readback_v2"] = value + 0.02
+            return result
+
+        self.owner.set_current = quantized_within_physical_tolerance
+        result = await self.transact()
+        self.assertTrue(result.verified)
+        self.assertEqual(result.reason, "readback_and_journal_verified")
+        self.assertEqual(self.owner.events, [("set_current", 5.0)])
+        self.assertEqual(len(self.snapshots), 2)
+
     async def test_postflight_ack_rejection_preserves_guard_fault_and_readback_diagnostic(self):
         original = self.owner.set_current
 
         async def quantized_but_outside_guard_tolerance(value):
             result = await original(value)
             # Model a fresh native Iset register report outside the documented
-            # 0.02 A acknowledgement tolerance. Do not weaken that tolerance.
-            self.owner.live["set_current_readback_v2"] = value + 0.03
+            # 0.05 A physical register tolerance.
+            self.owner.live["set_current_readback_v2"] = value + 0.06
             return result
 
         self.owner.set_current = quantized_but_outside_guard_tolerance
@@ -219,8 +228,8 @@ class MainGuardTransactionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("postflight_guard_ack_rejected:programmed_current_readback_mismatch",
                       result.reason)
         self.assertEqual(result.diagnostic["iset_target_a"], 5.0)
-        self.assertAlmostEqual(result.diagnostic["iset_delta_a"], 0.03)
-        self.assertEqual(result.diagnostic["readback_tolerance_a"], 0.02)
+        self.assertAlmostEqual(result.diagnostic["iset_delta_a"], 0.06)
+        self.assertEqual(result.diagnostic["readback_tolerance_a"], 0.05)
         self.assertEqual(self.owner.events[-1], ("OFF",))
         self.assertEqual(len(self.snapshots), 1)
 

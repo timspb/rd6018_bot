@@ -1,5 +1,4 @@
 import unittest
-import ast
 from pathlib import Path
 from production_controller import create_production_charge_host
 
@@ -9,9 +8,8 @@ class DummyHass:
 
 
 class AutoStrategyScaffoldTests(unittest.IsolatedAsyncioTestCase):
-    async def test_presentation_overrides_are_owned_by_application_extensions(self):
-        tree = ast.parse(Path("auto_strategy.py").read_text(encoding="utf-8"))
-        self.assertFalse(any(isinstance(node, ast.ClassDef) for node in tree.body))
+    async def test_retired_legacy_surface_is_absent(self):
+        self.assertFalse((Path(__file__).resolve().parents[1] / "auto_strategy.py").exists())
         from application import production_session_extensions as extensions
         for name in ("auto_stage_max_hours", "auto_mix_elapsed_s", "auto_timers",
                      "auto_session_rules_summary", "auto_ai_stage_snapshot",

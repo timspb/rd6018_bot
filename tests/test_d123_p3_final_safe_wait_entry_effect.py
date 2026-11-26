@@ -243,7 +243,7 @@ class FinalSafeWaitEntryEffectTests(unittest.TestCase):
         source = (ROOT / "runtime/charge/runtime/main_scaffold.py").read_text(encoding="utf-8")
         main_owner = source[
             source.index("def apply_main_authority_tick("):
-            source.index("def _output_is_known(")
+            source.index("async def run_authoritative_main_scaffold(")
         ]
         self.assertEqual(main_owner.count("apply_main_completion_to_safe_wait("), 1)
         self.assertNotIn("FinalSafeWaitEntryInput(", main_owner)

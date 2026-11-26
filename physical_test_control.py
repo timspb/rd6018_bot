@@ -14,6 +14,7 @@ available only through this already opt-in Unix control plane.
 from __future__ import annotations
 
 import asyncio
+import errno
 import json
 import os
 import re
@@ -24,7 +25,7 @@ from enum import Enum
 from typing import Any, Dict, Optional
 
 from battery_registry import get_battery
-from edge_safety_lease import EdgeSafetyLeaseError
+from runtime.safety.edge_lease import EdgeSafetyLeaseError
 from pb_domain import BatteryChemistry
 from rd_managed_adoption import ManagedAdoptionPreview
 
@@ -88,6 +89,7 @@ class PhysicalTestControl:
         )
         self.enabled = enabled_from_environment() if enabled is None else bool(enabled)
         self._server: Optional[asyncio.AbstractServer] = None
+        self._owns_socket = False
         self._operation_lock = asyncio.Lock()
 
     async def start(self) -> bool:
@@ -98,13 +100,40 @@ class PhysicalTestControl:
         if self._server is not None:
             return True
 
-        if os.path.exists(self.socket_path):
-            mode = os.stat(self.socket_path).st_mode
+        if os.path.lexists(self.socket_path):
+            mode = os.lstat(self.socket_path).st_mode
             if not stat.S_ISSOCK(mode):
                 raise PhysicalTestControlError(
                     f"refusing to replace non-socket path: {self.socket_path}"
                 )
-            os.unlink(self.socket_path)
+            # Never unlink another live process's listener. A successful local
+            # connect proves the path is owned by an active server; timeout or
+            # permission errors also fail closed. Only ECONNREFUSED/ENOENT means
+            # the socket is stale enough for this owner to remove.
+            try:
+                _reader, probe_writer = await asyncio.wait_for(
+                    asyncio.open_unix_connection(self.socket_path, limit=8192),
+                    timeout=0.5,
+                )
+            except OSError as exc:
+                if exc.errno not in {errno.ECONNREFUSED, errno.ENOENT}:
+                    raise PhysicalTestControlError(
+                        f"refusing to replace socket with unknown owner: {self.socket_path}"
+                    ) from exc
+                os.unlink(self.socket_path)
+            except asyncio.TimeoutError as exc:
+                raise PhysicalTestControlError(
+                    f"refusing to replace socket with unresponsive owner: {self.socket_path}"
+                ) from exc
+            else:
+                probe_writer.close()
+                try:
+                    await probe_writer.wait_closed()
+                except Exception:
+                    pass
+                raise PhysicalTestControlError(
+                    f"physical-test listener is already active: {self.socket_path}"
+                )
 
         self._server = await asyncio.start_unix_server(
             self._handle_client,
@@ -112,13 +141,17 @@ class PhysicalTestControl:
             limit=8192,
         )
         os.chmod(self.socket_path, 0o600)
+        self._owns_socket = True
         return True
 
     async def stop(self) -> None:
         server, self._server = self._server, None
+        owns_socket, self._owns_socket = self._owns_socket, False
         if server is not None:
             server.close()
             await server.wait_closed()
+        if not owns_socket:
+            return
         try:
             if os.path.exists(self.socket_path) and stat.S_ISSOCK(os.stat(self.socket_path).st_mode):
                 os.unlink(self.socket_path)
@@ -247,8 +280,6 @@ class PhysicalTestControl:
         return {
             "set_voltage_v": float(value.set_voltage_v),
             "set_current_a": float(value.set_current_a),
-            "ovp_v": float(value.ovp_v),
-            "ocp_a": float(value.ocp_a),
         }
 
     async def _status(self) -> Dict[str, Any]:

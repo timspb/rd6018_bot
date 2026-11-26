@@ -2,6 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 from tools.node104_d125_session_evidence import inspect_session,SessionEvidenceError
 
 class D125SessionEvidenceTests(unittest.TestCase):
@@ -19,6 +20,7 @@ class D125SessionEvidenceTests(unittest.TestCase):
             self.assertEqual(inspect_session(p)["classification"],"unknown_blocked")
     def test_reject_symlink(self):
         with tempfile.TemporaryDirectory() as folder:
-            p=Path(folder)/"s.json";p.write_text("{}")
-            q=Path(folder)/"link.json";q.symlink_to(p)
-            with self.assertRaises(SessionEvidenceError):inspect_session(q)
+            q=Path(folder)/"link.json"
+            with patch.object(Path, "is_symlink", autospec=True,
+                              side_effect=lambda path: path == q):
+                with self.assertRaises(SessionEvidenceError):inspect_session(q)

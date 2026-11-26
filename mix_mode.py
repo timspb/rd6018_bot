@@ -15,7 +15,7 @@ from battery_fault_engine import DiagnosticAuthority
 from application.recipe_policy import chemistry_for_profile
 from pb_domain import BatteryCondition, BatteryIdentity, ChargeContext, ChargeIntent
 from recipe_engine import select_recipe_envelope
-from safe_output import snapshot_from_live
+from runtime.safety.output_policy import snapshot_from_live
 from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
 from battery_catalog import list_batteries
 from ui_support import battery_button_label, profile_for_chemistry
@@ -193,8 +193,7 @@ async def start_mix_transactional(app: Any, event: Any, pending: PendingMixStart
     snapshot = snapshot_from_live(live)
     if snapshot is None:
         await message.answer(
-            "❌ Нет полного набора защитной телеметрии "
-            "(U/I/температуры/Output/OVP/OCP). Auto Mix не запущен."
+            "❌ Нет свежей телеметрии U/I/температур и состояния Output. Auto Mix не запущен."
         )
         return False
     if snapshot.output_on:
@@ -262,8 +261,6 @@ async def start_mix_transactional(app: Any, event: Any, pending: PendingMixStart
         result = await get_or_create_execution_port(app).enable(
             execution_intent,
             identity=execution_identity,
-            ovp_v=float(target_v) + float(app.OVP_OFFSET),
-            ocp_a=target_i + float(app.OCP_OFFSET),
             recipe_voltage_ceiling_v=float(envelope.voltage_ceiling_v),
         )
     except Exception as exc:

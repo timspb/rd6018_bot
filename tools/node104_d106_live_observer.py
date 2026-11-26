@@ -28,7 +28,6 @@ ENTITY = {
     "current_a": "current", "protection_r16": "protection_code",
     "autonomous": "autonomous_mode",
     "set_voltage_v": "configured_voltage", "set_current_a": "configured_current",
-    "ovp_v": "ovp", "ocp_a": "ocp",
 }
 NATIVE_EDGE = {
     "lease_armed": "edge_lease_armed",
@@ -88,9 +87,18 @@ def _ha_record(field: str, entity_id: str, data: dict, now: float) -> dict:
 def _native_record(field: str, object_id: str, esp, inventory, now: float) -> dict:
     if not object_id:
         raise ro.ProofError("missing native entity mapping: " + field)
+    if field in {"set_voltage_v", "set_current_a"}:
+        measured_ids = {
+            esp.config.entities.get("voltage"),
+            esp.config.entities.get("current"),
+        }
+        if object_id in measured_ids:
+            raise ro.ProofError("configured readback aliases measured channel: " + field)
+    # These are *readback* registers, not writable Number controls.
+    # R16/Vset/Iset are SensorState; autonomous and lease armed
+    # are BinarySensorState on the installed 2.3-ha-canonical firmware.
     expected_entity_type = (
-        "BinarySensorInfo" if field == "lease_armed"
-        else "NumberInfo" if field in {"set_voltage_v", "set_current_a", "ovp_v", "ocp_a"}
+        "BinarySensorInfo" if field in {"lease_armed", "autonomous"}
         else "SensorInfo"
     )
     value, meta = ro._cached_native_state(
@@ -130,9 +138,13 @@ def _native_callback_record(field: str, callback: tuple, inventory, now: float) 
             or meta.get("entity_type") != "SensorInfo"):
         raise ro.ProofError("native measurement callback identity/type mismatch: " + field)
     matches = [entity for entity in inventory
-               if getattr(entity, "object_id", None) == object_id
+               if type(entity).__name__ == "SensorInfo"
+               and getattr(entity, "object_id", None) == object_id
                and getattr(entity, "key", None) == key]
-    if (len(matches) != 1 or type(matches[0]).__name__ != "SensorInfo"
+    # A configured NumberInfo can legitimately share the measurement's
+    # object_id AND key on ESPHome. Its NumberState is not SensorState.
+    # Still reject multiple SensorInfo identities or a foreign device ID.
+    if (len(matches) != 1
             or type(getattr(matches[0], "device_id", None)) is not int
             or matches[0].device_id != device_id):
         raise ro.ProofError("native measurement inventory identity mismatch: " + field)

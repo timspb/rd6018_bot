@@ -21,16 +21,13 @@ from datetime import datetime, timezone
 TARGET = {
     "voltage_v": 13.57,
     "current_a": 0.10,
-    "ovp_v": 14.07,
-    "ocp_a": 0.20,
 }
 BATTERY_NAME = "Leoch_72Ah"
 
 
 def fingerprint_matches(fingerprint, target, *, tolerance=0.02):
     """Compare a complete fingerprint using finite numeric readback tolerance."""
-    keys = (('set_voltage_v', 'voltage_v'), ('set_current_a', 'current_a'),
-            ('ovp_v', 'ovp_v'), ('ocp_a', 'ocp_a'))
+    keys = (('set_voltage_v', 'voltage_v'), ('set_current_a', 'current_a'))
     if not isinstance(fingerprint, dict) or not isinstance(target, dict):
         return False
     for actual_key, target_key in keys:
@@ -239,8 +236,7 @@ class D061TakeoverSmoke:
             return value if math.isfinite(value) else None
         required = ('switch', 'output_state_code_v2', 'voltage', 'current',
                     'protection_code', 'set_voltage_readback_v2',
-                    'set_current_readback_v2', 'ovp_readback_v2',
-                    'ocp_readback_v2', 'temp_int', 'temp_ext')
+                    'set_current_readback_v2', 'temp_int', 'temp_ext')
         for key in required:
             if not self._source_fresh(meta.get(key)):
                 raise RuntimeError('fresh Output, protection, setpoint, and temperature preflight unavailable: ' + key)
@@ -257,8 +253,6 @@ class D061TakeoverSmoke:
         expected = {
             'set_voltage_readback_v2': TARGET['voltage_v'],
             'set_current_readback_v2': TARGET['current_a'],
-            'ovp_readback_v2': TARGET['ovp_v'],
-            'ocp_readback_v2': TARGET['ocp_a'],
         }
         for key, target in expected.items():
             value = numeric(key)
@@ -272,8 +266,6 @@ class D061TakeoverSmoke:
             'output_current_a': live.get('current'),
             'set_voltage_v': numeric('set_voltage_readback_v2'),
             'set_current_a': numeric('set_current_readback_v2'),
-            'ovp_v': numeric('ovp_readback_v2'),
-            'ocp_a': numeric('ocp_readback_v2'),
             'raw_protection_code': numeric('protection_code'),
             'temp_int_psu_c': live.get('temp_int'),
             'temp_ext_battery_c': live.get('temp_ext'),
@@ -299,8 +291,6 @@ class D061TakeoverSmoke:
             'output_current_a': live.get('current'),
             'set_voltage_v': live.get('set_voltage_readback_v2'),
             'set_current_a': live.get('set_current_readback_v2'),
-            'ovp_v': live.get('ovp_readback_v2'),
-            'ocp_a': live.get('ocp_readback_v2'),
             'raw_protection_code': live.get('protection_code'),
             'temp_int_psu_c': live.get('temp_int'),
             'temp_ext_battery_c': live.get('temp_ext'),
@@ -630,7 +620,7 @@ class D061TakeoverSmoke:
                 required = ('switch', 'output_state_code_v2', 'voltage', 'current',
                             'protection_code', 'temp_int', 'temp_ext',
                             'set_voltage_readback_v2', 'set_current_readback_v2',
-                            'ovp_readback_v2', 'ocp_readback_v2')
+                            )
                 if not all(self._source_fresh(meta.get(key)) for key in required):
                     raise RuntimeError('D061 monitored source heartbeat stale or unavailable')
                 if (str(live.get('switch')).strip().lower() != 'on'
@@ -651,8 +641,6 @@ class D061TakeoverSmoke:
                 fingerprint = {
                     'set_voltage_v': live.get('set_voltage_readback_v2'),
                     'set_current_a': live.get('set_current_readback_v2'),
-                    'ovp_v': live.get('ovp_readback_v2'),
-                    'ocp_a': live.get('ocp_readback_v2'),
                 }
                 if not fingerprint_matches(fingerprint, TARGET):
                     raise RuntimeError('D061 monitored setpoint fingerprint changed')
@@ -738,8 +726,6 @@ class D061TakeoverSmoke:
             final_setpoints = {
                 'set_voltage_readback_v2': TARGET['voltage_v'],
                 'set_current_readback_v2': TARGET['current_a'],
-                'ovp_readback_v2': TARGET['ovp_v'],
-                'ocp_readback_v2': TARGET['ocp_a'],
             }
             for key, target in final_setpoints.items():
                 value = off_live.get(key)
@@ -758,8 +744,6 @@ class D061TakeoverSmoke:
                 'output_current_a': off_values['current'],
                 'set_voltage_v': off_live.get('set_voltage_readback_v2'),
                 'set_current_a': off_live.get('set_current_readback_v2'),
-                'ovp_v': off_live.get('ovp_readback_v2'),
-                'ocp_a': off_live.get('ocp_readback_v2'),
                 'raw_protection_code': off_values['protection_code'],
                 'temp_int_psu_c': off_live.get('temp_int'),
                 'temp_ext_battery_c': off_live.get('temp_ext'),
@@ -996,10 +980,6 @@ async def _run_node104_unlocked(stage, *, hooks=None, fault_operation=None):
                 and D061TakeoverSmoke._source_fresh(meta.get('set_voltage_readback_v2'))),
             'setpoint_readback_current_a': (close(live.get('set_current_readback_v2'), target['current_a'])
                 and D061TakeoverSmoke._source_fresh(meta.get('set_current_readback_v2'))),
-            'setpoint_readback_ovp_v': (close(live.get('ovp_readback_v2'), target['ovp_v'])
-                and D061TakeoverSmoke._source_fresh(meta.get('ovp_readback_v2'))),
-            'setpoint_readback_ocp_a': (close(live.get('ocp_readback_v2'), target['ocp_a'])
-                and D061TakeoverSmoke._source_fresh(meta.get('ocp_readback_v2'))),
             'safe_temperature': D061TakeoverSmoke._temperature_ok(live),
         }
         proof = {
@@ -1013,8 +993,7 @@ async def _run_node104_unlocked(stage, *, hooks=None, fault_operation=None):
                 'remaining_s': remaining, 'modbus_age_s': modbus_age},
             'guard_state': getattr(guard, 'state', None), 'guard_last_report_age_s': guard_age,
             'live_setpoints': {key: live.get(key) for key in (
-                'set_voltage_readback_v2', 'set_current_readback_v2',
-                'ovp_readback_v2', 'ocp_readback_v2')},
+                'set_voltage_readback_v2', 'set_current_readback_v2')},
             'live_output': {key: live.get(key) for key in ('switch', 'output_state_code_v2')},
             'checks': checks, 'failed_predicates': [key for key, passed in checks.items() if not passed],
         }

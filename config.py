@@ -7,6 +7,7 @@ from typing import Optional
 from dotenv import load_dotenv
 from runtime.safety.voltage_variables import PB_AUTOMATIC_TARGET_CEILING_V
 
+load_dotenv(".env.secrets")
 load_dotenv()
 
 
@@ -25,7 +26,7 @@ HA_LOCAL_URL = (os.getenv("HA_LOCAL_URL") or "").rstrip("/")
 HA_PREFER_LOCAL = _as_bool(os.getenv("HA_PREFER_LOCAL"), default=False)
 HA_INSECURE_LOCAL = _as_bool(os.getenv("HA_INSECURE_LOCAL"), default=True)
 
-if HA_PREFER_LOCAL and HA_LOCAL_URL and ("rd.timspb.ru" in HA_URL or not HA_URL):
+if HA_PREFER_LOCAL and HA_LOCAL_URL:
     HA_URL = HA_LOCAL_URL
 
 HA_TOKEN = os.getenv("HA_TOKEN", "")

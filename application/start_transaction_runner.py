@@ -6,12 +6,12 @@ from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any, Awaitable, Callable
 
-from .start_transaction_service import start_profile_transactional
+from .start_transaction_service import start_profile_transactional_result
 from .start_event_context import StartEventContext
 from .start_transaction_adapter import StartTransactionInput, StartTransactionOutcome
 
 
-StartTransactionOwner = Callable[[Any, Any, Any], Awaitable[bool]]
+StartTransactionOwner = Callable[[Any, Any, Any], Awaitable[StartTransactionOutcome]]
 
 
 class _ProductionMessage:
@@ -71,16 +71,23 @@ class StartTransactionRunner:
                 from_user=SimpleNamespace(id=message.chat.id),
                 context=event,
             )
-        owner = self.transaction_owner or start_profile_transactional
-        started = await owner(self.app, event, pending)
+        owner = self.transaction_owner or start_profile_transactional_result
+        outcome = await owner(self.app, event, pending)
+        if not isinstance(outcome, StartTransactionOutcome):
+            raise TypeError("START transaction owner must return StartTransactionOutcome")
         message = getattr(event, "message", None)
-        reason = "started" if started else (
-            getattr(message, "last_answer", None) or "start_transaction_denied_or_failed"
+        reason = (outcome.reason or "started") if outcome.started else (
+            getattr(message, "last_answer", None) or outcome.reason
+            or "start_transaction_denied_or_failed"
         )
         return StartTransactionOutcome(
-            trace_id=transaction.trace_id,
-            started=bool(started),
-            reason=reason,
+            trace_id=outcome.trace_id or transaction.trace_id, started=outcome.started,
+            denied=outcome.denied, contained=outcome.contained,
+            output_off_confirmed=outcome.output_off_confirmed,
+            output_off_unconfirmed=outcome.output_off_unconfirmed,
+            session_cleared=outcome.session_cleared,
+            session_contained=outcome.session_contained, reason=reason,
+            persistence_status=outcome.persistence_status,
         )
 
 

@@ -160,9 +160,65 @@ def reset_link_loss_state(host: Any) -> None:
     host._link_loss_last_notice_at = 0.0
 
 
+def mark_link_unavailable(host: Any, *, lost_at_s: float) -> None:
+    """Record link-loss observation without owning outage policy or timing."""
+    host._was_unavailable = True
+    host._link_lost_at = float(lost_at_s)
+
+
+def clear_link_lost_timestamp(host: Any) -> None:
+    """Clear only an outage timestamp after its elapsed gap has been consumed."""
+    host._link_lost_at = 0.0
+
+
+def set_last_known_output_on(host: Any, output_on: bool) -> None:
+    """Record the caller-observed Output state; no actuation is performed."""
+    host._last_known_output_on = bool(output_on)
+
+
+def mark_startup_observation_seen(host: Any) -> None:
+    """Record that the process has consumed its first fresh runtime observation."""
+    host._d125_startup_observation_seen = True
+
+
+def set_observed_device_current(host: Any, current_a: float | None) -> None:
+    """Record or restore the observed device current setpoint."""
+    host._device_set_current = None if current_a is None else float(current_a)
+
+
+def set_observed_device_setpoints(host: Any, *, voltage_v: float, current_a: float) -> None:
+    """Record already-validated device setpoints for session projection/restore."""
+    host._device_set_voltage = float(voltage_v)
+    set_observed_device_current(host, current_a)
+
+
 def clear_restored_targets(host: Any) -> None:
     host._restored_target_v = 0.0
     host._restored_target_i = 0.0
+
+
+def shift_active_clocks(host: Any, seconds: float) -> None:
+    """Shift active controller deadlines/evidence clocks after an operator pause."""
+    if seconds <= 0:
+        return
+    for name in (
+        "stage_start_time",
+        "total_start_time",
+        "finish_timer_start",
+        "_first_stage_hold_since",
+        "_stuck_current_since",
+        "_safe_wait_start",
+        "_blanking_until",
+        "_delta_monitor_after",
+        "_cv_since",
+        "_v2_trace_started_at",
+    ):
+        value = getattr(host, name, None)
+        if isinstance(value, (int, float)) and value > 0:
+            setattr(host, name, float(value) + seconds)
+    main_sample_evidence = getattr(host, "_main_sample_evidence", None)
+    if main_sample_evidence is not None:
+        main_sample_evidence.shift_clock(seconds)
 
 
 def reset_delta_and_blanking(host: Any, now: float, *, delay_s: float) -> None:

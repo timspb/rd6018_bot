@@ -30,11 +30,9 @@ class DryRunExecutor(PhysicalExecutor):
             self.records.append(record)
             return record
         if intent.action is OutputAction.ENABLE:
-            actions = ("prepare", "set_voltage", "set_current", "set_ovp", "set_ocp", "readback", "enable")
+            actions = ("prepare", "set_voltage", "set_current", "readback", "enable")
         elif intent.action is OutputAction.DISABLE:
-            actions = ("disable", "read_output_state", "confirm_off", "reset_protection")
-        elif intent.action is OutputAction.RESET_PROTECTION:
-            actions = ("reset_ovp", "reset_ocp", "readback")
+            actions = ("disable", "read_output_state", "confirm_off")
         else:
             actions = (intent.action.value,)
         record = ExecutionRecord(0.0, intent, validation, actions, {"verified": False, "simulated": True})

@@ -9,7 +9,8 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 
 CONTROL_PREFIXES = (
-    "runtime/charge/", "runtime/physical/", "runtime_safety", "managed_runtime_safety.py", "safe_output.py", "edge_safety_lease",
+    "runtime/charge/", "runtime/physical/", "runtime/safety/",
+    "runtime_safety", "managed_runtime_safety.py", "application/safe_output_coordinator.py", "edge_safety_lease",
     "application/execution_port.py", "application/controller_action_execution.py",
     "application/controller_session_retirement.py",
     "application/charge_stage_tick.py", "application/charge_session_tick.py",

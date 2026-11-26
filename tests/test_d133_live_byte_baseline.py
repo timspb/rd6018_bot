@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from tools.d133_live_byte_baseline import inspect, tree_manifest
 
@@ -46,9 +47,13 @@ class LiveBaselineTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             self.make(root)
-            (root / "app" / "link.py").symlink_to(root / "app" / "bot.py")
-            with self.assertRaisesRegex(ValueError, "symlink"):
-                tree_manifest(root / "app")
+            link = root / "app" / "link.py"
+            link.write_text("fake link entry", encoding="utf-8")
+            real_is_symlink = Path.is_symlink
+            with patch.object(Path, "is_symlink", autospec=True,
+                              side_effect=lambda path: path == link or real_is_symlink(path)):
+                with self.assertRaisesRegex(ValueError, "symlink"):
+                    tree_manifest(root / "app")
 
     def test_invalid_marker_rejected(self):
         with tempfile.TemporaryDirectory() as td:

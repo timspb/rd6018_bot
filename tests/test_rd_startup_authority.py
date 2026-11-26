@@ -7,7 +7,8 @@ from rd_startup_authority import (
     RdStartupAuthorityGate,
     reconcile_startup_authority,
 )
-from runtime_safety import RuntimeSafetyError
+from application.execution_port import get_or_create_execution_port
+from runtime.safety.runtime_guard import RuntimeSafetyError
 
 
 class DummyHass:
@@ -74,19 +75,24 @@ class DummyManager:
         self.guard = guard
         self.pb_managed = True
         self.hands_off = False
-        self._edge_autonomous = False
+        self._record_edge_autonomous(False)
         self.return_calls = 0
 
     @property
     def edge_autonomous(self):
         return self._edge_autonomous
 
+    def _record_edge_autonomous(self, active):
+        if not isinstance(active, bool):
+            raise TypeError("edge autonomous observation must be explicit")
+        self._edge_autonomous = active
+
     def _observe_edge_mode(self, live):
         value = live.get("autonomous_mode")
         if value in (True, 1, "on", "true", "1"):
-            self._edge_autonomous = True
+            self._record_edge_autonomous(True)
         elif value in (False, 0, "off", "false", "0"):
-            self._edge_autonomous = False
+            self._record_edge_autonomous(False)
 
     async def return_pb_control(self):
         self.return_calls += 1
@@ -113,14 +119,17 @@ class RdStartupAuthorityGateTests(unittest.IsolatedAsyncioTestCase):
         manager = DummyManager(guard)
         controller = DummyController()
         app = types.SimpleNamespace(hass=hass, charge_controller=controller)
+        app.rd_control_mode_manager = manager
         gate = RdStartupAuthorityGate(app, manager)
+        app.rd_startup_authority_gate = gate
+        get_or_create_execution_port(app)
         return app, manager, guard, gate
 
     async def test_normal_actuation_is_blocked_before_reconciliation(self):
         app, _manager, _guard, gate = self.make()
 
         with self.assertRaisesRegex(RuntimeSafetyError, "authority unresolved"):
-            await app.hass.turn_on("switch.test")
+            await app.execution_port.request_verified_on()
 
         self.assertFalse(gate.managed_actuation_ready)
         self.assertEqual(app.hass.turn_on_calls, 0)
@@ -130,23 +139,23 @@ class RdStartupAuthorityGateTests(unittest.IsolatedAsyncioTestCase):
         app.session_recovery_guard = types.SimpleNamespace(quarantined=True)
         gate.candidate_autonomous = False
         self.assertFalse(gate.managed_actuation_ready)
-        self.assertTrue(await app.hass.turn_off("switch.test"))
+        self.assertTrue(await app.execution_port.request_verified_off())
         self.assertEqual(app.hass.turn_off_calls, 1)
         with self.assertRaises(RuntimeSafetyError):
-            await app.hass.turn_on("switch.test")
+            await app.execution_port.request_verified_on()
         with self.assertRaises(RuntimeSafetyError):
-            await app.hass.set_current(1.0)
+            await app.execution_port.program_current(1.0)
         app.session_recovery_guard.quarantined = False
         with self.assertRaises(RuntimeSafetyError):
-            await app.hass.turn_off("switch.test")
+            await app.execution_port.request_verified_off()
         app.session_recovery_guard.quarantined = True
         manager._edge_autonomous = True
         with self.assertRaises(RuntimeSafetyError):
-            await app.hass.turn_off("switch.test")
+            await app.execution_port.request_verified_off()
         manager._edge_autonomous = False
         gate.candidate_autonomous = None
         with self.assertRaises(RuntimeSafetyError):
-            await app.hass.turn_off("switch.test")
+            await app.execution_port.request_verified_off()
 
     async def test_managed_recovery_may_use_verified_off_then_reopens_control(self):
         app, manager, _guard, gate = self.make()
@@ -156,7 +165,7 @@ class RdStartupAuthorityGateTests(unittest.IsolatedAsyncioTestCase):
             nonlocal recovery_calls
             recovery_calls += 1
             self.assertTrue(gate.recovery_scope)
-            self.assertTrue(await app.hass.turn_off("switch.test"))
+            self.assertTrue(await app.execution_port.request_verified_off())
             return True
 
         result = await gate.reconcile(recover)
@@ -165,7 +174,7 @@ class RdStartupAuthorityGateTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(recovery_calls, 1)
         self.assertTrue(gate.managed_actuation_ready)
         self.assertFalse(manager.edge_autonomous)
-        self.assertTrue(await app.hass.turn_on("switch.test"))
+        self.assertTrue(await app.execution_port.request_verified_on())
 
     async def test_autonomous_never_runs_managed_recovery_or_allows_bot_output(self):
         app, manager, guard, gate = self.make()
@@ -184,7 +193,7 @@ class RdStartupAuthorityGateTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(manager.edge_autonomous)
         self.assertFalse(gate.managed_actuation_ready)
         with self.assertRaisesRegex(RuntimeSafetyError, "AUTONOMOUS"):
-            await app.hass.turn_on("switch.test")
+            await app.execution_port.request_verified_on()
 
     async def test_explicit_autonomous_exit_can_reopen_gate_after_clean_pb_return(self):
         app, manager, guard, gate = self.make()
@@ -203,7 +212,7 @@ class RdStartupAuthorityGateTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(manager.return_calls, 1)
         self.assertTrue(gate.managed_actuation_ready)
         self.assertFalse(gate.candidate_autonomous)
-        self.assertTrue(await app.hass.turn_on("switch.test"))
+        self.assertTrue(await app.execution_port.request_verified_on())
 
     async def test_plain_hands_off_return_does_not_bypass_unresolved_startup_recovery(self):
         _app, manager, _guard, gate = self.make()
@@ -236,7 +245,7 @@ class RdStartupAuthorityGateTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(recovery_calls, 2)
         self.assertEqual(sleeps, [30.0])
         self.assertTrue(gate.managed_actuation_ready)
-        self.assertTrue(await app.hass.turn_on("switch.test"))
+        self.assertTrue(await app.execution_port.request_verified_on())
 
     async def test_recovery_exception_is_throttled_and_retried_fail_closed(self):
         _app, _manager, _guard, gate = self.make()
@@ -368,14 +377,15 @@ class RdStartupAuthorityGateTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(app.charge_controller.restore_calls), 1)
         self.assertFalse(gate.deferred_restore_requested)
 
-    async def test_unreconciled_get_all_live_is_raw_not_managed_pipeline(self):
+    async def test_unreconciled_transport_read_remains_transport_read(self):
         app, _manager, guard, gate = self.make()
         guard.raw = {"switch": "on", "autonomous_mode": "on", "raw_only": 1}
 
         live = await app.hass.get_all_live()
 
-        self.assertEqual(live["raw_only"], 1)
-        self.assertEqual(app.hass.get_all_calls, 0)
+        self.assertTrue(live["managed"])
+        self.assertNotIn("raw_only", live)
+        self.assertEqual(app.hass.get_all_calls, 1)
         self.assertFalse(gate.managed_actuation_ready)
 
     def test_parser_never_infers_mode_from_unknown_values(self):

@@ -6,7 +6,6 @@ or any physical adapter. It exists to test lock and evidence semantics offline.
 from __future__ import annotations
 
 import errno
-import fcntl
 import hashlib
 import math
 import os
@@ -56,6 +55,8 @@ class FixtureSupervisor:
         self.identity: FixtureChild | None = None
 
     def acquire(self) -> None:
+        import fcntl
+
         before = self.lock_path.lstat()
         if (not stat.S_ISREG(before.st_mode) or before.st_uid != self.owner_uid
                 or stat.S_IMODE(before.st_mode) != 0o600):
@@ -123,6 +124,8 @@ class FixtureSupervisor:
         self.assert_lock_held()
 
     def assert_lock_held(self) -> None:
+        import fcntl
+
         if self.fd is None:
             raise RuntimeError("supervisor lock descriptor is closed")
         contender = os.open(self.lock_path, os.O_RDWR)

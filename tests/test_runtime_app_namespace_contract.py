@@ -24,8 +24,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 # Directories that are not part of the production runtime module graph.
 SKIP_DIRS = {
     ".git",
+    ".recipe-studio-local",  # archived candidate clones, not production sources
     ".worktrees",
     ".venv",
+    ".runtime",  # candidate-local Windows interpreter overlay, not production source
     "tests",
     "esphome",
     "docs",
@@ -38,6 +40,8 @@ SKIP_DIRS = {
 # Frozen inventory: every app.<attr> written anywhere in production modules.
 APP_ATTRS_WRITTEN = frozenset(
     {
+        "_battery_add_route_installed",
+        "handle_battery_add_input",
         "_build_and_send_dashboard",
         "_build_charge_modes_keyboard",
         "_build_dashboard_keyboard",
@@ -51,6 +55,8 @@ APP_ATTRS_WRITTEN = frozenset(
         "_mix_action_eligibility_installed",
         "_operator_destructive_guard",
         "_operator_graph_dashboard_installed",
+        "_render_graph_workspace",
+        "_render_operator_panel",
         "_graph_cache_keys",
         "_recipe_buttons_installed",
         "_recipe_catalog_commands_installed",
@@ -153,6 +159,8 @@ APP_ATTRS_WRITTEN = frozenset(
 # Frozen inventory: attributes written from inside an install*() function.
 INSTALL_ATTRS_WRITTEN = frozenset(
     {
+        "_battery_add_route_installed",
+        "handle_battery_add_input",
         "_build_and_send_dashboard",
         "_restore_dashboard_to_bottom",
         "_build_charge_modes_keyboard",
@@ -167,6 +175,8 @@ INSTALL_ATTRS_WRITTEN = frozenset(
         "_mix_action_eligibility_installed",
         "_operator_destructive_guard",
         "_operator_graph_dashboard_installed",
+        "_render_graph_workspace",
+        "_render_operator_panel",
         "_graph_cache_keys",
         "_recipe_buttons_installed",
         "_recipe_catalog_commands_installed",
@@ -260,11 +270,11 @@ CRITICAL_OWNERSHIP = {
     "manual_session_manager": {"production_bootstrap.py"},
     "charge_monitor": {"production_bootstrap.py"},
     "runtime_safety_guard": {
-        "runtime_safety.py",
-        "runtime_safety_strict.py",
-        "managed_runtime_safety.py",
+        "runtime/safety/runtime_guard.py",
+        "runtime/safety/strict_guard.py",
+        "runtime/safety/managed_guard.py",
     },
-    "edge_safety_lease": {"runtime_safety_strict.py"},
+    "edge_safety_lease": {"runtime/safety/strict_guard.py"},
     "rd_control_mode_manager": {"rd_control_mode.py"},
     "rd_startup_authority_gate": {"rd_startup_authority.py"},
     "rd_autonomous_mode": {"rd_autonomous_mode.py"},
@@ -353,6 +363,11 @@ def scan_namespace_writes():
 
 
 class RuntimeAppNamespaceContractTests(unittest.TestCase):
+    def test_archived_candidate_clones_are_not_production_owners(self):
+        paths = [module for module, _ in _iter_production_files()]
+        self.assertTrue(paths)
+        self.assertFalse(any(module.startswith(".recipe-studio-local/") for module in paths))
+
     def test_app_namespace_attribute_set_is_frozen(self):
         actual, _, _ = scan_namespace_writes()
         self.assertEqual(

@@ -3,27 +3,22 @@ from __future__ import annotations
 import asyncio
 import html
 import os
-import time
-from dataclasses import replace
-from aiogram.types import InlineKeyboardButton
 from typing import Any, Mapping, Optional
 
 import operator_hmi as hmi
 import production_bot_ui
 from application.operator_snapshot_provider import OperatorSnapshotProvider
 from presentation.dark_panel import render_dark_dashboard, render_dark_panel
-from rd6018_telemetry import (
-    ProtectionStatus,
-    RegulationMode,
-    resolve_protection,
-    resolve_regulation,
-    telemetry_freshness,
+from runtime.ui.components.operator_graph_policy import (
+    _charge_session_active,
+    _graph_display_allowed,
+    _graph_query_params,
+    _hands_off_graph_monitoring,
 )
-from runtime.ui.screens.journal import journal_button_spec
-from runtime.ui.telegram.renderer import render_button
+from runtime.ui.components.hmi_action_keyboard import _panel_actions, _toolbar_actions
+from runtime.ui.telegram.panel_lifecycle import deliver_graph_edit
 
 
-_UNKNOWN = {"", "unknown", "unavailable", "none", "null"}
 _BASE_BUILD_OPERATOR_HMI_STATE = hmi.build_operator_hmi_state
 _BASE_RENDER_OPERATOR_PANEL = hmi.render_operator_panel
 _BASE_RENDER_OPERATOR_DETAILS = hmi.render_operator_details
@@ -34,302 +29,31 @@ def _dark_panel_enabled() -> bool:
     return os.getenv("OPERATOR_PANEL_STYLE", "text").strip().lower() in {"dark", "dark_card", "image"}
 
 
-def _charge_session_active(app: Any) -> bool:
-    controller = getattr(app, "charge_controller", None)
-    if controller is not None and bool(getattr(controller, "is_active", False)):
-        return True
-    manual = getattr(app, "manual_session_manager", None)
-    if manual is not None and bool(getattr(manual, "is_active", False)):
-        return True
-    observer = getattr(app, "rd_live_mix_observer", None)
-    return observer is not None and str(getattr(observer, "state", "")) in {"active", "off_pending"}
+# Compatibility exports; message lifecycle and callbacks remain here.
+from runtime.ui.telegram.operator_graph_keyboard import (
+    _hide_active_release_button,
+    _graph_toolbar,
+    _composed_operator_rows,
+    _main_graph_markup,
+    _active_graph_panel_markup,
+)
 
 
+# Compatibility imports preserve historical call sites while semantic ownership
+# remains in operator_hmi. These aliases contain no dashboard policy.
+_binary = hmi._binary
+_fresh = hmi._fresh
+_raw_available = hmi._raw_available
+_regulation_fresh = hmi._regulation_fresh
+_ownership_conflict = hmi._ownership_conflict
+_contain_idle_for_safety = hmi._contain_idle_for_safety
 
-def _hands_off_graph_monitoring(app: Any) -> bool:
-    manager = getattr(app, "rd_control_mode_manager", None)
-    return bool(manager is not None and getattr(manager, "hands_off", False))
 
-
-def _graph_display_allowed(app: Any) -> bool:
-    """Viewing saved telemetry never requires owning an active charge session."""
-    return _charge_session_active(app) or _hands_off_graph_monitoring(app)
-
-
-def _graph_query_params(app: Any, user_id: int):
-    mode, since, limit = app._chart_query_params(user_id)
-    if _hands_off_graph_monitoring(app) and not _charge_session_active(app):
-        # There is no managed session start time. Offer a truthful 24h history
-        # rather than calling the synthetic last-2h fallback a "session".
-        if app._chart_range_for_user(user_id) == app.CHART_RANGE_SESSION:
-            return app.CHART_RANGE_SESSION, time.time() - 24 * 3600, 500
-    return mode, since, limit
-
-def _panel_actions(actions, *, dark: bool):
-    """Apply presentation-only visibility rules to the immutable action view."""
-    if actions is None or not dark:
-        return actions
-    hidden = {hmi.OperatorAction.SHOW_DIAGNOSTICS}
-    return replace(
-        actions,
-        available_actions=tuple(item for item in actions.available_actions if item.action not in hidden),
+def build_truthful_hmi_state(app: Any, live: Mapping[str, Any], *, base_builder=None) -> hmi.OperatorHmiState:
+    return hmi.build_truthful_hmi_state(
+        app, live,
+        base_builder=base_builder or _BASE_BUILD_OPERATOR_HMI_STATE,
     )
-
-
-def _toolbar_actions(actions):
-    """Keep graph ranges and the log in the dedicated top toolbar only."""
-    if actions is None:
-        return None
-    hidden = {hmi.OperatorAction.SHOW_GRAPH}
-    return replace(
-        actions,
-        available_actions=tuple(item for item in actions.available_actions if item.action not in hidden),
-    )
-
-
-def _hide_active_release_button(markup: Any) -> Any:
-    """Do not expose RD ownership transfer from the active charge workspace."""
-    rows = [
-        [button for button in row if button.callback_data != "rd_hands_off_release_confirm"]
-        for row in markup.inline_keyboard
-    ]
-    return type(markup)(inline_keyboard=[row for row in rows if row])
-
-
-def _graph_toolbar(app: Any, user_id: int, actions=None):
-    graph_rows = hmi._graph_keyboard(app, user_id).inline_keyboard
-    top_row = list(graph_rows[0]) if graph_rows else []
-    if _hands_off_graph_monitoring(app) and not _charge_session_active(app) and len(top_row) >= 3:
-        original = top_row[2]
-        top_row[2] = InlineKeyboardButton(
-            text=original.text.replace("Сессия", "24ч"),
-            callback_data=original.callback_data,
-        )
-    if actions is not None and any(
-        item.action is hmi.OperatorAction.SHOW_LOG for item in actions.available_actions
-    ):
-        top_row.append(render_button(journal_button_spec()))
-    return top_row
-
-
-def _main_graph_markup(app: Any, state: hmi.OperatorHmiState, user_id: int, actions=None):
-    """Render the charge panel without graph controls or graph work."""
-    # Older composition wrappers preserve the two-argument builder signature.
-    # The V3 path passes capabilities explicitly; compatibility callers retain
-    # the unchanged legacy fallback.
-    # The root dashboard uses the existing state-driven RD control screen.  The
-    # capability view remains available to callers, but must not replace the
-    # ownership/autonomous composition on the root screen.
-    panel = hmi.build_operator_keyboard(app, state)
-    markup = app.InlineKeyboardMarkup(
-        inline_keyboard=list(panel.inline_keyboard)
-    )
-    if _charge_session_active(app):
-        return _hide_active_release_button(markup)
-    return markup
-
-
-def _active_graph_panel_markup(app: Any, state: hmi.OperatorHmiState, user_id: int, actions=None):
-    """Keep graph ranges and active-charge controls on the same photo message."""
-    graph_rows = [_graph_toolbar(app, user_id, actions)]
-    # Preserve canonical ownership composition for the graph-backed panel.
-    # The V3 action list omits HANDS_OFF live Pb adoption.
-    panel_markup = hmi.build_operator_keyboard(app, state)
-    panel_rows = list(panel_markup.inline_keyboard)
-    panel_rows = [
-        [button for button in row if button.callback_data != "rd_hands_off_release_confirm"]
-        for row in panel_rows
-    ]
-    return app.InlineKeyboardMarkup(inline_keyboard=graph_rows + panel_rows)
-
-
-def _binary(value: Any) -> Optional[bool]:
-    if isinstance(value, bool):
-        return value
-    if value is None:
-        return None
-    raw = str(value).strip().lower()
-    if raw in {"on", "true", "1"}:
-        return True
-    if raw in {"off", "false", "0"}:
-        return False
-    if raw in _UNKNOWN:
-        return None
-    return None
-
-
-def _fresh(live: Mapping[str, Any], *keys: str) -> bool:
-    return bool(telemetry_freshness(live, keys).valid)
-
-
-def _raw_available(value: Any) -> bool:
-    return str(value if value is not None else "").strip().lower() not in _UNKNOWN
-
-
-def _protection_fresh(live: Mapping[str, Any]) -> bool:
-    if _raw_available(live.get("protection_code")):
-        return _fresh(live, "protection_code")
-    return _fresh(live, "ovp_triggered", "ocp_triggered")
-
-
-def _regulation_fresh(live: Mapping[str, Any]) -> bool:
-    if _raw_available(live.get("regulation_code")):
-        return _fresh(live, "regulation_code")
-    return _fresh(live, "is_cv", "is_cc")
-
-
-def _ownership_conflict(app: Any) -> Optional[str]:
-    """Return a presentation-level ownership conflict without changing authority.
-
-    The operator panel must never silently choose one owner when runtime objects claim
-    incompatible control domains. A live observer is intentionally paired with
-    HANDS_OFF; that pair is valid. Managed AUTO/Manual ownership is not.
-    """
-    controller = getattr(app, "charge_controller", None)
-    auto_active = bool(controller is not None and getattr(controller, "is_active", False))
-
-    manual = getattr(app, "manual_session_manager", None)
-    manual_active = bool(manual is not None and getattr(manual, "is_active", False))
-
-    manager = getattr(app, "rd_control_mode_manager", None)
-    hands_off = bool(manager is not None and getattr(manager, "hands_off", False))
-
-    observer = getattr(app, "rd_live_mix_observer", None)
-    observer_state = ""
-    if observer is not None:
-        raw_state = getattr(observer, "state", None)
-        observer_state = str(getattr(raw_state, "value", raw_state) or "")
-    observer_visible = observer is not None and observer_state in {
-        "active",
-        "off_pending",
-        "interrupted",
-    }
-
-    conflicts: list[str] = []
-    if auto_active and manual_active:
-        conflicts.append("AUTO и MANUAL активны одновременно")
-    if observer_visible and (auto_active or manual_active):
-        managed = "AUTO" if auto_active and not manual_active else "MANUAL" if manual_active and not auto_active else "AUTO/MANUAL"
-        conflicts.append(f"{managed} конфликтует с подхваченным Mix")
-    if observer_visible and not hands_off:
-        conflicts.append("подхваченный Mix существует вне HANDS_OFF")
-    if hands_off and (auto_active or manual_active):
-        managed = "AUTO" if auto_active and not manual_active else "MANUAL" if manual_active and not auto_active else "AUTO/MANUAL"
-        conflicts.append(f"{managed} активен при HANDS_OFF")
-
-    return "; ".join(conflicts) if conflicts else None
-
-
-def _contain_idle_for_safety(
-    state: hmi.OperatorHmiState,
-    *,
-    title: str,
-    progress: str,
-    safety: str,
-    attention: str,
-) -> hmi.OperatorHmiState:
-    """Idle may expose Start only when safety state is positively usable."""
-    if state.process_state is not hmi.HmiProcessState.IDLE:
-        return replace(state, safety=safety, attention=attention)
-    return replace(
-        state,
-        process_state=hmi.HmiProcessState.CONTAINMENT,
-        authority=hmi.HmiAuthority.CONTAINMENT,
-        title=title,
-        progress=progress,
-        safety=safety,
-        attention=attention,
-    )
-
-
-def build_truthful_hmi_state(
-    app: Any,
-    live: Mapping[str, Any],
-    *,
-    base_builder=None,
-) -> hmi.OperatorHmiState:
-    """Fail truthful at the presentation boundary without inventing actuator state.
-
-    Runtime safety already fails closed on missing/stale/unknown critical telemetry.
-    The HMI mirrors that truth: stale/unknown Output is not OFF, idle Start is not
-    offered without a usable protection state, raw regulation/protection codes take
-    precedence over legacy compatibility sensors, and contradictory owner claims are
-    surfaced as containment instead of being resolved by display precedence.
-    """
-    builder = base_builder or _BASE_BUILD_OPERATOR_HMI_STATE
-    state = builder(app, live)
-
-    output_state = _binary(live.get("switch"))
-    output_fresh = _fresh(live, "switch")
-    if output_state is None or not output_fresh:
-        reason = (
-            "Физическое состояние Output неизвестно"
-            if output_state is None
-            else "Телеметрия Output устарела"
-        )
-        return replace(
-            state,
-            process_state=hmi.HmiProcessState.CONTAINMENT,
-            authority=hmi.HmiAuthority.CONTAINMENT,
-            title="RD6018 · OUTPUT НЕ ПОДТВЕРЖДЁН",
-            output_on=False,
-            regulator="—",
-            progress=f"{reason} · новые команды запуска недоступны",
-            safety="⚠️ Требуется восстановить достоверную телеметрию RD6018",
-            attention="output_unknown",
-        )
-
-    # Display the same canonical regulation decoder used by the safety layer. An
-    # unknown or stale mode is shown as unknown rather than trusting legacy flags.
-    regulation = resolve_regulation(live)
-    if _regulation_fresh(live):
-        regulator = {
-            RegulationMode.CV: "CV",
-            RegulationMode.CC: "CC",
-        }.get(regulation, "—")
-    else:
-        regulator = "—"
-    if regulator != state.regulator:
-        state = replace(state, regulator=regulator)
-
-    ownership_conflict = _ownership_conflict(app)
-    if ownership_conflict:
-        state = replace(
-            state,
-            process_state=hmi.HmiProcessState.CONTAINMENT,
-            authority=hmi.HmiAuthority.CONTAINMENT,
-            title="RD6018 · КОНФЛИКТ OWNERSHIP",
-            output_on=bool(output_state),
-            progress=f"Несогласованная модель управления: {ownership_conflict}",
-            safety="⚠️ Управляющие действия скрыты до восстановления единственного owner",
-            attention="alarm",
-        )
-
-    protection = resolve_protection(live)
-    if not _protection_fresh(live) or protection.status is ProtectionStatus.UNKNOWN:
-        return _contain_idle_for_safety(
-            state,
-            title="RD6018 · ЗАЩИТА НЕ ПОДТВЕРЖДЕНА",
-            progress="Новая программа недоступна до достоверного статуса защит RD6018",
-            safety="⚠️ Статус защит RD6018 не подтверждён",
-            attention="alarm" if output_state else "warning",
-        )
-
-    if protection.tripped:
-        label = {
-            ProtectionStatus.OVP: "OVP",
-            ProtectionStatus.OCP: "OCP",
-            ProtectionStatus.OPP: "OPP",
-        }.get(protection.status, protection.status.value.upper())
-        return _contain_idle_for_safety(
-            state,
-            title=f"RD6018 · СРАБОТАЛА ЗАЩИТА {label}",
-            progress="Новая программа недоступна до проверки и сброса защитного состояния",
-            safety=f"⚠️ Защита: {label}",
-            attention="alarm",
-        )
-
-    return state
 
 
 def render_truthful_panel(
@@ -372,23 +96,10 @@ def install_operator_graph_dashboard(app: Any) -> None:
     app.chat_graph_dashboard = getattr(app, "chat_graph_dashboard", {})
     app._graph_cache_keys = getattr(app, "_graph_cache_keys", {})
 
-    base_builder = hmi.build_operator_hmi_state
     base_panel_renderer = hmi.render_operator_panel
-    base_details_renderer = hmi.render_operator_details
-
-    def truthful_builder(app_arg: Any, live: Mapping[str, Any]) -> hmi.OperatorHmiState:
-        return build_truthful_hmi_state(app_arg, live, base_builder=base_builder)
 
     def truthful_panel(state: hmi.OperatorHmiState) -> str:
         return render_truthful_panel(state, base_renderer=base_panel_renderer)
-
-    def truthful_details(app_arg: Any, state: hmi.OperatorHmiState, live: Mapping[str, Any]) -> str:
-        return render_truthful_details(
-            app_arg,
-            state,
-            live,
-            base_renderer=base_details_renderer,
-        )
 
     def adopt_graph(chat_id: int, user_id: int, message_id: int) -> None:
         # The lifecycle owner is installed after the graph renderer. Resolve
@@ -415,6 +126,11 @@ def install_operator_graph_dashboard(app: Any) -> None:
 
     async def retire_graph_workspace_message(app_arg: Any, call: Any) -> None:
         """Best-effort retire a workspace message before sending its replacement."""
+        owner = getattr(app_arg, "terminal_panel_manager", None)
+        retire = getattr(owner, "retire_graph_workspace_message", None)
+        if callable(retire):
+            await retire(call)
+            return
         try:
             await app_arg.bot.delete_message(
                 chat_id=call.message.chat.id,
@@ -424,6 +140,11 @@ def install_operator_graph_dashboard(app: Any) -> None:
             pass
 
     async def retire_graph_workspace_for_user(chat_id: int, user_id: int) -> None:
+        owner = getattr(app, "terminal_panel_manager", None)
+        retire = getattr(owner, "retire_graph_workspace_for_user", None)
+        if callable(retire):
+            await retire(chat_id, user_id)
+            return
         message_id = app.user_graph_dashboard.get(user_id)
         if message_id is None:
             return
@@ -438,7 +159,7 @@ def install_operator_graph_dashboard(app: Any) -> None:
         if interface is None:
             return None
         snapshot = await interface.get_operator_snapshot()
-        actions = await interface.get_operator_actions()
+        actions = await interface.get_operator_actions(snapshot=snapshot)
         state = OperatorSnapshotProvider.hmi_state_from_snapshot(snapshot)
         actions = _panel_actions(actions, dark=_dark_panel_enabled())
         caption = truthful_panel(state)
@@ -465,24 +186,13 @@ def install_operator_graph_dashboard(app: Any) -> None:
         panel_content = await active_panel_content(user_id)
         markup = panel_content[1] if panel_content is not None else hmi._graph_keyboard(app_arg, user_id)
         caption = panel_content[0] if panel_content is not None else _GRAPH_CAPTION
-        adopt_graph(call.message.chat.id, user_id, call.message.message_id)
+        if getattr(app_arg, "terminal_panel_manager", None) is None:
+            adopt_graph(call.message.chat.id, user_id, call.message.message_id)
         if not buf:
             text = "Недостаточно данных."
-            # A photo message cannot truthfully become an empty text workspace by
-            # editing only its caption: the old graph would remain visible. Replace
-            # the workspace instead of leaving stale plotted data on screen.
-            if bool(getattr(call.message, "photo", None)):
-                await retire_graph_workspace_message(app_arg, call)
-                sent = await call.message.answer(
-                    text,
-                    parse_mode=app_arg.ParseMode.HTML,
-                    reply_markup=markup,
-                )
-                forget_graph(call.message.chat.id, user_id, call.message.message_id)
-                app_arg.user_dashboard[user_id] = sent.message_id
-                app_arg.chat_dashboard[call.message.chat.id] = sent.message_id
-                return
-            try:
+            photo_source = bool(getattr(call.message, "photo", None))
+
+            async def edit_empty_workspace() -> None:
                 await app_arg.bot.edit_message_text(
                     chat_id=call.message.chat.id,
                     message_id=call.message.message_id,
@@ -490,18 +200,47 @@ def install_operator_graph_dashboard(app: Any) -> None:
                     parse_mode=app_arg.ParseMode.HTML,
                     reply_markup=markup,
                 )
-            except Exception as exc:
-                if "message is not modified" in str(exc).lower():
-                    return
-                await retire_graph_workspace_message(app_arg, call)
-                sent = await call.message.answer(
+
+            async def send_empty_workspace():
+                return await call.message.answer(
                     text,
                     parse_mode=app_arg.ParseMode.HTML,
                     reply_markup=markup,
                 )
+
+            def retire_empty_graph() -> None:
+                forget_graph(call.message.chat.id, user_id, call.message.message_id)
+
+            def adopt_empty_replacement(sent: Any) -> None:
                 app_arg.user_dashboard[user_id] = sent.message_id
                 app_arg.chat_dashboard[call.message.chat.id] = sent.message_id
-            forget_graph(call.message.chat.id, user_id, call.message.message_id)
+                retire_empty_graph()
+
+            owner = getattr(app_arg, "terminal_panel_manager", None)
+            if owner is not None:
+                await owner.replace_graph_workspace(
+                    call,
+                    user_id,
+                    None if photo_source else edit_empty_workspace,
+                    send_empty_workspace,
+                    retire_empty_graph,
+                    adopt_empty_replacement,
+                )
+                return
+
+            if not photo_source:
+                try:
+                    await edit_empty_workspace()
+                except Exception as exc:
+                    if "message is not modified" in str(exc).lower():
+                        retire_empty_graph()
+                        return
+                else:
+                    retire_empty_graph()
+                    return
+            await retire_graph_workspace_message(app_arg, call)
+            sent = await send_empty_workspace()
+            adopt_empty_replacement(sent)
             return
 
         photo = app_arg.BufferedInputFile(buf.getvalue(), filename="rd6018-graph.png")
@@ -510,33 +249,50 @@ def install_operator_graph_dashboard(app: Any) -> None:
             caption=caption,
             parse_mode=app_arg.ParseMode.HTML,
         )
-        try:
+        async def edit_graph_workspace() -> None:
             await app_arg.bot.edit_message_media(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
                 media=media,
                 reply_markup=markup,
             )
-        except Exception as exc:
-            if "message is not modified" in str(exc).lower():
-                return
-            await retire_graph_workspace_message(app_arg, call)
-            sent = await call.message.answer_photo(
+
+        async def send_graph_replacement():
+            return await call.message.answer_photo(
                 photo,
                 caption=caption,
                 parse_mode=app_arg.ParseMode.HTML,
                 reply_markup=markup,
             )
-            # A replacement photo has a new Telegram message ID. Keep the
-            # periodic refresh loop bound to that ID, not the deleted image.
+
+        def adopt_replacement_graph(sent: Any) -> None:
             adopt_graph(call.message.chat.id, user_id, sent.message_id)
 
-    # operator_hmi handlers resolve these globals at call time, so details, graph
-    # workspace and compact caption inherit the final production presentation rules.
-    hmi.build_operator_hmi_state = truthful_builder
-    hmi.render_operator_panel = truthful_panel
-    hmi.render_operator_details = truthful_details
-    hmi._render_graph_workspace = render_graph_workspace
+        owner = getattr(app_arg, "terminal_panel_manager", None)
+        if owner is not None:
+            await owner.replace_graph_workspace(
+                call,
+                user_id,
+                edit_graph_workspace,
+                send_graph_replacement,
+                lambda: None,
+                adopt_replacement_graph,
+            )
+            return
+        try:
+            await edit_graph_workspace()
+        except Exception as exc:
+            if "message is not modified" in str(exc).lower():
+                return
+            await retire_graph_workspace_message(app_arg, call)
+            sent = await send_graph_replacement()
+            adopt_replacement_graph(sent)
+
+    # Keep final presentation and graph transport on this app. HMI composition
+    # resolves these callbacks from the app at render time; another composition
+    # in this process cannot inherit this app's closures.
+    app._render_operator_panel = truthful_panel
+    app._render_graph_workspace = render_graph_workspace
 
     async def publish_graph_workspace(
         chat_id: int,
@@ -562,22 +318,36 @@ def install_operator_graph_dashboard(app: Any) -> None:
         if not buf:
             return None
         photo = app.BufferedInputFile(buf.getvalue(), filename="rd6018-graph.png")
-        sent = await app.bot.send_photo(
-            chat_id,
-            photo=photo,
-            caption=caption,
-            parse_mode=app.ParseMode.HTML,
-            reply_markup=reply_markup,
-        )
-        adopt_graph(chat_id, user_id, sent.message_id)
-        app._graph_cache_keys[user_id] = (
+        cache_key = (
             _chart_mode,
             times[-1] if times else None,
             len(times),
         )
+
+        async def send_graph_workspace():
+            return await app.bot.send_photo(
+                chat_id,
+                photo=photo,
+                caption=caption,
+                parse_mode=app.ParseMode.HTML,
+                reply_markup=reply_markup,
+            )
+
+        def remember_graph_samples() -> None:
+            app._graph_cache_keys[user_id] = cache_key
+
         owner = getattr(app, "terminal_panel_manager", None)
         if owner is not None:
-            owner.start_graph_refresh(refresh_graph_message)
+            return await owner.publish_graph_workspace(
+                chat_id,
+                user_id,
+                send_graph_workspace,
+                remember_graph_samples,
+                refresh_graph_message,
+            )
+        sent = await send_graph_workspace()
+        adopt_graph(chat_id, user_id, sent.message_id)
+        remember_graph_samples()
         return int(sent.message_id)
 
     async def refresh_graph_message(chat_id: int, user_id: int, *, force: bool = False) -> None:
@@ -605,17 +375,10 @@ def install_operator_graph_dashboard(app: Any) -> None:
             panel_content = await active_panel_content(user_id)
             markup = panel_content[1] if panel_content is not None else hmi._graph_keyboard(app, user_id)
             caption = panel_content[0] if panel_content is not None else _GRAPH_CAPTION
-            try:
-                await app.bot.edit_message_caption(
-                    chat_id=chat_id,
-                    message_id=graph_message_id,
-                    caption=caption,
-                    parse_mode=app.ParseMode.HTML,
-                    reply_markup=markup,
-                )
-            except Exception as exc:
-                if "message is not modified" not in str(exc).lower():
-                    app.logger.debug("graph caption refresh failed: %s", exc)
+            await deliver_graph_edit(
+                app, chat_id, user_id, graph_message_id,
+                caption=caption, reply_markup=markup,
+            )
             return
         buf = await app.asyncio.to_thread(
             app.generate_chart,
@@ -630,21 +393,18 @@ def install_operator_graph_dashboard(app: Any) -> None:
         panel_content = await active_panel_content(user_id)
         markup = panel_content[1] if panel_content is not None else hmi._graph_keyboard(app, user_id)
         caption = panel_content[0] if panel_content is not None else _GRAPH_CAPTION
-        try:
-            await app.bot.edit_message_media(
-                chat_id=chat_id,
-                message_id=graph_message_id,
-                media=app.InputMediaPhoto(
-                    media=photo,
-                    caption=caption,
-                    parse_mode=app.ParseMode.HTML,
-                ),
-                reply_markup=markup,
-            )
-        except Exception as exc:
-            if "message is not modified" not in str(exc).lower():
-                app.logger.debug("graph refresh failed: %s", exc)
-                return
+        edited = await deliver_graph_edit(
+            app, chat_id, user_id, graph_message_id,
+            caption=caption,
+            reply_markup=markup,
+            media=app.InputMediaPhoto(
+                media=photo,
+                caption=caption,
+                parse_mode=app.ParseMode.HTML,
+            ),
+        )
+        if not edited:
+            return
         app._graph_cache_keys[user_id] = cache_key
 
     app._refresh_graph_message = refresh_graph_message
@@ -657,7 +417,7 @@ def install_operator_graph_dashboard(app: Any) -> None:
             if interface is None:
                 raise RuntimeError("operator interface is not installed")
             snapshot = await interface.get_operator_snapshot()
-            actions = await interface.get_operator_actions()
+            actions = await interface.get_operator_actions(snapshot=snapshot)
         except Exception as exc:
             app.logger.error("Failed to refresh V3 operator snapshot: %s", exc)
             return None
@@ -814,7 +574,7 @@ def install_operator_graph_dashboard(app: Any) -> None:
             if interface is None:
                 raise RuntimeError("operator interface is not installed")
             snapshot = await interface.get_operator_snapshot()
-            actions = await interface.get_operator_actions()
+            actions = await interface.get_operator_actions(snapshot=snapshot)
         except Exception as exc:
             app.logger.error("Failed to get V3 operator snapshot for dashboard: %s", exc)
             snapshot = None

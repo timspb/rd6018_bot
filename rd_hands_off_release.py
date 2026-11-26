@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import types
 from typing import Any, Optional
@@ -10,7 +11,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from manual_mode import ManualSessionState
 from operator_confirmation import ConfirmationStore
 from rd_control_mode import RdControlMode, RdControlModeManager
-from runtime_safety import RuntimeSafetyError
+from runtime.safety.runtime_guard import RuntimeSafetyError
 
 
 logger = logging.getLogger(__name__)
@@ -155,29 +156,6 @@ def _edge_release_api(manager: RdControlModeManager) -> Any:
     return lease
 
 
-def _install_release_read_barrier(app: Any, manager: RdControlModeManager) -> None:
-    """Keep background reads non-actuating while an ownership transfer is prepared.
-
-    The previous implementation achieved this by setting in-memory HANDS_OFF before
-    the durable commit. That accidentally blocked a concurrent safety-driven
-    ``turn_off``. The dedicated release_in_progress barrier is narrower: reads bypass
-    managed lease renewal and all ON/setpoint writes are already blocked by
-    rd_control_mode, while verified OFF remains available until ownership commits.
-    """
-    hass = getattr(app, "hass", None)
-    if hass is None or bool(getattr(hass, "_rd_hands_off_release_read_wrapped", False)):
-        return
-    previous_get_all_live = hass.get_all_live
-
-    async def release_aware_get_all_live() -> dict[str, Any]:
-        if manager.release_in_progress and not manager.hands_off:
-            return await manager.guard._raw_live()
-        return await previous_get_all_live()
-
-    hass.get_all_live = release_aware_get_all_live
-    hass._rd_hands_off_release_read_wrapped = True
-
-
 async def _release_active_transaction(
     app: Any,
     manager: RdControlModeManager,
@@ -217,8 +195,27 @@ async def _release_active_transaction(
         try:
             if lease is not None:
                 prepared = await lease.prepare_hands_off_release()
+
+            # D061 may publish OFF_PENDING while the edge preflight is awaiting
+            # telemetry/ACK. Recheck its state after the final await and immediately
+            # before the durable commit; no task can interleave between this check
+            # and _write_mode(). A safety containment that won pre-commit must win.
+            adoption = getattr(app, "rd_managed_live_adoption", None)
+            if bool(getattr(adoption, "off_pending", False)):
+                raise RuntimeSafetyError(
+                    "RD HANDS_OFF blocked: D061 verified Output OFF containment became pending before ownership commit"
+                )
+
             manager._write_mode(RdControlMode.HANDS_OFF)
             manager.mode = RdControlMode.HANDS_OFF
+        except asyncio.CancelledError:
+            # Before the durable ownership write, cancellation is a pre-commit
+            # abort: PB remains owner and the existing lease renewal must resume.
+            manager.mode = RdControlMode.PB_MANAGED
+            manager._release_in_progress = False
+            if lease is not None:
+                lease.resume_renewals()
+            raise
         except Exception as exc:
             manager.mode = RdControlMode.PB_MANAGED
             manager._release_in_progress = False
@@ -233,17 +230,35 @@ async def _release_active_transaction(
         # From the durable commit onward never silently fall back to PB_MANAGED: the
         # edge command may have executed even if its ACK is subsequently lost.
         edge_error: Optional[Exception] = None
+        cancelled: Optional[asyncio.CancelledError] = None
         cleanup_errors: list[str] = []
         if lease is not None:
             try:
                 await lease.release_to_hands_off(
                     expected_generation=getattr(prepared, "generation", None)
                 )
+            except asyncio.CancelledError as exc:
+                # The durable HANDS_OFF commit is already authoritative. The edge
+                # command may have executed; never roll back or resume its lease.
+                cancelled = exc
             except Exception as exc:
                 edge_error = exc
 
         try:
             await _retire_manual_without_output_change(app)
+        except asyncio.CancelledError as exc:
+            cancelled = cancelled or exc
+            # Cancellation may have interrupted only the runner join. Retry the
+            # software-only retirement before allowing cancellation to propagate.
+            try:
+                await _retire_manual_without_output_change(app)
+            except Exception as retry_exc:
+                logger.error("Failed to finish Manual retirement after cancellation: %s", retry_exc)
+                cleanup_errors.append(
+                    f"Manual cleanup: {type(retry_exc).__name__}: {retry_exc}"
+                )
+            except asyncio.CancelledError:
+                cleanup_errors.append("Manual cleanup remained cancelled")
         except Exception as exc:
             logger.error("Failed to fully retire Manual state after RD release: %s", exc)
             cleanup_errors.append(f"Manual cleanup: {type(exc).__name__}: {exc}")
@@ -252,8 +267,14 @@ async def _release_active_transaction(
         except Exception as exc:
             logger.error("Failed to fully retire AUTO state after RD release: %s", exc)
             cleanup_errors.append(f"AUTO cleanup: {type(exc).__name__}: {exc}")
+        finally:
+            # The D061 monitor must not remain suppressed after this transaction
+            # exits, including the cancellation path. Its exact-session marker and
+            # durable HANDS_OFF state govern retirement/restart reconciliation.
+            manager._release_in_progress = False
 
-        manager._release_in_progress = False
+        if cancelled is not None:
+            raise cancelled
 
         if edge_error is not None or cleanup_errors:
             details: list[str] = []
@@ -340,7 +361,7 @@ def _install_release_confirmation_ui(
         await call.message.answer(
             "⚠️ <b>Отпустить RD6018 из-под управления ботом?</b>\n\n"
             "После подтверждения зарядная автоматика, Delta и таймеры будут сняты, "
-            "edge-lease будет передан в HANDS_OFF, а текущий Output и V/I/OVP/OCP останутся без изменений.\n\n"
+            "edge-lease будет передан в HANDS_OFF, а текущий Output и V/I останутся без изменений.\n\n"
             "Pb-защита бота больше не будет вмешиваться, пока включён режим РД — не лезь. "
             "Подтверждение действительно ограниченное время и только в этом чате.",
             parse_mode=app.ParseMode.HTML,
@@ -430,7 +451,6 @@ def install_rd_hands_off_release(
     rolls back to PB_MANAGED after the durable HANDS_OFF commit if edge ACK is lost.
     """
     if bool(getattr(manager, "_active_release_installed", False)):
-        _install_release_read_barrier(app, manager)
         _install_release_confirmation_ui(app, manager)
         return manager
 
@@ -463,7 +483,6 @@ def install_rd_hands_off_release(
     )
     manager._active_release_authorization_token = None
     manager._active_release_installed = True
-    _install_release_read_barrier(app, manager)
 
     # Crash after durable HANDS_OFF but before AUTO cleanup must not leave a stale
     # restore file that can revive later.

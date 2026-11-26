@@ -1,4 +1,3 @@
-import fcntl
 import os
 from pathlib import Path
 import tempfile
@@ -39,7 +38,10 @@ class SupervisorFixtureTests(unittest.TestCase):
         self.supervisor.close()
         self.temp.cleanup()
 
+    @unittest.skipIf(os.name == "nt", "supervisor lock and /proc child protocol require POSIX")
     def test_synthetic_sigkill_keeps_parent_lock_and_blocks_duplicate_acceptance(self):
+        import fcntl
+
         child = self.supervisor.start_synthetic_child(self.script)
         self.assertGreater(child.pid, 1)
         # Synthetic child attempted LOCK_UN on its independent descriptor;
@@ -57,12 +59,14 @@ class SupervisorFixtureTests(unittest.TestCase):
         self.assertEqual(self.supervisor.child.returncode, -9)
         self.supervisor.assert_lock_held()
 
+    @unittest.skipIf(os.name == "nt", "supervisor fixture setup requires POSIX flock")
     def test_source_identity_change_refuses_synthetic_kill(self):
         self.supervisor.start_synthetic_child(self.script)
         self.script.write_text("# changed fixture\n")
         with self.assertRaisesRegex(RuntimeError, "source SHA"):
             self.supervisor.kill_synthetic_child(self.script)
 
+    @unittest.skipIf(os.name == "nt", "supervisor fixture setup requires POSIX flock")
     def test_stale_handshake_marker_cannot_claim_child_readiness(self):
         (self.root / "synthetic_child.ready").write_text("stale")
         with self.assertRaisesRegex(RuntimeError, "stale fixture ready"):
@@ -70,6 +74,7 @@ class SupervisorFixtureTests(unittest.TestCase):
         self.assertIsNone(self.supervisor.child)
         self.supervisor.assert_lock_held()
 
+    @unittest.skipIf(os.name == "nt", "supervisor fixture setup requires POSIX flock")
     def test_production_script_name_is_rejected(self):
         bot = self.root / "bot.py"
         bot.write_text("pass\n")

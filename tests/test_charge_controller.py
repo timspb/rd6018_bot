@@ -1,4 +1,6 @@
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from application.charge_session_tick import run_charge_session_tick
@@ -16,6 +18,19 @@ class ExplodingShadowRuntime:
 
 
 class ManagedChargeControllerTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self._state_tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._state_tmp.cleanup)
+        session_file = str(Path(self._state_tmp.name) / "charge_session.json")
+        for target in (
+            "charge_controller.SESSION_FILE",
+            "runtime.charge.persistence.SESSION_FILE",
+            "mix_active_authority.SESSION_FILE",
+        ):
+            patcher = patch(target, session_file)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
     def _shadow_controller(self):
         return ManagedChargeController(DummyHass())
 

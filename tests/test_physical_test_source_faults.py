@@ -10,7 +10,7 @@ from physical_test_control_source_faults import (
     install_physical_test_control_source_faults,
 )
 from rd6018_telemetry import telemetry_freshness
-from runtime_safety import RuntimeSafetyError
+from runtime.safety.runtime_guard import RuntimeSafetyError
 from tools.physical_test_source_fault_client import OPERATIONS
 
 
@@ -83,8 +83,6 @@ def fresh_live():
         "temp_int": 32.0,
         "set_voltage": 15.10,
         "set_current": 0.18,
-        "ovp": 15.30,
-        "ocp": 0.40,
         "protection_code": 0.0,
         "regulation_code": 1.0,
         "is_cv": False,

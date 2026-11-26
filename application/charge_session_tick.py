@@ -248,6 +248,71 @@ def _fail_closed_cooling_actions(host: Any, reason: str) -> Dict[str, Any]:
     }
 
 
+def _observe_efb_recovery_plateau_shadow(
+    host: Any, *, stage_before: str, timestamp_s: float,
+    voltage: float, current: float, temp_ext: float | None,
+    target_before: float | None, is_cv: bool, output_is_on: Any,
+    actions: dict[str, Any],
+) -> None:
+    """Collect advisory EFB Recovery plateau evidence without stage or actuator authority."""
+    # EFB Recovery plateau observation is evidence-only and does not
+    # independently select or mutate the stage. Its verdict is passed to
+    # the existing stage authority and MAIN policy below.
+    try:
+        from runtime.charge.evidence.recovery_plateau_observer import RecoveryPlateauObserver
+        from runtime.charge.programs.native_recipe_session import native_target_parameters
+        from runtime.charge.evidence.recovery_plateau_policy import PlateauRecipe
+        from runtime.charge.evidence import recovery_plateau_variables as pv
+        cfg = native_target_parameters(host, "MAIN_POLICY")
+        recipe = PlateauRecipe(
+            min_window_minutes=cfg.get("min_window_minutes", pv.MIN_WINDOW_MINUTES.default),
+            max_window_minutes=cfg.get("max_window_minutes", pv.MAX_WINDOW_MINUTES.default),
+            end_segment_minutes=cfg.get("end_segment_minutes", pv.END_SEGMENT_MINUTES.default),
+            strong_plateau_drop_a=cfg.get("strong_plateau_drop_a", pv.STRONG_DROP_A.default),
+            weak_plateau_drop_a=cfg.get("weak_plateau_drop_a", pv.WEAK_DROP_A.default),
+        )
+        observer = getattr(host, "_recovery_plateau_observer", None)
+        if observer is not None and observer.recipe != recipe:
+            observer.reset()
+            observer = None
+        if observer is None:
+            observer = RecoveryPlateauObserver(recipe=recipe)
+            host._recovery_plateau_observer = observer
+        intent = str(getattr(getattr(host, "_v2_intent", None), "value", getattr(host, "_v2_intent", ""))).lower()
+        eligible = (
+            stage_before == host.STAGE_MAIN
+            and host.battery_type == host.PROFILE_EFB
+            and intent in {"recovery", "conditioning"}
+            and normalize_output_on(output_is_on) is True
+        )
+        plateau = observer.observe(
+            session_id=str(host._v2_trace_session_id or ""),
+            timestamp_s=float(timestamp_s),
+            voltage_v=float(voltage),
+            current_a=float(current),
+            target_voltage_v=float(target_before) if target_before is not None else math.nan,
+            is_cv=bool(is_cv),
+            temp_valid=temp_ext is not None and math.isfinite(finite_or_nan(temp_ext)),
+            eligible=eligible,
+        )
+        host._recovery_plateau_latest = plateau
+        actions["efb_recovery_plateau_shadow"] = {
+            "verdict": plateau.verdict.value,
+            "elapsed_minutes": round(plateau.elapsed_minutes, 1),
+            "current_drop_a": plateau.current_drop_a,
+            "reason": plateau.reason,
+            "actuator_authority": False,
+        }
+    except Exception:
+        host._recovery_plateau_latest = None
+        logger.exception("EFB recovery plateau shadow observation failed")
+        actions["efb_recovery_plateau_shadow"] = {
+            "verdict": "invalid",
+            "reason": "observer_error",
+            "actuator_authority": False,
+        }
+
+
 async def _run_charge_session_tick_body(
     host: Any,
     voltage: float,
@@ -367,6 +432,8 @@ async def _run_charge_session_tick_body(
                 main_stage=host.STAGE_MAIN,
                 mix_stage=host.STAGE_MIX,
                 previous_current_min_a=prior_current_min,
+                is_cv=bool(is_cv),
+                is_cc=(is_cc is True),
             )
             if milestone:
                 actions.setdefault("log_event_sub", milestone)
@@ -419,62 +486,12 @@ async def _run_charge_session_tick_body(
             timestamp_s=float(timestamp_s),
         )
 
-        # EFB Recovery plateau evidence: shadow only, no stage selection.
-        # Intentionally not connected to apply_charge_stage_authority().
-        try:
-            from runtime.charge.evidence.recovery_plateau_observer import RecoveryPlateauObserver
-            from runtime.charge.programs.native_recipe_session import native_target_parameters
-            from runtime.charge.evidence.recovery_plateau_policy import PlateauRecipe
-            from runtime.charge.evidence import recovery_plateau_variables as pv
-            cfg = native_target_parameters(host, "MAIN_POLICY")
-            recipe = PlateauRecipe(
-                min_window_minutes=cfg.get("min_window_minutes", pv.MIN_WINDOW_MINUTES.default),
-                max_window_minutes=cfg.get("max_window_minutes", pv.MAX_WINDOW_MINUTES.default),
-                end_segment_minutes=cfg.get("end_segment_minutes", pv.END_SEGMENT_MINUTES.default),
-                strong_plateau_drop_a=cfg.get("strong_plateau_drop_a", pv.STRONG_DROP_A.default),
-                weak_plateau_drop_a=cfg.get("weak_plateau_drop_a", pv.WEAK_DROP_A.default),
-            )
-            observer = getattr(host, "_recovery_plateau_observer", None)
-            if observer is not None and observer.recipe != recipe:
-                observer.reset()
-                observer = None
-            if observer is None:
-                observer = RecoveryPlateauObserver(recipe=recipe)
-                host._recovery_plateau_observer = observer
-            intent = str(getattr(getattr(host, "_v2_intent", None), "value", getattr(host, "_v2_intent", ""))).lower()
-            eligible = (
-                stage_before == host.STAGE_MAIN
-                and host.battery_type == host.PROFILE_EFB
-                and intent in {"recovery", "conditioning"}
-                and normalize_output_on(output_is_on) is True
-            )
-            plateau = observer.observe(
-                session_id=str(host._v2_trace_session_id or ""),
-                timestamp_s=float(timestamp_s),
-                voltage_v=float(voltage),
-                current_a=float(current),
-                target_voltage_v=float(target_before) if target_before is not None else math.nan,
-                is_cv=bool(is_cv),
-                temp_valid=temp_ext is not None and math.isfinite(finite_or_nan(temp_ext)),
-                eligible=eligible,
-            )
-            host._recovery_plateau_latest = plateau
-            actions["efb_recovery_plateau_shadow"] = {
-                "verdict": plateau.verdict.value,
-                "elapsed_minutes": round(plateau.elapsed_minutes, 1),
-                "current_drop_a": plateau.current_drop_a,
-                "reason": plateau.reason,
-                "actuator_authority": False,
-            }
-        except Exception:
-            host._recovery_plateau_latest = None
-            logger.exception("EFB recovery plateau shadow observation failed")
-            actions["efb_recovery_plateau_shadow"] = {
-                "verdict": "invalid",
-                "reason": "observer_error",
-                "actuator_authority": False,
-            }
-
+        _observe_efb_recovery_plateau_shadow(
+            host, stage_before=stage_before, timestamp_s=timestamp_s,
+            voltage=voltage, current=current, temp_ext=temp_ext,
+            target_before=target_before, is_cv=is_cv,
+            output_is_on=output_is_on, actions=actions,
+        )
         if is_authoritative_charge_stage(host, stage_before):
             temp_value = math.nan if temp_ext is None else finite_or_nan(temp_ext)
             if math.isfinite(temp_value):

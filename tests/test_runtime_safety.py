@@ -1,8 +1,8 @@
 import types
 import unittest
 
-from runtime_safety import OutputOffNotConfirmed, RuntimeSafetyError
-from runtime_safety_strict import install_strict_runtime_safety
+from runtime.safety.runtime_guard import OutputOffNotConfirmed, RuntimeSafetyError
+from runtime.safety.strict_guard import install_strict_runtime_safety
 
 
 def live_state(**overrides):
@@ -195,36 +195,19 @@ class RuntimeSafetyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(app.hass.live["switch"], "on")
         self.assertTrue(any(name == "set_current" for name, _ in app.hass.setter_calls))
 
-    async def test_ovp_cannot_be_lowered_below_active_voltage_envelope(self):
-        app = FakeApp(live=live_state(set_voltage=14.8, ovp=14.9))
-        self._install(app)
-
-        with self.assertRaises(RuntimeSafetyError):
-            await app.hass.set_ovp(14.0)
-
-        self.assertEqual(app.hass.live["switch"], "off")
-        self.assertFalse(any(name == "set_ovp" for name, _ in app.hass.setter_calls))
-
-    async def test_ocp_cannot_be_lowered_below_active_current_envelope(self):
-        app = FakeApp(live=live_state(set_current=2.0, ocp=2.1))
-        self._install(app)
-
-        with self.assertRaises(RuntimeSafetyError):
-            await app.hass.set_ocp(1.0)
-
-        self.assertEqual(app.hass.live["switch"], "off")
-        self.assertFalse(any(name == "set_ocp" for name, _ in app.hass.setter_calls))
-
-    async def test_failed_live_ovp_programming_aborts_sequence_and_forces_off(self):
+    async def test_retired_protection_setters_are_not_wrapped_or_called_by_vi_guard(self):
         app = FakeApp()
-        app.hass.fail_setter = "set_ovp"
+        original_ovp = app.hass.set_ovp.__func__
+        original_ocp = app.hass.set_ocp.__func__
         self._install(app)
-
-        with self.assertRaises(RuntimeSafetyError):
-            await app.hass.set_ovp(15.0)
-
-        self.assertEqual(app.hass.live["switch"], "off")
-        self.assertEqual(app.hass.turn_off_calls, 1)
+        self.assertIs(app.hass.set_ovp.__func__, original_ovp)
+        self.assertIs(app.hass.set_ocp.__func__, original_ocp)
+        self.assertTrue(await app.hass.set_current(2.0))
+        self.assertTrue(await app.hass.set_voltage(14.8))
+        names = [name for name, _ in app.hass.setter_calls]
+        self.assertNotIn("set_ovp", names)
+        self.assertNotIn("set_ocp", names)
+        self.assertEqual(app.hass.live["switch"], "on")
 
     async def test_idle_controller_cannot_energize_output(self):
         app = FakeApp(

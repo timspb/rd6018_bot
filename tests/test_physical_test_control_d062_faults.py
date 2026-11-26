@@ -7,7 +7,7 @@ from ha_history import ContinuousOnEvidence, MixHistoryEvidence
 from pb_domain import BatteryChemistry
 from rd_managed_adoption import ManagedAdoptionFingerprint
 from rd_managed_mix import ManagedMixState
-from runtime_safety import RuntimeSafetyError
+from runtime.safety.runtime_guard import RuntimeSafetyError
 
 from physical_test_control_d062 import install_physical_test_control_d062
 
@@ -29,8 +29,6 @@ class FakeControl:
             "output_state_code_v2": 1,
             "set_voltage": 15.10,
             "set_current": 0.18,
-            "ovp": 15.30,
-            "ocp": 0.40,
         }
         self._status = self.base_status
         self.dispatch = self.base_dispatch
@@ -65,8 +63,6 @@ class FakeControl:
         return {
             "set_voltage_v": float(value.set_voltage_v),
             "set_current_a": float(value.set_current_a),
-            "ovp_v": float(value.ovp_v),
-            "ocp_a": float(value.ocp_a),
         }
 
     @staticmethod
@@ -146,8 +142,6 @@ class FaultD061:
         return ManagedAdoptionFingerprint(
             float(live["set_voltage"]),
             float(live["set_current"]),
-            float(live["ovp"]),
-            float(live["ocp"]),
         )
 
     def _preflight_live(self, live, *, expected=None):

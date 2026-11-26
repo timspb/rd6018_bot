@@ -32,10 +32,10 @@ class ExistingSessionTests(unittest.IsolatedAsyncioTestCase):
                     measurements={}, safety_context=SafetyContext(),
                     voltage_ceiling_v=15.5, state_path=Path(tmp)/"runner.json",
                 )
-                limits = advance.await_args.kwargs["restart_limits"]
-                self.assertAlmostEqual(limits[0], 14.8)
-                self.assertAlmostEqual(limits[1], 1.1)
-                self.assertEqual(limits[2], 15.5)
+                kwargs = advance.await_args.kwargs
+                self.assertEqual(kwargs["recipe_voltage_ceiling_v"], 15.5)
+                self.assertNotIn("restart_limits", kwargs)
+                self.assertEqual(self.host._cap_current(1.0), 1.0)
 
     async def test_envelope_violation_never_calls_port(self):
         with patch("application.recipe_existing_session.advance_durable_recipe_session",

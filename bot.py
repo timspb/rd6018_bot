@@ -17,7 +17,7 @@ from manual_context import install_manual_context_ui
 from operator_dashboard import install_operator_graph_dashboard
 from operator_destructive_guard import install_operator_destructive_guard
 from operator_hmi import install_operator_hmi
-from runtime.ui.telegram.analysis import install_analysis_screen
+from integrations.ai.telegram_screen import install_analysis_screen
 from runtime.ui.telegram.charge import install_charge_program_screen
 from runtime.ui.telegram.recipes import install_recipe_catalog_commands
 from runtime.charge.programs.recipe_library import RecipeLibrary
@@ -195,10 +195,8 @@ class ProductionComposition:
             # no-op compatibility handler for the same callback.
             install_operator_navigation_recovery(app)
             install_operator_hmi(app)
-            # Re-compose ownership at the *final* semantic HMI boundary. Earlier ownership
-            # wrappers target the legacy dashboard builder and were being replaced by
-            # install_operator_hmi(), which made HANDS_OFF/release unavailable exactly when an
-            # orphan external Output needed operator recovery.
+            # Register the existing ownership recovery callbacks. The app-aware final HMI
+            # projects their controls directly from app.rd_control_mode_manager.
             install_rd_ownership_recovery(app, _rd_control_mode)
             # A second-step adopted-Mix OFF button in an old Telegram message must not remain
             # an indefinitely valid actuator capability. Bind it to the exact current observer
@@ -269,7 +267,6 @@ class ProductionComposition:
             )
             install_custom_cancel_route(
                 app,
-                cancel_state=app._cancel_custom_mode_state,
                 home_handler=app._operator_home_handler,
             )
             install_home_command(
@@ -373,21 +370,24 @@ class ProductionComposition:
             initializer()
         await storage_init()
 
-        authority_task = asyncio.create_task(
-            reconcile_startup_authority(
-                authority,
-                recovery.recover_managed_startup_authority,
-                recovery.replay_deferred_startup_restore,
-            ),
-            name="rd6018-startup-authority-reconciliation",
-        )
-        self._authority_task = authority_task
-
         await physical.start()
+        authority_task = None
         try:
+            # Pending START settlement uses the live direct Native subscription.
+            # Complete reconciliation before ordinary startup restore/automation.
+            authority_task = asyncio.create_task(
+                reconcile_startup_authority(
+                    authority,
+                    recovery.recover_managed_startup_authority,
+                    recovery.replay_deferred_startup_restore,
+                ),
+                name="rd6018-startup-authority-reconciliation",
+            )
+            self._authority_task = authority_task
+            await authority_task
             await main_runner()
         finally:
-            if not authority_task.done():
+            if authority_task is not None and not authority_task.done():
                 authority_task.cancel()
                 try:
                     await authority_task

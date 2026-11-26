@@ -13,7 +13,7 @@ class EspHomeSafetyLeaseContractTests(unittest.TestCase):
         self.assertIn('rd6018_safety_lease_ttl_ms: "900000"', self.text)
         self.assertIn("bot/HA -> renew every 5 min", self.text)
         self.assertIn("interval: 5s", self.text)
-        self.assertIn("switch.turn_off: rd6018_safety_output", self.text)
+        self.assertIn("switch.turn_off: rd6018_output_public", self.text)
 
     def test_direct_modbus_freshness_is_part_of_the_lease(self):
         self.assertIn('rd6018_safety_modbus_stale_ms: "20000"', self.text)
@@ -70,10 +70,9 @@ class EspHomeSafetyLeaseContractTests(unittest.TestCase):
             self.text,
         )
 
-    def test_local_off_uses_standard_rd60xx_output_register(self):
-        output_block = self.text.split("id: rd6018_safety_output\n", 1)[1].split("button:", 1)[0]
-        self.assertIn("address: 18", output_block)
-        self.assertIn("bitmask: 0x1", output_block)
+    def test_safety_off_uses_the_public_single_owner(self):
+        self.assertIn("switch.turn_off: rd6018_output_public", self.text)
+        self.assertNotIn("rd6018_safety_output\n", self.text)
 
     def test_autonomous_operation_is_explicit_and_separate(self):
         self.assertIn("rd6018_safety_autonomous_mode", self.text)

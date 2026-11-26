@@ -25,6 +25,13 @@ class TelegramStartDispatchTests(unittest.IsolatedAsyncioTestCase):
         if app.router.parent_router is None:
             app.dp.include_router(app.router)
 
+    async def asyncTearDown(self):
+        # /start dashboard reads historical data through the process-global
+        # test database. Close the connection owned by this isolated event
+        # loop rather than stranding an aiosqlite worker at interpreter exit.
+        from database import close_db
+        await close_db()
+
     @staticmethod
     def _start_update() -> Update:
         return Update(

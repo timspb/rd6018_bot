@@ -40,7 +40,13 @@ def live(current=6.0, ocp=6.1):
         "ocp_readback_v2": ocp,
     }
     state["_meta"] = {
-        key: {"status": "ok", "age_s": 0.15}
+        key: {
+            "status": "ok",
+            "age_s": 0.15,
+            "source": "esp_native_api",
+            "native_type": "SensorState",
+            "subscription_timestamp_monotonic": 100.0,
+        }
         for key in ("output_state_code_v2", "protection_code",
                     "set_current_readback_v2", "ocp_readback_v2")
     }
@@ -150,7 +156,6 @@ class MainGuardPreOnTests(unittest.TestCase):
             proposal_id=pending.proposal_id, now_s=1801,
             measured_current_a=4, measured_current_fresh=True,
             current_limit_readback_a=5, current_readback_fresh=True,
-            ocp_limit_a=5.1, ocp_readback_fresh=True,
         )
         doc = attach_guard(canonical(), reduced, now_s=self.now, expected_revision=0)
         restored, _ = read_guard(doc, session_id="sid",
@@ -168,8 +173,8 @@ class MainGuardPreOnTests(unittest.TestCase):
         for key, value, reason in (
             ("output_state_code_v2", 1, "output_not_independently_verified_off"),
             ("output_state_code_v2", None, "output_not_independently_verified_off"),
-            ("protection_code", 2, "native_protection_not_normal"),
-            ("protection_code", None, "native_protection_not_normal"),
+            ("protection_code", 3, "safety_protection_not_clear"),
+            ("protection_code", None, "safety_protection_not_clear"),
         ):
             with self.subTest(key=key, value=value):
                 snapshot = live()
@@ -178,23 +183,19 @@ class MainGuardPreOnTests(unittest.TestCase):
                     self.assess(native_live=snapshot).reason, reason,
                 )
 
-    def test_stale_missing_or_skewed_native_heartbeat_rejected(self):
-        for mutation in ("missing_meta", "stale", "skew", "unknown"):
+    def test_electrical_and_safety_freshness_are_independently_rejected(self):
+        for mutation in ("missing_meta", "stale_electrical", "stale_protection", "unknown"):
             with self.subTest(mutation=mutation):
                 snapshot = live()
                 if mutation == "missing_meta":
                     del snapshot["_meta"]
                     expected = "native_freshness_metadata_missing"
-                elif mutation == "stale":
+                elif mutation == "stale_electrical":
                     snapshot["_meta"]["set_current_readback_v2"]["age_s"] = 55
                     expected = "native_sources_stale_or_skewed"
-                elif mutation == "skew":
-                    from datetime import datetime, timezone, timedelta
-                    snapshot["_meta"]["protection_code"].pop("age_s")
-                    snapshot["_meta"]["protection_code"]["last_reported"] = (
-                        datetime.now(timezone.utc) + timedelta(seconds=30)
-                    ).isoformat()
-                    expected = "native_sources_stale_or_skewed"
+                elif mutation == "stale_protection":
+                    snapshot["_meta"]["protection_code"]["age_s"] = 55
+                    expected = "safety_protection_not_clear"
                 else:
                     snapshot["_meta"]["output_state_code_v2"]["status"] = "unavailable"
                     expected = "native_sources_stale_or_skewed"

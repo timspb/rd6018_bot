@@ -3,8 +3,8 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
-from runtime_safety import RuntimeSafetyError
-from managed_runtime_safety import ManagedRuntimeSafetyGuard
+from runtime.safety.runtime_guard import RuntimeSafetyError
+from runtime.safety.managed_guard import ManagedRuntimeSafetyGuard
 
 
 def _stamp(age_s=0.0):
@@ -115,9 +115,9 @@ class ForeignOutputOwnershipGraceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(app.hass.live["switch"], "off")
 
     async def test_foreign_output_protection_trip_still_forces_immediate_off(self):
-        app, _controller, guard = self._system(_foreign_live(protection_code=1))
+        app, _controller, guard = self._system(_foreign_live(protection_code=3))
 
-        with self.assertRaisesRegex(RuntimeSafetyError, "OVP"):
+        with self.assertRaisesRegex(RuntimeSafetyError, "OPP"):
             await guard.get_all_live()
 
         self.assertEqual(app.hass.turn_off_calls, 1)

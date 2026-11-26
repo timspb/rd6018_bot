@@ -12,6 +12,13 @@ from typing import Any
 
 from application.execution_port import get_or_create_execution_port
 from runtime.background import start_background_tasks
+from runtime.charge.link_session_recovery import (
+    RecoveryAction,
+    RecoveryAuthorizationInput,
+    RecoveryRoute,
+    authorize_recovery_action,
+)
+from runtime.safety.watchdog_runtime import run_safety_watchdogs
 from rd6018_telemetry import as_bool
 
 SHUTDOWN_SESSION_LOCK_TIMEOUT_S = 5.0
@@ -35,23 +42,32 @@ class ProductionRuntimeLifecycle:
             except Exception as ex:
                 self.app.logger.error("Periodic DB cleanup failed: %s", ex)
 
+    async def _stop_background_tasks(self) -> None:
+        """Cancel and join lifecycle-owned workers once on every exit path."""
+        tasks = self._background_tasks
+        self._background_tasks = ()
+        for task in tasks:
+            task.cancel()
+        if not tasks:
+            return
+        done, pending = await asyncio.wait(tasks, timeout=5.0)
+        for task in done:
+            if not task.cancelled():
+                try:
+                    task.result()
+                except Exception as ex:
+                    self.app.logger.warning("Background task shutdown: %s", ex)
+        if pending:
+            self.app.logger.warning(
+                "Background tasks did not stop: %s",
+                [task.get_coro().__qualname__ for task in pending],
+            )
+
     async def on_shutdown(self, dispatcher: Any) -> None:
         """Preserve the V2 shutdown order without owning domain semantics."""
         app = self.app
         app.logger.info("Shutting down gracefully...")
-        for task in self._background_tasks:
-            task.cancel()
-        if self._background_tasks:
-            done, pending = await asyncio.wait(self._background_tasks, timeout=5.0)
-            for task in done:
-                if not task.cancelled():
-                    try:
-                        task.result()
-                    except Exception as ex:
-                        app.logger.warning("Background task shutdown: %s", ex)
-            if pending:
-                app.logger.warning("Background tasks did not stop: %s",
-                                   [task.get_coro().__qualname__ for task in pending])
+        await self._stop_background_tasks()
         # Idle shutdown has no session mutation to serialize. Waiting for a
         # wedged START/STOP owner here previously hung systemd stop until SIGKILL.
         if app.charge_controller.is_active:
@@ -106,57 +122,72 @@ class ProductionRuntimeLifecycle:
                                  execution_port.session_recovery_guard.state.reason)
             else:
                 try:
-                    live = await app.hass.get_all_live()
+                    live = await execution_port.read_live()
                     battery_v = app._safe_float(live.get("battery_voltage"))
                     current = app._safe_float(live.get("current"))
                     ah = app._safe_float(live.get("ah"))
-                    ovp_triggered = as_bool(live.get("ovp_triggered")) is True
-                    ocp_triggered = as_bool(live.get("ocp_triggered")) is True
                     input_voltage = app._safe_float(live.get("input_voltage"), 0.0)
                     controller = app.charge_controller
-                    ok, msg = controller.try_restore_session(
-                        battery_v,
-                        current,
-                        ah,
-                        output_is_on=(str(live.get("switch", "")).lower() == "on"),
-                        is_cv=as_bool(live.get("is_cv")) is True,
-                        is_cc=as_bool(live.get("is_cc")) is True,
-                    )
+                    try:
+                        ok, msg = controller.try_restore_session(
+                            battery_v,
+                            current,
+                            ah,
+                            output_is_on=(str(live.get("switch", "")).lower() == "on"),
+                            is_cv=as_bool(live.get("is_cv")) is True,
+                            is_cc=as_bool(live.get("is_cc")) is True,
+                        )
+                    except Exception as ex:
+                        # restore_session may have partially applied controller
+                        # state before a late callback fails. Keep the existing
+                        # process recovery guard latched before background ticks
+                        # start; do not let that partial state authorize control.
+                        execution_port.session_recovery_guard.quarantine(
+                            "startup_restore_failed:" + type(ex).__name__
+                        )
+                        raise
                     if ok and msg:
                         app._apply_restore_time_corrections(controller, live)
                         app.last_checkpoint_time = app.time.time()
                         temp_ext = app._safe_float(live.get("temp_ext"))
                         allow_turn_on = (
                             app._restore_allows_auto_enable(controller)
-                            and not ovp_triggered
-                            and not ocp_triggered
                             and input_voltage >= app.MIN_INPUT_VOLTAGE
                         )
                         if app._operator_pause_active():
                             app.logger.info("Auto-resume skipped: operator pause is active")
-                        elif allow_turn_on:
-                            if controller.current_stage == controller.STAGE_SAFE_WAIT:
-                                uv, ui = controller._safe_wait_target_v, controller._safe_wait_target_i
-                                await app._apply_phase_protection(uv, ui)
-                                await execution_port.program_voltage(uv)
-                                await execution_port.program_current(app._cap_current(ui))
-                                await execution_port.request_verified_off()
-                            else:
-                                uv, ui = controller._get_target_v_i(temp_ext)
-                                await app._apply_phase_protection(uv, ui)
-                                await execution_port.program_voltage(uv)
-                                await execution_port.program_current(app._cap_current(ui))
-                                await execution_port.request_verified_on()
+                        elif (controller.current_stage == controller.STAGE_SAFE_WAIT
+                              and allow_turn_on):
+                            uv, ui = controller._safe_wait_target_v, controller._safe_wait_target_i
+                            await execution_port.program_voltage(uv)
+                            await execution_port.program_current(app._cap_current(ui))
+                            await execution_port.request_verified_off()
                             app.log_event(controller.current_stage, battery_v, current, temp_ext, ah, "RESTORE")
                             app._charge_notify(msg)
                             app.logger.info("Session restored: %s", controller.current_stage)
+                        elif controller.current_stage != controller.STAGE_SAFE_WAIT:
+                            action = authorize_recovery_action(RecoveryAuthorizationInput(
+                                route=RecoveryRoute.IDLE_LINK,
+                                restored=True,
+                                auto_enable_authorized=app._restore_allows_auto_enable(controller),
+                                safe_wait=False,
+                                input_voltage_ok=input_voltage >= app.MIN_INPUT_VOLTAGE,
+                                cold_start=True,
+                            ))
+                            if action is RecoveryAction.SKIP:
+                                app.logger.warning(
+                                    "Cold-start automatic re-energization denied for restored session"
+                                )
                         else:
                             app.logger.info(
-                                "Auto-resume skipped: ovp=%s ocp=%s input_v=%.0f",
-                                ovp_triggered,
-                                ocp_triggered,
+                                "Auto-resume skipped: input_v=%.0f",
                                 input_voltage,
                             )
+                except asyncio.CancelledError:
+                    execution_port.session_recovery_guard.quarantine(
+                        "startup_restore_cancelled"
+                    )
+                    raise
                 except Exception as ex:
                     app.logger.warning("Auto-resume check failed: %s", ex)
 
@@ -165,8 +196,7 @@ class ProductionRuntimeLifecycle:
         self._background_tasks += start_background_tasks(
             app.data_logger,
             app.charge_monitor,
-            app.soft_watchdog_loop,
-            app.watchdog_loop,
+            lambda: run_safety_watchdogs(app),
         )
         app.logger.info("RD6018 bot starting")
         app.logger.info(
@@ -176,5 +206,8 @@ class ProductionRuntimeLifecycle:
         try:
             await app.run_polling(self.telegram_runtime, shutdown_handler=self.on_shutdown)
         finally:
+            # The polling framework normally invokes on_shutdown. Exceptions and
+            # cancellation can bypass that hook, so always join the same workers.
+            await self._stop_background_tasks()
             await app.hass.close()
             app.logger.info("RD6018 bot stopped")

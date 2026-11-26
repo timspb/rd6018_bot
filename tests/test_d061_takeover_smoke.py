@@ -13,7 +13,7 @@ from tools.acceptance_guard.takeover import D061TakeoverSmoke, TARGET, fingerpri
 from tools.acceptance_guard.takeover import seed_isolated_hands_off_state, require_hands_off_manager
 from tools import run_d061_takeover_smoke as runner
 from rd_control_mode import RdControlMode, RdControlModeManager
-from managed_runtime_safety import ManagedRuntimeSafetyGuard
+from runtime.safety.managed_guard import ManagedRuntimeSafetyGuard
 
 
 class _TestManagedGuard(ManagedRuntimeSafetyGuard):
@@ -33,6 +33,8 @@ class D061BootstrapOrderTests(unittest.TestCase):
             self.assertFalse(manager.hands_off)
 
     def test_seed_before_assembly_instantiates_and_asserts_hands_off(self):
+        if __import__('os').name != 'posix':
+            self.skipTest('isolated HANDS_OFF mode-bit assertion requires POSIX')
         with __import__('tempfile').TemporaryDirectory() as directory:
             isolated = Path(directory) / 'stage' / 'state'
             state_path = seed_isolated_hands_off_state(isolated)
@@ -51,6 +53,8 @@ class D061BootstrapOrderTests(unittest.TestCase):
                 require_hands_off_manager(manager)
 
     def test_seed_writes_only_isolated_state(self):
+        if __import__('os').name != 'posix':
+            self.skipTest('isolated HANDS_OFF mode-bit assertion requires POSIX')
         with __import__('tempfile').TemporaryDirectory() as directory:
             root = Path(directory)
             production = root / 'production' / 'rd_control_mode_v2.json'
@@ -115,14 +119,11 @@ class Client:
                 'protection_code': 0.0,
                 'set_voltage_readback_v2': self.setpoints['voltage_v'],
                 'set_current_readback_v2': self.setpoints['current_a'],
-                'ovp_readback_v2': self.setpoints['ovp_v'],
-                'ocp_readback_v2': self.setpoints['ocp_a'],
                 'temp_int': 30.0, 'temp_ext': 24.0,
                 '_meta': {key: {'status': 'ok', 'age_s': 1}
                           for key in ('switch', 'output_state_code_v2', 'voltage', 'current',
                               'protection_code', 'set_voltage_readback_v2',
-                              'set_current_readback_v2', 'ovp_readback_v2',
-                              'ocp_readback_v2', 'temp_int', 'temp_ext')}}
+                              'set_current_readback_v2', 'temp_int', 'temp_ext')}}
     async def safe_enable_output(self, **kwargs):
         self.events.append(('safe enable', kwargs))
         self.setpoints = {key: kwargs[key] for key in TARGET}
@@ -205,17 +206,15 @@ class TakeoverTests(unittest.IsolatedAsyncioTestCase):
 
     def test_fingerprint_accepts_raw_binary_readbacks_within_tolerance(self):
         raw = {'set_voltage_v': 13.569999694824219,
-               'set_current_a': 0.09999999403953552,
-               'ovp_v': 14.069999694824219,
-               'ocp_a': 0.19999998807907104}
+               'set_current_a': 0.09999999403953552}
         self.assertTrue(fingerprint_matches(raw, TARGET))
 
     def test_fingerprint_rejects_mismatch_nonfinite_bool_and_missing(self):
-        base = {'set_voltage_v': 13.57, 'set_current_a': .1, 'ovp_v': 14.07, 'ocp_a': .2}
+        base = {'set_voltage_v': 13.57, 'set_current_a': .1}
         for bad in ({**base, 'set_voltage_v': 13.5901},
                     {**base, 'set_voltage_v': float('nan')},
                     {**base, 'set_voltage_v': True},
-                    {key: value for key, value in base.items() if key != 'ocp_a'}):
+                    {key: value for key, value in base.items() if key != 'set_current_a'}):
             with self.subTest(bad=bad):
                 self.assertFalse(fingerprint_matches(bad, TARGET))
 
@@ -490,10 +489,26 @@ class TakeoverRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(await independent_output_off(OnHA(), ESP(), 'sensor.out', **args))
 
     def test_overlay_only_adds_reviewed_acceptance_modules(self):
+        if __import__('os').name != 'posix':
+            self.skipTest('acceptance pairing requires POSIX fcntl')
         from tools.acceptance_guard import pairing
         manifest=(Path(__file__).resolve().parents[1] /
                   'tools/acceptance_guard/source-manifest.json').read_bytes()
-        archive_bytes=runner.make_takeover_overlay(manifest)
+        # Source this historical acceptance overlay from reviewed Git bytes;
+        # do not weaken the hash checks for mutable current WIP files.
+        import subprocess
+        import tempfile
+        from tools import d061_transport_windows as staging
+        with tempfile.TemporaryDirectory() as pinned_temp:
+            pinned_root = Path(pinned_temp)
+            for name in runner.TAKEOVER_OVERLAY:
+                raw = subprocess.check_output(
+                    ["git", "show", "3c692554074b27805419a9b0767133a1c8d78150:tools/acceptance_guard/" + name],
+                    cwd=Path(__file__).resolve().parents[1],
+                )
+                (pinned_root / name).write_bytes(raw)
+            with patch.object(staging, "OVERLAY", pinned_root):
+                archive_bytes = runner.make_takeover_overlay(manifest)
         with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode='r:gz') as archive:
             names=archive.getnames()
             allowed={'source-manifest.json','overlay-attestation.json'} | {
@@ -501,7 +516,7 @@ class TakeoverRunnerTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(set(names), allowed)
             self.assertEqual(len(names),len(set(names)))
             self.assertEqual(archive.extractfile('source-manifest.json').read(),manifest)
-            self.assertNotIn('edge_safety_lease.py',names)
+            self.assertNotIn('runtime/safety/edge_lease.py',names)
             self.assertNotIn('hass_api.py',names)
             self.assertEqual(pairing.SUPPLEMENTAL_PATHS, allowed-{
                 'source-manifest.json','overlay-attestation.json'})
@@ -512,6 +527,8 @@ class TakeoverRunnerTests(unittest.IsolatedAsyncioTestCase):
                 runner.make_takeover_overlay(b'{}')
 
     def test_archive_stage_pairs_all_manifest_files_and_rejects_tampering(self):
+        if __import__('os').name != 'posix':
+            self.skipTest('acceptance pairing requires POSIX fcntl')
         import hashlib
         import json
         import tempfile
@@ -561,6 +578,8 @@ class TakeoverRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('/tmp/stage', stderr.getvalue())
 
     async def test_node104_runner_requires_stage_manifest_and_assembles_before_run(self):
+        if __import__('os').name != 'posix':
+            self.skipTest('isolated HANDS_OFF mode-bit assertion requires POSIX')
         with __import__('tempfile').TemporaryDirectory() as directory:
             stage = Path(directory)
             (stage / 'state').mkdir()

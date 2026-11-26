@@ -17,20 +17,32 @@ from runtime.production_runtime import _canonical_bool
 
 
 class RD6018TelemetryTests(unittest.TestCase):
-    def test_protection_register_is_status_code_not_bitmask(self):
+    def test_raw_protection_codes_one_two_three_are_ovp_ocp_opp_trips(self):
         self.assertEqual(decode_protection_code(0).status, ProtectionStatus.NORMAL)
-        self.assertEqual(decode_protection_code(1).status, ProtectionStatus.OVP)
-        self.assertEqual(decode_protection_code(2).status, ProtectionStatus.OCP)
-        state = decode_protection_code(3)
-        self.assertEqual(state.status, ProtectionStatus.OPP)
-        self.assertTrue(state.opp)
-        self.assertFalse(state.ovp)
-        self.assertFalse(state.ocp)
+        expected = {
+            1: (ProtectionStatus.OVP, "ovp"),
+            2: (ProtectionStatus.OCP, "ocp"),
+            3: (ProtectionStatus.OPP, "opp"),
+        }
+        for code, (status, flag) in expected.items():
+            with self.subTest(code=code):
+                state = decode_protection_code(code)
+                self.assertEqual(state.status, status)
+                self.assertTrue(state.tripped)
+                self.assertTrue(getattr(state, flag))
+                self.assertEqual(state.code, code)
 
-    def test_legacy_both_protection_bits_is_unknown_trip(self):
-        state = resolve_protection({"ovp_triggered": "on", "ocp_triggered": "on"})
-        self.assertEqual(state.status, ProtectionStatus.UNKNOWN)
-        self.assertTrue(state.tripped)
+    def test_raw_protection_one_two_three_trip_safety_resolution(self):
+        expected = {
+            1: ProtectionStatus.OVP,
+            2: ProtectionStatus.OCP,
+            3: ProtectionStatus.OPP,
+        }
+        for code, status in expected.items():
+            with self.subTest(code=code):
+                state = resolve_protection({"protection_code": code})
+                self.assertEqual(state.status, status)
+                self.assertTrue(state.tripped)
 
     def test_regulation_code_is_single_enum(self):
         self.assertEqual(decode_regulation_code(0), RegulationMode.CV)
@@ -43,11 +55,6 @@ class RD6018TelemetryTests(unittest.TestCase):
         self.assertTrue(_canonical_bool({"is_cc": True}, "is_cc"))
         self.assertFalse(_canonical_bool({"is_cc": False}, "is_cc"))
         self.assertFalse(_canonical_bool({}, "is_cv"))
-
-    def test_runtime_consumes_canonical_protection_booleans(self):
-        self.assertTrue(_canonical_bool({"ovp_triggered": True}, "ovp_triggered"))
-        self.assertFalse(_canonical_bool({"ocp_triggered": False}, "ocp_triggered"))
-        self.assertFalse(_canonical_bool({"ovp_triggered": None}, "ovp_triggered"))
 
     def test_corrected_v2_channels_replace_legacy_canonical_values(self):
         live = {

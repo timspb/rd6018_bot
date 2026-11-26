@@ -18,7 +18,7 @@ def _record():
     return SimpleNamespace(
         decision=SimpleNamespace(decision="fixture-policy"),
         analysis=SimpleNamespace(
-            metrics=SimpleNamespace(seconds_since_current_min=321.0)
+            metrics=SimpleNamespace(seconds_since_current_min=321.0, main_stable_hold_s=321.0)
         ),
     )
 
@@ -116,7 +116,7 @@ class MainAuthorityDispatchTests(unittest.TestCase):
         owner_source = owner_path.read_text(encoding="utf-8")
         function = owner_source[
             owner_source.index("def apply_main_authority_tick("):
-            owner_source.index("def _output_is_known(")
+            owner_source.index("async def run_authoritative_main_scaffold(")
         ]
         for text in ("execution_port", ".turn_on(", ".turn_off(", ".set_voltage(", ".set_output("):
             self.assertNotIn(text, function)

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import math
 import os
 import time
 from typing import Any, Callable, Dict, Optional, Tuple
@@ -26,6 +25,7 @@ from runtime.charge.controller_state import (
     reset_delta_and_blanking,
     reset_link_loss_state,
     reset_stage_metrics,
+    shift_active_clocks as shift_controller_active_clocks,
 )
 from runtime.charge.sample_state import mark_stage_sample
 from runtime.charge.host_configuration import ManagedChargeHostConfiguration
@@ -64,7 +64,8 @@ from recovery_policy import RecoveryDecision
 from recovery_shadow import ShadowRecoveryRuntime
 from signal_analyzer import SignalEvent
 from runtime.charge.diagnostics import (
-    ai_stage_snapshot,
+    ui_support_snapshot,
+    signal_analyzer_diagnostic_snapshot,
     get_timers as diagnostic_timers,
 )
 from runtime.charge.runtime.support import (
@@ -199,6 +200,10 @@ class ManagedChargeController:
     def is_active(self) -> bool:
         return self.current_stage not in (self.STAGE_IDLE, self.STAGE_DONE)
 
+    def shift_active_clocks(self, seconds: float) -> None:
+        """Compatibility wrapper for controller-state clock shifting."""
+        shift_controller_active_clocks(self, seconds)
+
     def _mark_stage_sample(
         self,
         voltage: float,
@@ -235,8 +240,14 @@ class ManagedChargeController:
         battery_type: str,
         ah_capacity: int,
         start_stage: str,
+        *,
+        now_s: float | None = None,
+        clear_session: bool = True,
     ) -> None:
-        initialize_session(self, battery_type, ah_capacity, start_stage)
+        initialize_session(
+            self, battery_type, ah_capacity, start_stage,
+            now_s=now_s, clear_session=clear_session,
+        )
 
     def stop(self, clear_session: bool = True) -> None:
         stop_charge(self, clear_session=clear_session)
@@ -247,9 +258,8 @@ class ManagedChargeController:
         target_v: float,
         target_i: float,
     ) -> None:
-        # OVP/OCP remain physical trip protections, but normal charge stages
-        # program and verify only Vset/Iset. Do not turn absent protection
-        # register readback into a charge-control prerequisite.
+        # Charge stages own working V/I targets; independent guards enforce
+        # measured envelopes, temperature, Output state and lease.
         self._phase_current_limit = target_i
 
     def _add_desulf_limits(
@@ -444,8 +454,8 @@ class ManagedChargeController:
         return auto_timers(self, diagnostic_timers(self))
 
     def get_ai_stage_snapshot(self, temp_c: Optional[float] = None) -> Dict[str, Any]:
-        from application.production_session_extensions import auto_ai_stage_snapshot
-        return auto_ai_stage_snapshot(self, ai_stage_snapshot(self, temp_c), temp_c)
+        from integrations.ai.snapshot import get_ai_stage_snapshot
+        return get_ai_stage_snapshot(self, temp_c)
 
     def _desulf_target(self, temp_c: Optional[float] = None) -> Tuple[float, float]:
         """Compatibility adapter over the canonical modular DESULFATION target."""
@@ -530,15 +540,23 @@ class ManagedChargeController:
             self._v2_target_voltage_v = None
         self._v2_last_stage = self.current_stage
 
-    def start(self, battery_type: str, ah_capacity: int) -> None:
+    def start(
+        self, battery_type: str, ah_capacity: int, *,
+        now_s: float | None = None, clear_session: bool = True,
+        trace_identity: Any = None,
+    ) -> None:
         if str(battery_type) == self.PROFILE_CUSTOM:
             raise RuntimeError(
                 "historical Custom controller start is retired; use ProductionManualSessionManager"
             )
         self._recovery_safe_wait = None
         self._final_safe_wait = None
-        start_charge(self, battery_type, ah_capacity)
-        apply_trace_identity(self, new_trace_identity(self))
+        start_charge(
+            self, battery_type, ah_capacity,
+            now_s=now_s, clear_session=clear_session,
+        )
+        identity = trace_identity if trace_identity is not None else new_trace_identity(self, now=now_s)
+        apply_trace_identity(self, identity)
         self._initialize_shadow_session(started_at=self._v2_trace_started_at)
 
     def _clear_session_file(self) -> None:
@@ -547,29 +565,23 @@ class ManagedChargeController:
     def _save_session(
         self, voltage: float, current: float, ah: float, *,
         terminal_request: TerminalPersistenceRequest | None = None,
-    ) -> None:
+        restore_expected_bytes: bytes | None = None,
+    ):
         # save_session atomically writes the charge, V2 trace and optional MAIN
         # Guard journal in ONE document; no second independent rewrite here.
-        save_session(
+        return save_session(
             self, voltage, current, ah, session_file=SESSION_FILE,
             terminal_request=terminal_request,
+            restore_expected_bytes=restore_expected_bytes,
         )
 
     def _restore_desulfation_stage_clock(self, document: Dict[str, Any]) -> None:
-        """Keep the persisted active DESULFATION clock authoritative across restart."""
-        if self.current_stage != self.STAGE_DESULFATION:
-            return
-        try:
-            saved_stage_start = float(document.get("stage_start_time"))
-        except (TypeError, ValueError, OverflowError):
-            return
-        now = float(time.time())
-        if (
-            math.isfinite(saved_stage_start)
-            and 0.0 < saved_stage_start <= now
-            and now - saved_stage_start <= float(SESSION_START_MAX_AGE)
-        ):
-            self.stage_start_time = saved_stage_start
+        """Compatibility delegate for the existing restore continuation owner."""
+        from runtime.charge.session_continuation_restore import restore_desulfation_stage_clock
+
+        restore_desulfation_stage_clock(
+            self, document, max_session_age_s=SESSION_START_MAX_AGE,
+        )
 
     def try_restore_session(
         self,
@@ -581,39 +593,17 @@ class ManagedChargeController:
         is_cc: Optional[bool] = None,
         _guarded_activation_permit: Any = None,
     ) -> Tuple[bool, Optional[str]]:
-        ok, message = restore_session(
-            self,
-            voltage,
-            current,
-            ah,
-            session_file=SESSION_FILE,
-            _guarded_activation_permit=_guarded_activation_permit,
+        from runtime.charge.session_continuation_restore import restore_controller_session
+
+        return restore_controller_session(
+            self, voltage, current, ah,
+            output_is_on=output_is_on, is_cv=is_cv, is_cc=is_cc,
+            guarded_activation_permit=_guarded_activation_permit,
+            session_file=SESSION_FILE, persist_restore=restore_session,
+            enrich_restored_session=enrich_restored_session,
+            custom_profile=self.PROFILE_CUSTOM,
+            max_session_age_s=SESSION_START_MAX_AGE,
         )
-        if ok and self.battery_type == self.PROFILE_CUSTOM:
-            logger.warning(
-                "Historical Custom controller restore rejected; Manual requires operator reauthorization"
-            )
-            self.stop(clear_session=True)
-            self._recovery_safe_wait = None
-            self._final_safe_wait = None
-            self._v2_runtime = None
-            return (
-                False,
-                "Historical Custom session is retired; restart Manual with operator authorization.",
-            )
-        if ok:
-            from runtime.charge.session_continuation_restore import finish_session_restore
-            result = finish_session_restore(
-                self, output_is_on=output_is_on, is_cv=is_cv, is_cc=is_cc,
-                session_file=SESSION_FILE, success_message=message,
-                enrich_restored_session=enrich_restored_session,
-                guarded_activation=_guarded_activation_permit is not None,
-            )
-            if result[0] and _guarded_activation_permit is not None:
-                self._guarded_restore_candidate = None
-                self._guarded_restore_activated_off = True
-            return result
-        return ok, message
 
     @property
     def recovery_trace_context(self) -> Dict[str, Any]:
@@ -707,156 +697,14 @@ class ManagedChargeController:
         return apply_recovery_safe_wait_completion_effect(self, effect)
 
     def ui_support_snapshot(self) -> Dict[str, Any]:
-        """Compact mode-specific status for Telegram/UI without exposing raw internals."""
-        metrics: Dict[str, Any] = {}
-        decision = None
-        reason = None
-        events = []
-        raw_finish_evidence = getattr(self, "_finish_evidence", None)
-        finish_evidence = None
-        if isinstance(raw_finish_evidence, dict):
-            finish_evidence = {
-                "mode": raw_finish_evidence.get("mode"),
-                "reference_value": raw_finish_evidence.get("reference_value"),
-                "accepted_delta": raw_finish_evidence.get("accepted_delta"),
-                "accepted_at": raw_finish_evidence.get("accepted_at"),
-                "available": True,
-            }
-        if self._v2_runtime is not None and self._v2_runtime.records:
-            last = self._v2_runtime.records[-1]
-            m = last.analysis.metrics
-            current_min_started_at = None
-            sample_timestamp = getattr(last.analysis.sample, "timestamp_s", None)
-            seconds_since_current_min = m.seconds_since_current_min
-            if sample_timestamp is not None and seconds_since_current_min is not None:
-                current_min_started_at = float(sample_timestamp) - float(seconds_since_current_min)
-            decision = last.decision.decision.value
-            reason = last.decision.reason
-            events = sorted(event.value for event in last.analysis.events)
-            metrics = {
-                "d_voltage_v_per_min": m.d_voltage_v_per_min,
-                "d_current_a_per_min": m.d_current_a_per_min,
-                "d_temp_c_per_min": m.d_temp_c_per_min,
-                "current_min_a": m.current_min_a,
-                "seconds_since_current_min": seconds_since_current_min,
-                "current_min_started_at": current_min_started_at,
-                "delta_current_from_min_a": m.delta_current_from_min_a,
-                "reversal_threshold_a": m.reversal_threshold_a,
-                "voltage_max_v": m.voltage_max_v,
-                "seconds_since_voltage_max": m.seconds_since_voltage_max,
-                "delta_voltage_from_max_v": m.delta_voltage_from_max_v,
-                "voltage_reversal_threshold_v": m.voltage_reversal_threshold_v,
-            }
-        runtime_analysis_available = bool(
-            self._v2_runtime is not None and self._v2_runtime.records
-        )
-        # A record alone is not proof that the current extrema decision is
-        # usable.  Neutral/off and invalid samples are deliberately recorded
-        # for diagnostics, but must not authorize an operator-facing extrema
-        # claim after restore or an output transition.
-        runtime_evidence_available = False
-        context = self._v2_session_signal_context
-        if runtime_analysis_available and isinstance(context, dict):
-            expected_mode = "CV" if self.is_cv else ("CC" if self.is_cc else None)
-            last = self._v2_runtime.records[-1]
-            runtime_evidence_available = (
-                context.get("mode") == expected_mode
-                and context.get("output_on") is True
-                and context.get("telemetry_valid") is True
-                and not last.analysis.has(SignalEvent.TELEMETRY_INVALID)
-            )
-        return {
-            "authoritative": True,
-            "battery_id": self._v2_battery_id,
-            "intent": self._v2_intent.value,
-            "condition": self._v2_condition_before.value,
-            "stage": self.current_stage,
-            "is_cv": bool(self.is_cv),
-            "is_cc": bool(self.is_cc),
-            "finish_hold_started_at": self.finish_timer_start,
-            "delta_reported": bool(getattr(self, "_delta_reported", False)),
-            "finish_evidence": finish_evidence,
-            "runtime_analysis_available": runtime_analysis_available,
-            "runtime_evidence_available": runtime_evidence_available,
-            "decision": decision,
-            "reason": reason,
-            "events": events,
-            "metrics": metrics,
-        }
+        return ui_support_snapshot(self)
 
     def signal_analyzer_diagnostic_snapshot(self) -> Dict[str, Any]:
-        """Return a read-only, non-authoritative analyzer diagnostic snapshot.
+        """Return a non-authoritative analyzer diagnostic snapshot.
 
-        This deliberately exposes observation state only.  It is not consumed by
-        the controller, safety gates, persistence, or operator HMI decisions.
+        This read-only compatibility façade never grants charge or safety authority.
         """
-        context = self._v2_session_signal_context
-        runtime = self._v2_runtime
-        analyzer = getattr(getattr(runtime, "tracker", None), "_analyzer", None)
-        records = getattr(runtime, "records", None) if runtime is not None else None
-        last_record = records[-1] if records else None
-        if analyzer is None or not isinstance(context, dict):
-            return {
-                "available": False,
-                "session_id": context.get("session_id") if isinstance(context, dict) else self._v2_trace_session_id,
-                "mode": context.get("mode") if isinstance(context, dict) else None,
-                "runtime_evidence_available": False,
-                "cc": {"voltage_max_v": None, "voltage_max_time": None,
-                       "delta_reference_v": None, "voltage_reversal_confirmations": 0,
-                       "voltage_reversal_emitted": False},
-                "cv": {"current_min_a": None, "current_min_time": None,
-                       "delta_reference_a": None, "current_reversal_confirmations": 0,
-                       "current_reversal_emitted": False},
-                "last_sample": None,
-            }
-
-        point = last_record.point if last_record is not None else None
-        invalid = bool(last_record and last_record.analysis.has(SignalEvent.TELEMETRY_INVALID))
-        output_on = context.get("output_on")
-        accepted = bool(last_record is not None and not invalid and output_on is not False)
-        reject_reason = None
-        if invalid:
-            reject_reason = "telemetry_invalid"
-        elif last_record is not None and output_on is False:
-            reject_reason = "output_off_gate"
-        elif last_record is None:
-            reject_reason = "no_runtime_sample"
-
-        last_sample = None
-        if point is not None:
-            last_sample = {
-                "timestamp": point.timestamp_s,
-                "voltage": point.voltage_v,
-                "current": point.current_a,
-                "is_cv": point.is_cv,
-                "is_cc": point.is_cc,
-                "output_on": output_on,
-                "telemetry_valid": not invalid,
-                "accepted": accepted,
-                "reject_reason": reject_reason,
-            }
-        snapshot = self.ui_support_snapshot()
-        return {
-            "available": True,
-            "session_id": context.get("session_id"),
-            "mode": context.get("mode"),
-            "runtime_evidence_available": bool(snapshot.get("runtime_evidence_available")),
-            "cc": {
-                "voltage_max_v": analyzer._voltage_max_v,
-                "voltage_max_time": analyzer._voltage_max_time_s,
-                "delta_reference_v": analyzer._voltage_max_v,
-                "voltage_reversal_confirmations": analyzer._voltage_reversal_confirmations,
-                "voltage_reversal_emitted": bool(analyzer._voltage_reversal_emitted),
-            },
-            "cv": {
-                "current_min_a": analyzer._current_min_a,
-                "current_min_time": analyzer._current_min_time_s,
-                "delta_reference_a": analyzer._current_min_a,
-                "current_reversal_confirmations": analyzer._reversal_confirmations,
-                "current_reversal_emitted": bool(analyzer._reversal_emitted),
-            },
-            "last_sample": last_sample,
-        }
+        return signal_analyzer_diagnostic_snapshot(self)
 
     @property
     def recovery_shadow_summary(self) -> Dict[str, Any]:

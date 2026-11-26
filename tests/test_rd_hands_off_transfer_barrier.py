@@ -2,10 +2,11 @@ import tempfile
 import types
 import unittest
 
+from application.execution_port import get_or_create_execution_port
 from rd_control_mode import install_rd_control_mode
 from rd_hands_off_release import install_rd_hands_off_release
-from runtime_safety import RuntimeSafetyError
-from managed_runtime_safety import ManagedRuntimeSafetyGuard
+from runtime.safety.runtime_guard import RuntimeSafetyError
+from runtime.safety.managed_guard import ManagedRuntimeSafetyGuard
 
 
 class DummyHass:
@@ -85,10 +86,11 @@ class HandsOffTransferBarrierTests(unittest.IsolatedAsyncioTestCase):
             guard.edge_lease_enforced = False
             guard.OFF_CONFIRMATION_WINDOW_S = 0.0
             guard.OFF_CONFIRMATION_POLL_S = 0.0
-            guard.install()
+            guard.install(patch_adapter=False)
             app.runtime_safety_guard = guard
 
             manager = install_rd_control_mode(app, install_ui=False)
+            get_or_create_execution_port(app)
             install_rd_hands_off_release(app, manager)
             manager._release_in_progress = True
 
@@ -99,13 +101,13 @@ class HandsOffTransferBarrierTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(hass.turn_off_calls, 0)
 
             with self.assertRaises(RuntimeSafetyError):
-                await app.hass.turn_on()
+                await app.execution_port.request_verified_on()
             with self.assertRaises(RuntimeSafetyError):
-                await app.hass.set_voltage(12.0)
+                await app.execution_port.program_voltage(12.0)
 
             # OFF is the only managed actuator direction that stays legal until the
             # durable ownership commit.
-            self.assertTrue(await app.hass.turn_off())
+            self.assertTrue(await app.execution_port.request_verified_off())
             self.assertEqual(hass.turn_off_calls, 1)
             self.assertEqual(hass.live["switch"], "off")
 

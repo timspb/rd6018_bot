@@ -2,35 +2,177 @@
 from __future__ import annotations
 
 import html
+from dataclasses import replace
+from decimal import Decimal
 from uuid import uuid4
 from aiogram import F
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from runtime.charge.programs.recipe_catalog import RecipeCatalog
+from runtime.charge.programs.native_recipe_draft_library import NativeRecipeDraftLibrary
+from runtime.charge.programs.native_recipe_session import require_supported_native_execution
+from runtime.charge.programs.native_recipe_draft import validate_native_draft
+from runtime.config.variable_spec import OverridePolicy
 from runtime.charge.programs.native_recipe_catalog import get_native_recipe, native_recipes
 from runtime.charge.programs.native_recipe_parameters import native_recipe_parameters
+from runtime.ui.telegram.recipe_menu_view import (
+    STEP_VIEW_PAGE_SIZE, step_summary, native_summary,
+    native_catalog_page, native_history_page, step_saved_markup,
+)
 from runtime.charge.programs.recipe_editor import edit_step, insert_step, transform_steps
 from runtime.charge.programs.recipe_preflight import inspect_recipe
+from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
+
+
+def _preview_keyboard(start_callback: str) -> InlineKeyboardMarkup:
+    """Build the existing two-row START preview keyboard."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="▶️ Запустить", callback_data=start_callback)],
+        [InlineKeyboardButton(text="⬅️ Режимы", callback_data=CHARGE_CALLBACK_DATA)],
+    ])
+
+
+def _recipe_preview_keyboard(app, start_callback: str) -> InlineKeyboardMarkup:
+    """Add the selectable user/native recipe choices to the START preview."""
+    original = _preview_keyboard(start_callback)
+    catalog = getattr(app, "_user_recipe_catalog", None)
+    if catalog is None:
+        return original
+    rows = list(original.inline_keyboard)
+    choices = []
+    for name in catalog.active_recipes():
+        versions = catalog.library.versions(name)
+        if not versions:
+            continue
+        version = versions[-1]
+        data = f"v2_recipe_pick:{name}:{version}"
+        if len(data.encode("utf-8")) <= 64:
+            choices.append(InlineKeyboardButton(
+                text=f"Рецепт {name} v{version}", callback_data=data,
+            ))
+    # Saved native recipe copies reuse the same pending START transaction.
+    native_store = NativeRecipeDraftLibrary(
+        catalog.library.root.parent / "native_recipe_drafts"
+    )
+    for name in native_store.list_drafts():
+        versions = native_store.versions(name)
+        if not versions:
+            continue
+        version = versions[-1]
+        data = f"v2_native_pick:{name}:{version}"
+        if len(data.encode("utf-8")) <= 64:
+            choices.append(InlineKeyboardButton(
+                text=f"Штатная копия {name} v{version}", callback_data=data,
+            ))
+    if choices:
+        rows[1:1] = [[choice] for choice in choices[:24]]
+    else:
+        rows.insert(1, [InlineKeyboardButton(
+            text="Создать рецепт", callback_data="recipes:create",
+        )])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def install_start_recipe_selection_routes(
+    app,
+    *,
+    pending_start,
+    acknowledge,
+    answer,
+    preview_keyboard,
+) -> None:
+    """Register existing recipe choices on the shared pending START state."""
+
+    @app.router.callback_query(F.data.startswith("v2_native_pick:"))
+    async def pick_native_recipe_handler(call):
+        if not await app._check_chat_and_respond(call):
+            return
+        user_id = call.from_user.id if call.from_user else 0
+        pending = pending_start.get(user_id)
+        catalog = getattr(app, "_user_recipe_catalog", None)
+        if pending is None or catalog is None:
+            await acknowledge(call, "Нет ожидающего START", show_alert=True)
+            return
+        try:
+            _, name, version_text = str(call.data).split(":")
+            version = int(version_text)
+            library = NativeRecipeDraftLibrary(
+                catalog.library.root.parent / "native_recipe_drafts"
+            )
+            from runtime.charge.programs.native_recipe_session import select_native_recipe_version
+            selected = select_native_recipe_version(
+                library, name, version, profile=pending.profile, intent=pending.intent,
+            )
+        except (ValueError, KeyError, OSError, FileNotFoundError) as exc:
+            await acknowledge(call, str(exc)[:180], show_alert=True)
+            return
+        pending_start[user_id] = replace(
+            pending, recipe_id=None, recipe_version=None,
+            native_recipe_name=name, native_recipe_version=version,
+        )
+        await acknowledge(call)
+        await answer(
+            call, f"Выбрана копия {name} v{version} ({selected.profile} · {selected.intent}). "
+                  "START применит закреплённую версию.",
+            reply_markup=preview_keyboard("v2_battery_start"),
+        )
+
+    @app.router.callback_query(F.data.startswith("v2_recipe_pick:"))
+    async def pick_recipe_handler(call):
+        if not await app._check_chat_and_respond(call):
+            return
+        user_id = call.from_user.id if call.from_user else 0
+        pending = pending_start.get(user_id)
+        catalog = getattr(app, "_user_recipe_catalog", None)
+        if pending is None or catalog is None:
+            await acknowledge(call, "Сначала выберите АКБ и режим", show_alert=True)
+            return
+        try:
+            _, name, version_text = str(call.data).split(":")
+            version = int(version_text)
+            if name not in catalog.active_recipes():
+                raise ValueError("Рецепт архивирован")
+            recipe = catalog.library.load(name, version)
+            report = inspect_recipe(recipe)
+            if not report.admissible_structure:
+                raise ValueError("; ".join(report.problems))
+        except (ValueError, OSError) as exc:
+            await acknowledge(call, str(exc)[:180], show_alert=True)
+            return
+        pending_start[user_id] = replace(
+            pending, recipe_id=name, recipe_version=version,
+            native_recipe_name=None, native_recipe_version=None,
+        )
+        await acknowledge(call)
+        await answer(
+            call, f"Выбран {name} v{version}. START запустит этот рецепт.",
+            reply_markup=preview_keyboard("v2_battery_start"),
+        )
 
 
 def catalog_markup(catalog: RecipeCatalog, *, page: int = 0,
                    page_size: int = 20) -> InlineKeyboardMarkup:
-    """Show every active recipe over multiple pages, retaining library actions."""
+    """Show active and archived recipes over multiple pages, keeping read-only history."""
     if page_size < 1:
         raise ValueError("invalid catalog page size")
     entries = []
-    for name in catalog.active_recipes():
+    active = set(catalog.active_recipes())
+    for name in catalog.list_recipes():
         versions = catalog.library.versions(name)
         if versions:
             callback = f"recipes:view:{name}:{versions[-1]}"
             if len(callback.encode("utf-8")) <= 64:
-                entries.append((name, versions[-1], callback))
+                entries.append((name, versions[-1], callback, name not in active))
+    # Active items first; archived versions remain reachable for read-only review.
+    entries.sort(key=lambda entry: (entry[3], entry[0]))
     pages = max(1, (len(entries) + page_size - 1) // page_size)
     if not 0 <= page < pages:
         raise ValueError("catalog page outside available range")
     rows = [
-        [InlineKeyboardButton(text=f"{name} · v{version}", callback_data=callback)]
-        for name, version, callback in entries[page * page_size:(page + 1) * page_size]
+        [InlineKeyboardButton(
+            text=f"{name} · v{version}" + (" [архив]" if archived else ""),
+            callback_data=callback)]
+        for name, version, callback, archived in entries[page * page_size:(page + 1) * page_size]
     ]
     navigation = []
     if page > 0:
@@ -45,7 +187,9 @@ def catalog_markup(catalog: RecipeCatalog, *, page: int = 0,
         text="⚙️ Штатные программы (12)",
         callback_data="recipes:native:list",
     )])
-    rows.append([InlineKeyboardButton(text="Создать черновик", callback_data="recipes:create")])
+    rows.append([InlineKeyboardButton(
+        text="Мои копии штатных программ", callback_data="recipes:nd:list")])
+    rows.append([InlineKeyboardButton(text="Создать пошаговый черновик", callback_data="recipes:create")])
     rows.append([InlineKeyboardButton(text="Обновить", callback_data=f"recipes:list:{page}")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -60,18 +204,69 @@ def native_recipe_markup() -> InlineKeyboardMarkup:
         for entry in native_recipes()
     ]
     rows.append([InlineKeyboardButton(
+        text="Мои копии штатных программ", callback_data="recipes:nd:list",
+    )])
+    rows.append([InlineKeyboardButton(
         text="⬅️ Мои рецепты", callback_data="recipes:list",
     )])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def recipe_markup(recipe_id: str, version: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="◀ Библиотека", callback_data="recipes:list")],
-        [InlineKeyboardButton(text="Редактор шагов", callback_data=f"recipes:edit:{recipe_id}:{version}")],
-        [InlineKeyboardButton(text="Проверить рецепт", callback_data=f"recipes:check:{recipe_id}:{version}")],
-        [InlineKeyboardButton(text="Копировать: инструкция", callback_data=f"recipes:copyhelp:{recipe_id}:{version}")],
-    ])
+def recipe_markup(recipe_id: str, version: int, *, editable: bool = True,
+                  page: int = 0, pages: int = 1) -> InlineKeyboardMarkup:
+    rows = [[InlineKeyboardButton(text="◀ Библиотека", callback_data="recipes:list")]]
+    if pages > 1:
+        navigation = []
+        for target, label in ((page - 1, "◀ Шаги"), (page + 1, "Шаги ▶")):
+            if 0 <= target < pages:
+                callback = f"recipes:view:{recipe_id}:{version}:{target}"
+                if len(callback.encode("utf-8")) <= 64:
+                    navigation.append(InlineKeyboardButton(text=label, callback_data=callback))
+        if navigation:
+            rows.append(navigation)
+    for label, data in (
+        ("Редактор шагов", f"recipes:edit:{recipe_id}:{version}"),
+        ("Проверить рецепт", f"recipes:check:{recipe_id}:{version}"),
+        ("История версий", f"recipes:history:{recipe_id}:0"),
+        ("Копировать", f"recipes:duplicate:{recipe_id}:{version}"),
+        ("В архив", f"recipes:archiveask:{recipe_id}"),
+    ):
+        if (editable or label in {"Проверить рецепт", "История версий", "Копировать"}) and len(data.encode("utf-8")) <= 64:
+            rows.append([InlineKeyboardButton(text=label, callback_data=data)])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def recipe_history_markup(catalog: RecipeCatalog, name: str, *,
+                          page: int = 0, page_size: int = 8) -> InlineKeyboardMarkup:
+    """Paginated immutable history, retaining the existing recipe viewer."""
+    versions = catalog.library.versions(name)
+    if not versions or page_size < 1:
+        raise ValueError("recipe has no versions or page size invalid")
+    ordered = sorted(versions, reverse=True)
+    pages = (len(ordered) + page_size - 1) // page_size
+    if not 0 <= page < pages:
+        raise ValueError("history page outside available range")
+    rows = []
+    for version in ordered[page * page_size:(page + 1) * page_size]:
+        data = f"recipes:view:{name}:{version}"
+        if len(data.encode("utf-8")) <= 64:
+            rows.append([InlineKeyboardButton(
+                text=f"Версия {version}", callback_data=data)])
+    navigation = []
+    for target, label in ((page - 1, "◀"), (page + 1, "▶")):
+        if 0 <= target < pages:
+            data = f"recipes:history:{name}:{target}"
+            if len(data.encode("utf-8")) <= 64:
+                navigation.append(InlineKeyboardButton(text=label, callback_data=data))
+    if navigation:
+        rows.append(navigation)
+    latest = f"recipes:view:{name}:{max(versions)}"
+    if len(latest.encode("utf-8")) <= 64:
+        rows.append([InlineKeyboardButton(
+            text="◀ К рецепту", callback_data=latest)])
+    rows.append([InlineKeyboardButton(
+        text="К библиотеке", callback_data="recipes:list")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def editor_page(rows: list, *, name: str, version: int, page: int,
@@ -98,9 +293,262 @@ def editor_page(rows: list, *, name: str, version: int, page: int,
     return InlineKeyboardMarkup(inline_keyboard=selected)
 
 
-def install_recipe_buttons(app, *, catalog: RecipeCatalog) -> None:
+
+def _native_editable_specs(draft):
+    """Only module-owned, production-wired numeric parameters are actionable."""
+    result = []
+    for spec in native_recipe_parameters(draft.base_recipe_id):
+        if spec.override_policy != OverridePolicy.CONFIG_FILE or spec.value_type not in (int, float):
+            continue
+        try:
+            trial = validate_native_draft({
+                **draft.as_document(),
+                "overrides": {**dict(draft.overrides), spec.key: spec.default},
+            })
+            require_supported_native_execution(trial)
+        except ValueError:
+            continue
+        result.append(spec)
+    return tuple(result)
+
+
+def _native_adjust_value(spec, current, direction):
+    """Steps derive from the owning VariableSpec bounds, not recipe-specific JS/UI rules."""
+    if direction not in ("up", "down"):
+        raise ValueError("invalid adjustment direction")
+    sign = 1 if direction == "up" else -1
+    if spec.value_type is int:
+        value = current + sign
+    else:
+        low = Decimal(str(spec.minimum if spec.minimum is not None else 0))
+        high = Decimal(str(spec.maximum if spec.maximum is not None else spec.default))
+        step = max((high - low) / Decimal(100), Decimal("0.001"))
+        value = float(Decimal(str(current)) + sign * step)
+    if spec.minimum is not None and value < spec.minimum:
+        raise ValueError("parameter is at minimum")
+    if spec.maximum is not None and value > spec.maximum:
+        raise ValueError("parameter is at maximum")
+    return value
+
+def install_recipe_buttons(app, *, catalog: RecipeCatalog,
+                           native_drafts: NativeRecipeDraftLibrary | None = None) -> None:
     if getattr(app, "_recipe_buttons_installed", False):
         return
+    if native_drafts is None:
+        native_drafts = NativeRecipeDraftLibrary(catalog.library.root.parent / "native_recipe_drafts")
+
+    @app.router.callback_query(F.data.startswith("recipes:nd:list"))
+    async def native_draft_list(call):
+        if not await app._check_chat_and_respond(call):
+            return
+        try:
+            parts = str(call.data).split(":")
+            if len(parts) not in (3, 4) or parts[:3] != ["recipes", "nd", "list"]:
+                raise ValueError("Некорректная страница библиотеки")
+            page = int(parts[3]) if len(parts) == 4 else 0
+            markup, count, pages = native_catalog_page(native_drafts, page)
+        except (ValueError, OSError) as exc:
+            await call.answer(str(exc)[:120], show_alert=True)
+            return
+        await call.answer()
+        await call.message.answer(
+            f"Мои копии штатных рецептов · {count} шт. · страница {page + 1}/{pages}."
+            " Изменения не активируют зарядку.",
+            reply_markup=markup,
+        )
+
+    @app.router.callback_query(F.data.startswith("recipes:nd:view:"))
+    async def native_draft_view(call):
+        if not await app._check_chat_and_respond(call):
+            return
+        try:
+            _, _, _, name, raw_version = str(call.data).split(":")
+            version = int(raw_version)
+            draft = native_drafts.load(name, version)
+            require_supported_native_execution(draft)
+            versions = native_drafts.versions(name)
+            archived = (native_drafts.root / name / ".archived").exists()
+            latest = versions[-1]
+            message_text = native_summary(
+                name, version, draft, archived=archived, latest=latest)
+            rows = []
+            if version != latest:
+                key = f"recipes:nd:view:{name}:{latest}"
+                if len(key.encode("utf-8")) <= 64:
+                    rows.append([InlineKeyboardButton(
+                        text=f"◀ К актуальной v{latest}", callback_data=key)])
+            if len(versions) > 1:
+                history = f"recipes:nd:history:{name}:0"
+                if len(history.encode("utf-8")) <= 64:
+                    rows.append([InlineKeyboardButton(
+                        text=f"История · {len(versions)} версий", callback_data=history)])
+            if not archived and version == latest:
+                key = f"recipes:nd:edit:{name}:{version}:0"
+                if len(key.encode("utf-8")) <= 64:
+                    rows.insert(0, [InlineKeyboardButton(
+                        text="⚙️ Настроить параметры", callback_data=key)])
+            rows.append([InlineKeyboardButton(
+                text="Мои копии", callback_data="recipes:nd:list")])
+        except (ValueError, FileNotFoundError, OSError) as exc:
+            await call.answer(str(exc)[:120], show_alert=True)
+            return
+        await call.answer()
+        await call.message.answer(
+            message_text,
+            parse_mode=app.ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+        )
+
+    @app.router.callback_query(F.data.startswith("recipes:nd:history:"))
+    async def native_draft_history(call):
+        if not await app._check_chat_and_respond(call):
+            return
+        try:
+            _, _, _, name, raw_page = str(call.data).split(":")
+            page = int(raw_page)
+            markup, pages = native_history_page(native_drafts, name, page)
+        except (ValueError, FileNotFoundError, OSError) as exc:
+            await call.answer(str(exc)[:120], show_alert=True)
+            return
+        await call.answer()
+        await call.message.answer(
+            f"<b>История · {html.escape(name)}</b>\n"
+            f"Страница {page + 1}/{pages} · все версии только для просмотра.",
+            parse_mode=app.ParseMode.HTML,
+            reply_markup=markup)
+
+    @app.router.callback_query(F.data.startswith("recipes:nd:edit:"))
+    async def native_draft_edit(call):
+        if not await app._check_chat_and_respond(call):
+            return
+        try:
+            _, _, _, name, raw_version, raw_page = str(call.data).split(":")
+            version, page = int(raw_version), int(raw_page)
+            versions = native_drafts.versions(name)
+            if not versions or version != versions[-1]:
+                raise ValueError("Открыта устаревшая версия; обновите рецепт")
+            if (native_drafts.root / name / ".archived").exists():
+                raise ValueError("Копия в архиве")
+            draft = native_drafts.load(name, version)
+            specs = _native_editable_specs(draft)
+            page_size = 5
+            if not 0 <= page * page_size < max(1, len(specs)):
+                raise ValueError("Недопустимая страница параметров")
+            total_pages = max(1, (len(specs) + page_size - 1) // page_size)
+            lines = [f"<b>Настройка · {html.escape(name)} v{version}</b>",
+                     f"Страница {page + 1}/{total_pages} · каждое изменение сохраняет новую версию.",
+                     "Команды зарядки не отправляются."]
+            rows = []
+            for index in range(page * page_size, min((page + 1) * page_size, len(specs))):
+                spec = specs[index]
+                value = dict(draft.overrides).get(spec.key, spec.default)
+                lines.append(f"• {html.escape(spec.description)}: "
+                             f"<b>{html.escape(str(value))} {html.escape(spec.unit)}</b>"
+                             + (" (изменено)" if spec.key in dict(draft.overrides) else " (по умолчанию)"))
+                buttons = []
+                for direction, label in (("down", "−"), ("up", "+")):
+                    data = f"recipes:nd:adjust:{name}:{version}:{index}:{direction}"
+                    if len(data.encode("utf-8")) <= 64:
+                        buttons.append(InlineKeyboardButton(
+                            text=f"{label} {spec.description[:20]}", callback_data=data))
+                if buttons:
+                    rows.append(buttons)
+            nav = []
+            for target, label in ((page - 1, "◀"), (page + 1, "▶")):
+                if 0 <= target * page_size < len(specs):
+                    data = f"recipes:nd:edit:{name}:{version}:{target}"
+                    if len(data.encode("utf-8")) <= 64:
+                        nav.append(InlineKeyboardButton(text=label, callback_data=data))
+            if nav:
+                rows.append(nav)
+            back = f"recipes:nd:view:{name}:{version}"
+            if len(back.encode("utf-8")) <= 64:
+                rows.append([InlineKeyboardButton(text="◀ К копии", callback_data=back)])
+        except (ValueError, FileNotFoundError, OSError) as exc:
+            await call.answer(str(exc)[:120], show_alert=True)
+            return
+        await call.answer()
+        await call.message.answer(
+            "\n".join(lines), parse_mode=app.ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+
+    @app.router.callback_query(F.data.startswith("recipes:nd:adjust:"))
+    async def native_draft_adjust(call):
+        if not await app._check_chat_and_respond(call):
+            return
+        try:
+            _, _, _, name, raw_version, raw_index, direction = str(call.data).split(":")
+            version, index = int(raw_version), int(raw_index)
+            versions = native_drafts.versions(name)
+            if not versions or version != versions[-1]:
+                raise ValueError("Версия уже изменилась; откройте последнюю")
+            if (native_drafts.root / name / ".archived").exists():
+                raise ValueError("Копия в архиве")
+            draft = native_drafts.load(name, version)
+            specs = _native_editable_specs(draft)
+            if not 0 <= index < len(specs):
+                raise ValueError("Неизвестный параметр")
+            spec = specs[index]
+            overrides = dict(draft.overrides)
+            value = _native_adjust_value(
+                spec, overrides.get(spec.key, spec.default), direction)
+            overrides[spec.key] = value
+            changed = validate_native_draft({
+                **draft.as_document(), "overrides": overrides})
+            require_supported_native_execution(changed)
+            native_drafts.save(name, version + 1, changed.as_document())
+            back = f"recipes:nd:edit:{name}:{version + 1}:{index // 5}"
+            rows = []
+            if len(back.encode("utf-8")) <= 64:
+                rows.append([InlineKeyboardButton(
+                    text="Продолжить настройку", callback_data=back)])
+            details = f"recipes:nd:view:{name}:{version + 1}"
+            if len(details.encode("utf-8")) <= 64:
+                rows.append([InlineKeyboardButton(
+                    text="◀ К копии", callback_data=details)])
+        except (ValueError, KeyError, FileNotFoundError, FileExistsError, OSError) as exc:
+            await call.answer(str(exc)[:120], show_alert=True)
+            return
+        await call.answer()
+        await call.message.answer(
+            f"<b>{html.escape(name)} · v{version + 1}</b>\n"
+            f"{html.escape(spec.description)}: <b>{html.escape(str(value))} "
+            f"{html.escape(spec.unit)}</b>\n"
+            "Сохранена новая версия. Зарядка не запускалась.",
+            parse_mode=app.ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+
+    @app.router.callback_query(F.data.startswith("recipes:nd:copy:"))
+    async def native_draft_copy(call):
+        if not await app._check_chat_and_respond(call):
+            return
+        try:
+            source = str(call.data).removeprefix("recipes:nd:copy:")
+            get_native_recipe(source)
+            name = "copy_" + uuid4().hex[:10]
+            new = native_drafts.save(name, 1, {
+                "schema": 1, "base_recipe_id": source,
+                "execution_kind": "native_authority", "overrides": {},
+            })
+        except (KeyError, ValueError, FileExistsError, OSError) as exc:
+            await call.answer(str(exc)[:120], show_alert=True)
+            return
+        await call.answer()
+        await call.message.answer(
+            f"Создана <code>{html.escape(name)}</code> v1 из "
+            f"<code>{html.escape(new.base_recipe_id)}</code>. "
+            "Настраивайте кнопкой «⚙️ Настроить параметры» в своей копии; Output не включался.",
+            parse_mode=app.ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text="⚙️ Открыть копию",
+                    callback_data=f"recipes:nd:view:{name}:1",
+                )],
+                [InlineKeyboardButton(
+                    text="Мои копии", callback_data="recipes:nd:list",
+                )],
+            ]),
+        )
 
     @app.router.callback_query(F.data == "recipes:native:list")
     async def native_catalog(call):
@@ -141,6 +589,10 @@ def install_recipe_buttons(app, *, catalog: RecipeCatalog) -> None:
                 [InlineKeyboardButton(
                     text="⚙️ Параметры",
                     callback_data=f"recipes:native:params:{entry.recipe_id}")],
+                [InlineKeyboardButton(text="Создать свою копию",
+                                      callback_data=f"recipes:nd:copy:{entry.recipe_id}")],
+                [InlineKeyboardButton(text="Мои копии",
+                                      callback_data="recipes:nd:list")],
                 [InlineKeyboardButton(text="Мои рецепты",
                                       callback_data="recipes:list")],
             ]),
@@ -248,20 +700,120 @@ def install_recipe_buttons(app, *, catalog: RecipeCatalog) -> None:
         if not await app._check_chat_and_respond(call):
             return
         try:
-            _, _, name, version = str(call.data).split(":")
-            recipe = catalog.library.load(name, int(version))
-        except (ValueError, OSError):
-            await call.answer("Рецепт не найден", show_alert=True)
+            parts = str(call.data).split(":")
+            if len(parts) not in (4, 5) or parts[:2] != ["recipes", "view"]:
+                raise ValueError("Неверная ссылка на рецепт")
+            _, _, name, raw_version = parts[:4]
+            page = int(parts[4]) if len(parts) == 5 else 0
+            recipe = catalog.library.load(name, int(raw_version))
+            versions = catalog.library.versions(name)
+            archived = (catalog.library.root / name / ".archived").exists()
+            latest = versions[-1]
+            pages = (len(recipe.steps) + STEP_VIEW_PAGE_SIZE - 1) // STEP_VIEW_PAGE_SIZE
+            message_text = step_summary(recipe, archived=archived, latest=latest,
+                                        page=page)
+        except (ValueError, OSError) as exc:
+            await call.answer(str(exc)[:120], show_alert=True)
             return
-        lines = [f"<b>{html.escape(recipe.recipe_id)} v{recipe.version}</b>"]
-        for i, step in enumerate(recipe.steps, 1):
-            action = html.escape(step["action"])
-            predicate, target = next(iter(step["until"].items()))
-            lines.append(f"{i}. {action}: {html.escape(str(step['params']))} → {predicate} {target}")
         await call.answer()
         await call.message.answer(
-            "\n".join(lines)[:3900], parse_mode=app.ParseMode.HTML,
-            reply_markup=recipe_markup(recipe.recipe_id, recipe.version),
+            message_text, parse_mode=app.ParseMode.HTML,
+            reply_markup=recipe_markup(
+                recipe.recipe_id, recipe.version,
+                editable=not archived and recipe.version == latest,
+                page=page, pages=pages),
+        )
+
+    @app.router.callback_query(F.data.startswith("recipes:history:"))
+    async def recipe_history(call):
+        if not await app._check_chat_and_respond(call):
+            return
+        try:
+            _, _, name, raw_page = str(call.data).split(":")
+            page = int(raw_page)
+            markup = recipe_history_markup(catalog, name, page=page)
+            count = len(catalog.library.versions(name))
+            archived = (catalog.library.root / name / ".archived").exists()
+        except (ValueError, OSError) as exc:
+            await call.answer(str(exc)[:150], show_alert=True)
+            return
+        await call.answer()
+        await call.message.answer(
+            f"<b>История: {html.escape(name)}</b> · {count} версий"
+            + (" · архив" if archived else "")
+            + "\nВыберите версию для просмотра. История неизменяема.",
+            parse_mode=app.ParseMode.HTML,
+            reply_markup=markup,
+        )
+
+    @app.router.callback_query(F.data.startswith("recipes:duplicate:"))
+    async def recipe_duplicate(call):
+        if not await app._check_chat_and_respond(call):
+            return
+        try:
+            _, _, name, raw_version = str(call.data).split(":")
+            version = int(raw_version)
+            copy_name = "copy_" + uuid4().hex[:10]
+            copied = catalog.duplicate(name, version, copy_name)
+        except (ValueError, FileNotFoundError, FileExistsError, OSError) as exc:
+            await call.answer(str(exc)[:150], show_alert=True)
+            return
+        await call.answer()
+        await call.message.answer(
+            f"Создана копия <code>{html.escape(copied.recipe_id)}</code> "
+            f"v{copied.version} из <code>{html.escape(name)}</code> v{version}. "
+            "Исходная версия не изменена; Output не включался.",
+            parse_mode=app.ParseMode.HTML,
+            reply_markup=recipe_markup(copied.recipe_id, copied.version),
+        )
+
+    @app.router.callback_query(F.data.startswith("recipes:archiveask:"))
+    async def recipe_archive_ask(call):
+        if not await app._check_chat_and_respond(call):
+            return
+        try:
+            _, _, name = str(call.data).split(":")
+            versions = catalog.library.versions(name)
+            if not versions:
+                raise ValueError("рецепт не найден")
+            if (catalog.library.root / name / ".archived").exists():
+                raise ValueError("рецепт уже в архиве")
+            confirm = f"recipes:archiveconfirm:{name}"
+            if len(confirm.encode("utf-8")) > 64:
+                raise ValueError("имя слишком длинное для кнопки")
+        except (ValueError, OSError) as exc:
+            await call.answer(str(exc)[:150], show_alert=True)
+            return
+        await call.answer()
+        await call.message.answer(
+            f"Архивировать <code>{html.escape(name)}</code>? "
+            "Все версии останутся доступны для чтения, "
+            "но новые версии сохранять будет нельзя.",
+            parse_mode=app.ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="Подтвердить архив",
+                                      callback_data=confirm)],
+                [InlineKeyboardButton(text="Отмена",
+                                      callback_data="recipes:list")],
+            ]),
+        )
+
+    @app.router.callback_query(F.data.startswith("recipes:archiveconfirm:"))
+    async def recipe_archive_confirm(call):
+        if not await app._check_chat_and_respond(call):
+            return
+        try:
+            _, _, name = str(call.data).split(":")
+            catalog.archive(name)
+        except (ValueError, FileNotFoundError, FileExistsError, OSError) as exc:
+            await call.answer(str(exc)[:150], show_alert=True)
+            return
+        await call.answer()
+        await call.message.answer(
+            f"<code>{html.escape(name)}</code> архивирован. Версии сохранены. "
+            "Зарядка не изменена.",
+            parse_mode=app.ParseMode.HTML,
+            reply_markup=catalog_markup(catalog),
         )
 
     @app.router.callback_query(F.data.startswith("recipes:copyhelp:"))
@@ -292,8 +844,12 @@ def install_recipe_buttons(app, *, catalog: RecipeCatalog) -> None:
             _, _, name, version = parts[:4]
             page = int(parts[4]) if len(parts) == 5 else 0
             recipe = catalog.library.load(name, int(version))
-        except (ValueError, OSError):
-            await call.answer("Рецепт не найден", show_alert=True)
+            if (catalog.library.root / name / ".archived").exists():
+                raise ValueError("Рецепт в архиве · только просмотр")
+            if recipe.version != catalog.library.versions(name)[-1]:
+                raise ValueError("Устаревшая версия · откройте актуальную")
+        except (ValueError, OSError) as exc:
+            await call.answer(str(exc)[:120], show_alert=True)
             return
         rows = []
         for index, step in enumerate(recipe.steps):
@@ -374,7 +930,7 @@ def install_recipe_buttons(app, *, catalog: RecipeCatalog) -> None:
         await call.answer()
         await call.message.answer(
             f"Порог {condition}: {value:g}, версия {updated.version}.",
-            reply_markup=recipe_markup(updated.recipe_id, updated.version),
+            reply_markup=step_saved_markup(updated.recipe_id, updated.version),
         )
 
     @app.router.callback_query(F.data.startswith("recipes:condition:"))
@@ -398,7 +954,7 @@ def install_recipe_buttons(app, *, catalog: RecipeCatalog) -> None:
         await call.answer()
         await call.message.answer(
             f"Условие {condition} задано, версия {updated.version}. Измените порог при необходимости.",
-            reply_markup=recipe_markup(updated.recipe_id, updated.version),
+            reply_markup=step_saved_markup(updated.recipe_id, updated.version),
         )
 
     @app.router.callback_query(F.data.startswith("recipes:time:"))
@@ -423,7 +979,7 @@ def install_recipe_buttons(app, *, catalog: RecipeCatalog) -> None:
         await call.answer()
         await call.message.answer(
             f"Время шага {index+1}: {new_value:g} с, версия {updated.version}.",
-            reply_markup=recipe_markup(updated.recipe_id, updated.version),
+            reply_markup=step_saved_markup(updated.recipe_id, updated.version),
         )
 
     @app.router.callback_query(F.data.startswith("recipes:step:"))
@@ -448,7 +1004,7 @@ def install_recipe_buttons(app, *, catalog: RecipeCatalog) -> None:
         await call.answer()
         await call.message.answer(
             f"Сохранена версия {updated.version}. Предыдущая версия не изменена.",
-            reply_markup=recipe_markup(updated.recipe_id, updated.version),
+            reply_markup=step_saved_markup(updated.recipe_id, updated.version),
         )
 
     @app.router.callback_query(F.data.startswith("recipes:append:"))
@@ -472,7 +1028,7 @@ def install_recipe_buttons(app, *, catalog: RecipeCatalog) -> None:
         await call.answer()
         await call.message.answer(
             f"Добавлен {kind.upper()}: {updated.recipe_id} v{updated.version}. Зарядка не запущена.",
-            reply_markup=recipe_markup(updated.recipe_id, updated.version),
+            reply_markup=step_saved_markup(updated.recipe_id, updated.version),
         )
 
     @app.router.callback_query(F.data.startswith("recipes:adjust:"))
@@ -481,6 +1037,8 @@ def install_recipe_buttons(app, *, catalog: RecipeCatalog) -> None:
             return
         try:
             _, _, name, version, index, field, sign = str(call.data).split(":")
+            if field not in {"voltage_v", "current_a"} or sign not in {"+", "-"}:
+                raise ValueError("Недопустимая корректировка")
             recipe = catalog.library.load(name, int(version))
             current = recipe.steps[int(index)]["params"][field]
             updated = edit_step(catalog, name, int(version), int(index),
@@ -491,7 +1049,7 @@ def install_recipe_buttons(app, *, catalog: RecipeCatalog) -> None:
         await call.answer()
         await call.message.answer(
             f"Сохранена версия {updated.version}. Предыдущие версии не изменены.",
-            reply_markup=recipe_markup(updated.recipe_id, updated.version),
+            reply_markup=step_saved_markup(updated.recipe_id, updated.version),
         )
 
     app._recipe_buttons_installed = True

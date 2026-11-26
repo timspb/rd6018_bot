@@ -91,7 +91,6 @@ class V3MainAuthorityMigrationTests(unittest.TestCase):
     def test_authoritative_main_no_longer_enters_historical_tick(self) -> None:
         controller = (ROOT / "charge_controller.py").read_text(encoding="utf-8")
         stage_router = (ROOT / "application/charge_stage_tick.py").read_text(encoding="utf-8")
-        auto = (ROOT / "auto_strategy.py").read_text(encoding="utf-8")
         scaffold = stage_router
         self.assertIn("run_authoritative_main_scaffold", scaffold)
         self.assertNotIn("async def _run_stage_scaffold_tick", controller)
@@ -102,16 +101,12 @@ class V3MainAuthorityMigrationTests(unittest.TestCase):
         self.assertIn("actions = await run_charge_stage_tick(", application_tick)
         self.assertNotIn("host._run_stage_scaffold_tick(", application_tick)
 
-        self.assertNotIn("async def _run_stage_scaffold_tick", auto)
-        self.assertNotIn("real_stage_start", auto)
-        self.assertNotIn("self.stage_start_time = time.time()", auto)
+        self.assertFalse((ROOT / "auto_strategy.py").exists())
 
     def test_transitional_controllers_consume_modular_main_owner(self) -> None:
-        auto = (ROOT / "auto_strategy.py").read_text(encoding="utf-8")
         production = (ROOT / "production_controller.py").read_text(encoding="utf-8")
         controller = (ROOT / "charge_controller.py").read_text(encoding="utf-8")
-        self.assertNotIn("from charge_logic import (\n    AGM_FIRST_STAGE_HOLD_SEC", auto)
-        self.assertNotIn("decide_main_transition", auto)
+        self.assertFalse((ROOT / "auto_strategy.py").exists())
         stage_dispatch = (ROOT / "runtime/charge/runtime/stage_authority.py").read_text(encoding="utf-8")
         self.assertIn("apply_main_authority_tick(", stage_dispatch)
         self.assertNotIn("select_main_target(", production)

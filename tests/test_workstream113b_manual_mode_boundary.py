@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 from application.manual_execution_boundary import ManualExecutionBoundary
-from application.manual_phase_lifecycle import ManualPhaseLifecycle
+from runtime.charge.strategy.manual_phase_lifecycle import ManualPhaseLifecycle
 from runtime.charge.profiles.manual import ManualChargeProfile
 from manual_mode import ManualChargeRequest, ManualSessionManager
 from rd6018_telemetry import RegulationMode
@@ -71,7 +71,7 @@ class ManualModeBoundaryTests(unittest.TestCase):
             manager.phase_lifecycle.confirmations = self.profile.main.confirmation_count - 1
             manager.phase_lifecycle.last_confirmation_at = now - self.profile.main.confirmation_interval_seconds - 1
             manager.phase_lifecycle.hold_started_at = now - self.profile.main.hold_hours * 3600 - 1
-            with patch("manual_mode.resolve_regulation", return_value=RegulationMode.CV):
+            with patch("application.manual_phase_evidence.resolve_regulation", return_value=RegulationMode.CV):
                 self.assertEqual(
                     manager._main_tail_reason({"battery_voltage": 14.1, "current": 2.3}),
                     "manual_main_to_mix",

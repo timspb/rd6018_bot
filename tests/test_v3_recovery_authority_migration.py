@@ -15,7 +15,6 @@ from runtime.charge.strategy.desulfation_variables import (
     DESULFATION_CURRENT_C_RATE,
     DESULFATION_DURATION_HOURS,
     DESULFATION_MIN_CURRENT_A,
-    DESULFATION_OCP_MARGIN_A,
 )
 from runtime.charge.strategy.recovery_safe_wait import (
     RecoverySafeWaitContinuation,
@@ -60,8 +59,7 @@ class V3RecoveryAuthorityMigrationTests(unittest.IsolatedAsyncioTestCase):
             DESULFATION_CURRENT_C_RATE,
             DESULFATION_DURATION_HOURS,
             DESULFATION_MIN_CURRENT_A,
-            DESULFATION_OCP_MARGIN_A,
-        )
+                )
         for spec in desulf_specs:
             self.assertEqual(spec.owner, "runtime.charge.strategy.desulfation")
             self.assertTrue(spec.key)

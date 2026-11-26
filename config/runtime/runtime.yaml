@@ -20,8 +20,6 @@ snapshot_timestamp_tolerance_s: 10
 verification_voltage_tolerance_v: 0.01
 # Допуск сверки уставки тока перед/после физического действия, амперы
 verification_current_tolerance_a: 0.05
-# Допуск сверки OVP/OCP перед/после физического действия
-verification_protection_tolerance: 0.05
 # Максимальное ожидание подтверждения записи уставки, секунды
 # Maximum wait for setpoint write readback, seconds
 physical_readback_timeout_s: 15

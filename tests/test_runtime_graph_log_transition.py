@@ -26,6 +26,21 @@ class RuntimeGraphLogTransitionTests(unittest.TestCase):
         self.assertEqual(v2_runtime.user_graph_dashboard, {})
         self.assertEqual(v2_runtime.chat_graph_dashboard, {})
 
+    def test_retirement_uses_existing_panel_lifecycle_owner(self):
+        from runtime.ui.telegram.panel_lifecycle import retire_graph_tracking_for_message
+        v2_runtime.user_graph_dashboard = {7: 200}
+        v2_runtime.chat_graph_dashboard = {11: 201}
+        retire_graph_tracking_for_message(v2_runtime, 11, 7, 200)
+        self.assertEqual(v2_runtime.user_graph_dashboard, {})
+        self.assertEqual(v2_runtime.chat_graph_dashboard, {11: 201})
+
+    def test_missing_graph_indexes_do_not_create_state(self):
+        from types import SimpleNamespace
+        from runtime.ui.telegram.panel_lifecycle import retire_graph_tracking_for_message
+        app = SimpleNamespace()
+        retire_graph_tracking_for_message(app, 11, 7, 200)
+        self.assertEqual(vars(app), {})
+
     def test_unrelated_message_does_not_clear_graph_tracking(self):
         v2_runtime._retire_graph_tracking_for_message(11, 7, 201)
 

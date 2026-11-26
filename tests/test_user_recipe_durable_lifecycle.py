@@ -16,6 +16,9 @@ class InterruptedPort:
     def __init__(self):
         self.calls = 0
 
+    async def read_live(self):
+        return {"switch": "on"}
+
     async def apply_intent(self, intent, *, identity):
         self.calls += 1
         raise RuntimeError("connection lost after physical call")

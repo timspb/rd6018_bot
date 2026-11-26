@@ -3,62 +3,37 @@ import unittest
 from rd_live_adoption import HandsOffMixObserver
 
 
-class LiveMixZeroProtectionReadbackTests(unittest.TestCase):
-    def test_zero_ocp_is_valid_external_hands_off_fingerprint(self):
+class LiveMixVIOnlyFingerprintTests(unittest.TestCase):
+    def test_external_fingerprint_uses_only_programmed_voltage_and_current(self):
         fingerprint = HandsOffMixObserver.fingerprint_from_live(
-            {
-                "set_voltage": 16.54,
-                "set_current": 1.01,
-                "ovp": 16.7,
-                "ocp": 0.0,
-            }
+            {"set_voltage": 16.54, "set_current": 1.01}
         )
-
         self.assertIsNotNone(fingerprint)
-        assert fingerprint is not None
         self.assertEqual(fingerprint.set_voltage_v, 16.54)
         self.assertEqual(fingerprint.set_current_a, 1.01)
-        self.assertEqual(fingerprint.ovp_v, 16.7)
-        self.assertEqual(fingerprint.ocp_a, 0.0)
+        self.assertFalse(hasattr(fingerprint, "ovp_v"))
+        self.assertFalse(hasattr(fingerprint, "ocp_a"))
 
-    def test_zero_ovp_and_ocp_are_preserved_as_explicit_external_settings(self):
-        fingerprint = HandsOffMixObserver.fingerprint_from_live(
-            {
-                "set_voltage": 13.8,
-                "set_current": 1.0,
-                "ovp": 0.0,
-                "ocp": 0.0,
-            }
+    def test_retired_protection_values_cannot_change_fingerprint(self):
+        baseline = HandsOffMixObserver.fingerprint_from_live(
+            {"set_voltage": 13.8, "set_current": 1.0}
         )
+        for retired in ({"ovp": 0.0, "ocp": 0.0},
+                        {"ovp": None, "ocp": None},
+                        {"ovp": 16.7, "ocp": -0.1}):
+            with self.subTest(retired=retired):
+                candidate = HandsOffMixObserver.fingerprint_from_live(
+                    {"set_voltage": 13.8, "set_current": 1.0, **retired}
+                )
+                self.assertEqual(candidate, baseline)
 
-        self.assertIsNotNone(fingerprint)
-        assert fingerprint is not None
-        self.assertEqual(fingerprint.ovp_v, 0.0)
-        self.assertEqual(fingerprint.ocp_a, 0.0)
-
-    def test_negative_protection_readback_is_invalid(self):
-        self.assertIsNone(
-            HandsOffMixObserver.fingerprint_from_live(
-                {
-                    "set_voltage": 16.54,
-                    "set_current": 1.01,
-                    "ovp": 16.7,
-                    "ocp": -0.1,
-                }
-            )
-        )
-
-    def test_missing_protection_readback_is_still_invalid(self):
-        self.assertIsNone(
-            HandsOffMixObserver.fingerprint_from_live(
-                {
-                    "set_voltage": 16.54,
-                    "set_current": 1.01,
-                    "ovp": 16.7,
-                    "ocp": None,
-                }
-            )
-        )
+    def test_invalid_voltage_or_current_blocks_adoption_fingerprint(self):
+        for key, bad in (("set_voltage", None), ("set_current", None),
+                         ("set_voltage", -1.0), ("set_current", -1.0)):
+            with self.subTest(key=key, bad=bad):
+                live = {"set_voltage": 16.54, "set_current": 1.01}
+                live[key] = bad
+                self.assertIsNone(HandsOffMixObserver.fingerprint_from_live(live))
 
 
 if __name__ == "__main__":

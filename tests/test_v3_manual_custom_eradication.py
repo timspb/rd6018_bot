@@ -29,14 +29,18 @@ class V3ManualCustomEradicationTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(controller.is_active)
         self.assertEqual(controller.current_stage, controller.STAGE_IDLE)
 
-    def test_runtime_has_no_retired_ui_adapter_or_monkeypatch(self):
+    def test_runtime_has_no_retired_custom_adapter_and_manual_text_owns_typed_route(self):
         runtime_source = (REPO_ROOT / "runtime" / "production_runtime.py").read_text(encoding="utf-8")
         bootstrap_source = (REPO_ROOT / "production_bootstrap.py").read_text(encoding="utf-8")
         manual_source = (REPO_ROOT / "manual_mode.py").read_text(encoding="utf-8")
+        text_source = (REPO_ROOT / "manual_text.py").read_text(encoding="utf-8")
         self.assertNotIn("start_from_legacy_ui", runtime_source + bootstrap_source + manual_source)
         self.assertNotIn("app.start_custom_charge", bootstrap_source)
-        self.assertIn("ManualUIIntent", runtime_source)
+        self.assertNotIn("ManualUIIntent", runtime_source)
+        self.assertIn("ManualUIIntent", manual_source)
         self.assertIn("ProductionManualUIRoute", bootstrap_source)
+        self.assertIn("ProductionManualUIRoute", text_source)
+        self.assertIn("submit_request", text_source)
 
     async def test_approved_typed_intent_reaches_canonical_manager_only(self):
         app = SimpleNamespace(hass=DummyHass(), charge_controller=DummyController(), last_chat_id=0, last_user_id=0)

@@ -2,7 +2,6 @@ import asyncio
 import unittest
 
 from runtime.charge import ChargeIntent, Measurements
-from runtime.charge.strategy import post_mix_reset_intent
 from runtime.output import OutputAction, OutputIntentFactory, SafeOutputIntent
 from runtime.safety import SafetyContext, SafetyEngine, SafetyLimits
 
@@ -25,18 +24,14 @@ class V3OutputFactoryBridgeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.factory.create(decision)
 
-    def test_reset_protection_uses_the_same_safe_output_intent(self):
-        reset = post_mix_reset_intent(17.5, 12.0, reason="MIX_FINISH")
+    def test_completed_decision_maps_to_verified_off_intent(self):
         decision = self.safety.evaluate(
             ChargeIntent(completed=True, next_stage="done"), self.measurements, SafetyContext()
         )
-        decision = decision.__class__(
-            True, decision.reason, decision.violations, decision.limits_applied,
-            decision.intent, reset,
-        )
         intent = self.factory.create(decision)
-        self.assertEqual(OutputAction.RESET_PROTECTION, intent.action)
-        self.assertEqual((17.5, 12.0), (intent.target_ovp, intent.target_ocp))
+        self.assertEqual(OutputAction.DISABLE, intent.action)
+        self.assertIsNone(intent.target_voltage)
+        self.assertIsNone(intent.target_current)
 
 
 if __name__ == "__main__":

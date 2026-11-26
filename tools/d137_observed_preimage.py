@@ -74,19 +74,47 @@ def observed_preimage(root: Path, *, pid: int,
                     raise ValueError("unknown D144 installed release history")
                 slot = int(suffix)
             slots.append((slot, transaction_path))
-        slots.sort()
         if not slots or len({slot for slot, _ in slots}) != len(slots):
             raise ValueError("D144 installed release history is absent or ambiguous")
-        slot, transaction_path = slots[-1]
-        suffix = "" if slot == 1 else "_" + str(slot)
-        identity_path = root / ("D144_INSTALLED_RELEASE" + suffix + ".json")
-        if (identity_path.is_symlink() or not identity_path.is_file()
-                or transaction_path.is_symlink()):
-            raise ValueError("D144 installed release identity is absent or unsafe")
+        committed = []
+        known_slots = {slot for slot, _ in slots}
+        for identity_candidate in root.glob("D144_INSTALLED_RELEASE*.json"):
+            if identity_candidate.is_symlink() or not identity_candidate.is_file():
+                raise ValueError("unsafe D144 installed release history")
+            suffix = identity_candidate.name.removeprefix("D144_INSTALLED_RELEASE").removesuffix(".json")
+            if suffix == "":
+                identity_slot = 1
+            elif suffix.startswith("_") and suffix[1:].isdigit() and str(int(suffix[1:])) == suffix[1:]:
+                identity_slot = int(suffix[1:])
+            else:
+                raise ValueError("unknown D144 installed release identity history")
+            if identity_slot not in known_slots:
+                raise ValueError("D144 installed release identity is ambiguous")
+        for slot, transaction_path in slots:
+            transaction = read_small_json(transaction_path)
+            phase = transaction.get("phase")
+            if phase in {"RESTORED", "FAILED", "PREPARED"}:
+                continue
+            if phase != "COMMITTED":
+                raise ValueError("D144 installed release history has ambiguous phase")
+            suffix = "" if slot == 1 else "_" + str(slot)
+            identity_path = root / ("D144_INSTALLED_RELEASE" + suffix + ".json")
+            if identity_path.is_symlink() or not identity_path.is_file():
+                raise ValueError("D144 committed installed release identity is absent or unsafe")
+            identity = read_small_json(identity_path)
+            release = transaction.get("release_identity")
+            if (not isinstance(release, dict)
+                    or identity.get("transaction") != transaction.get("transaction")
+                    or {k: identity.get(k) for k in
+                        ("schema", "source_sha", "candidate_identity_sha256")} != release):
+                raise ValueError("D144 committed installed release identity is ambiguous")
+            committed.append((slot, transaction_path, identity_path, transaction))
+        if not committed:
+            raise ValueError("D144 committed installed release identity is absent or unsafe")
+        slot, transaction_path, identity_path, transaction = max(committed, key=lambda item: item[0])
         tracked.extend((transaction_path, identity_path))
         before.update({str(p): sha256(p) for p in (transaction_path, identity_path)})
         d144_identity = read_small_json(identity_path)
-        transaction = read_small_json(transaction_path)
         release = transaction.get("release_identity")
         installed_app = installed_app_inventory(app)
         installed_venv = installed_app_inventory(venv)
@@ -126,16 +154,77 @@ def observed_preimage(root: Path, *, pid: int,
             raise ValueError("D144 installed release identity does not match committed app/venv")
     retirement = quarantine.get("retirement")
     preserved_guard = None
-    if session_present and session.get("stage") in {"Main Charge", "Mix Mode"}:
-        # Preserve a guarded MAIN, or its interrupted transition into MIX,
-        # across software-only restart. MIX must carry the exact historical
-        # MAIN->MIX transition and sealed MAIN guard; never infer resume authority.
-        if session["stage"] == "Mix Mode" and not any(
-            isinstance(step, dict) and step.get("from") == "Main Charge"
-            and step.get("to") == "Mix Mode"
-            for step in (session.get("stage_history") or [])
+    preserved_quarantine = None
+    if not session_present and quarantine.get("quarantined") is True:
+        # A Python-only release may need to preserve an orphaned active
+        # quarantine while charge_session.json is absent. This is identity
+        # capture only: it does not clear the journal or authorize charging.
+        identity = quarantine.get("identity")
+        reason = quarantine.get("reason")
+        incident_id = quarantine.get("incident_id")
+        incident_utc = quarantine.get("incident_utc")
+        valid_reason = (
+            isinstance(reason, str) and reason.startswith((
+                "main_guard_current_setpoint_transaction_unconfirmed:",
+                "main_guard_current_ocp_transaction_unconfirmed:",
+            ))
+        )
+        try:
+            from datetime import datetime
+            from uuid import UUID
+            if not isinstance(incident_id, str):
+                raise ValueError("incident ID missing")
+            UUID(incident_id)
+            if not isinstance(incident_utc, str):
+                raise ValueError("incident timestamp missing")
+            datetime.fromisoformat(incident_utc.replace("Z", "+00:00"))
+            valid_time = True
+        except (TypeError, ValueError, OverflowError):
+            valid_time = False
+        if (
+            set(quarantine) != {
+                "owner", "schema_version", "quarantined", "reason",
+                "incident_id", "incident_utc", "identity",
+            }
+            or quarantine.get("owner") != "runtime.charge.recovery_quarantine_journal"
+            or quarantine.get("schema_version") != 1
+            or not valid_reason
+            or not valid_time
+            or not isinstance(identity, dict)
+            or set(identity) != {"session_id", "battery_id"}
+            or any(type(identity.get(key)) is not str or not identity[key].strip()
+                   for key in ("session_id", "battery_id"))
         ):
-            raise ValueError("interrupted MIX lacks historical MAIN transition")
+            raise ValueError("active orphan quarantine identity is not authentic")
+        preserved_quarantine = {
+            "incident_id": incident_id,
+            "incident_utc": incident_utc,
+            "reason": reason,
+            "session_id": identity["session_id"],
+            "battery_id": identity["battery_id"],
+            "session_absent": True,
+            "quarantine_sha256": before[str(quarantine_path)],
+        }
+    elif session_present and session.get("stage") in {
+        "Main Charge", "Mix Mode", "Безопасное ожидание",
+    }:
+        # Preserve MAIN's sealed Guard in MIX and final SAFE_WAIT, including
+        # the interrupted Storage transition. These are saved identities,
+        # never authority to resume Output after a service restart.
+        history = session.get("stage_history") or []
+        main_to_mix = any(
+            isinstance(step, dict) and step.get("from") == "Main Charge"
+            and step.get("to") == "Mix Mode" for step in history
+        )
+        if session["stage"] in {"Mix Mode", "Безопасное ожидание"} and not main_to_mix:
+            raise ValueError("guarded session lacks historical MAIN transition")
+        if session["stage"] == "Безопасное ожидание":
+            try:
+                from tools.d137_guarded_final_safe_wait import valid_guarded_final_wait
+            except ModuleNotFoundError:
+                from d137_guarded_final_safe_wait import valid_guarded_final_wait
+            if not valid_guarded_final_wait(session):
+                raise ValueError("guarded final SAFE_WAIT continuation invalid")
         # Independent D091 Native/HA proof confirms Output OFF; bind every
         # persisted byte and validate the canonical guard snapshot.
         if (session.get("v2_authoritative") is not True
@@ -280,8 +369,17 @@ def observed_preimage(root: Path, *, pid: int,
     venv1 = venv_inventory(venv)
     app2 = tree_manifest(app)
     venv2 = venv_inventory(venv)
-    if app1 != app2 or venv1 != venv2:
+    try:
+        from tools.node104_d090_transaction import inventory as installed_app_inventory
+    except ModuleNotFoundError:
+        from node104_d090_transaction import inventory as installed_app_inventory
+    app_inventory1 = installed_app_inventory(app)
+    app_inventory2 = installed_app_inventory(app)
+    if app1 != app2 or venv1 != venv2 or app_inventory1 != app_inventory2:
         raise RuntimeError("installed bytes changed during observation")
+    app_inventory_sha256 = hashlib.sha256(
+        json.dumps(app_inventory2, sort_keys=True, separators=(",", ":")).encode("ascii")
+    ).hexdigest()
     if any(sha256(p) != before[str(p)] for p in tracked):
         raise RuntimeError("durable state changed during observation")
     argv2 = (Path("/proc") / str(pid) / "cmdline").read_bytes().split(bytes([0]))
@@ -295,6 +393,7 @@ def observed_preimage(root: Path, *, pid: int,
         "root": str(root),
         "process": {"pid": pid, "entrypoint": str(app / "bot.py")},
         "installed_app": app2,
+        "app_inventory_sha256": app_inventory_sha256,
         "installed_venv": venv2,
         "d090": {
             "transaction": journal.get("transaction"),
@@ -304,7 +403,7 @@ def observed_preimage(root: Path, *, pid: int,
             "installed_release": d144_identity,
             "candidate_inventory_present": False
         },
-        "retired_session": (None if preserved_guard else {
+        "retired_session": (None if preserved_guard or preserved_quarantine else {
             "session_id": session.get("session_id") if session_present else retirement["session_id"],
             "off_evidence": (session.get("verified_off_transaction_id")
                              if session_present else retirement["confirmed_off_evidence"]),
@@ -312,6 +411,7 @@ def observed_preimage(root: Path, *, pid: int,
             "session_absent": not session_present,
             "quarantine_sha256": before[str(quarantine_path)]
         }),
+        "preserved_quarantine": preserved_quarantine,
         "preserved_guarded_main": ({
             **preserved_guard,
             "session_sha256": before[str(session_path)],

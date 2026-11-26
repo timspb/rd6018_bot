@@ -17,6 +17,7 @@ from application.start_request import StartRequest
 from application.start_transaction_adapter import (
     RollbackState,
     StartExecutionStatus,
+    StartPersistenceStatus,
     StartTransactionAdapter,
     StartTransactionOutcome,
 )
@@ -28,10 +29,11 @@ class _Hass:
         return {
             "battery_voltage": 13.5, "current": 0.0, "temp_ext": 25.0,
             "temp_int": 30.0, "input_voltage": 60.0, "switch": "off",
+            "protection_code": 0,
             "ovp_triggered": "off", "ocp_triggered": "off",
             "_freshness": {key: 0.0 for key in (
                 "battery_voltage", "current", "temp_ext", "temp_int",
-                "switch", "ovp_triggered", "ocp_triggered",
+                "switch", "protection_code", "ovp_triggered", "ocp_triggered",
             )},
         }
 
@@ -77,7 +79,7 @@ class ProductionStartRunnerTests(unittest.TestCase):
 
         def fake_runner(transaction_input):
             calls.append(transaction_input)
-            return StartTransactionOutcome(trace_id=transaction_input.trace_id, started=True, reason="started")
+            return StartTransactionOutcome(trace_id="trace-propagated", started=True, reason="started")
 
         result = ProductionStartRunner(
             StartTransactionAdapter(), fake_runner
@@ -106,7 +108,7 @@ class ProductionStartRunnerTests(unittest.TestCase):
 
         async def async_owner(transaction_input):
             calls.append(transaction_input.trace_id)
-            return StartTransactionOutcome(trace_id=transaction_input.trace_id, started=True, reason="started")
+            return StartTransactionOutcome(trace_id="trace-owner", started=True, reason="started")
 
         result = asyncio.run(
             ProductionStartRunner(
@@ -142,6 +144,16 @@ class ProductionStartRunnerTests(unittest.TestCase):
         self.assertEqual(result.rollback, RollbackState.SESSION_CONTAINED)
         self.assertEqual(result.trace_id, "trace-runner")
 
+    def test_normalization_preserves_durable_persistence_outcome(self):
+        outcome = StartTransactionOutcome(
+            trace_id="trace-persisted", started=True, reason="started",
+            persistence_status=StartPersistenceStatus.COMMITTED,
+        )
+        result = ProductionStartRunner(
+            StartTransactionAdapter(), lambda _item: outcome,
+        ).execute(_request())
+        self.assertEqual(result.persistence_status.value, "COMMITTED")
+
     def test_port_requires_runner(self):
         request = _request()
         result = ProductionStartExecutionPort(
@@ -160,7 +172,7 @@ class ProductionStartRunnerTests(unittest.TestCase):
 
         async def fake_owner(app, event, pending):
             calls.append((app, event, pending))
-            return True
+            return StartTransactionOutcome(trace_id="trace-owner", started=True, reason="started")
 
         transaction = StartTransactionAdapter().prepare(
             _request().plan,
@@ -207,7 +219,7 @@ class ProductionStartRunnerTests(unittest.TestCase):
 
         async def fake_owner(_app, event, pending):
             received.append((event, pending))
-            return True
+            return StartTransactionOutcome(trace_id="trace-propagated", started=True, reason="started")
 
         transaction = StartTransactionAdapter().prepare(
             _request().plan,
@@ -227,7 +239,7 @@ class ProductionStartRunnerTests(unittest.TestCase):
     def test_default_adapter_preserves_transaction_denial_feedback(self):
         async def fake_owner(_app, event, _pending):
             await event.message.answer("Запуск заблокирован: сохранённая сессия в карантине.")
-            return False
+            return StartTransactionOutcome(trace_id="trace-denied-feedback")
 
         transaction = StartTransactionAdapter().prepare(
             _request().plan,
@@ -245,7 +257,7 @@ class ProductionStartRunnerTests(unittest.TestCase):
 
     def test_default_adapter_keeps_generic_reason_when_owner_returns_false_silently(self):
         async def fake_owner(_app, _event, _pending):
-            return False
+            return StartTransactionOutcome()
 
         transaction = StartTransactionAdapter().prepare(_request().plan, trace_id="trace-no-feedback")
         outcome = asyncio.run(

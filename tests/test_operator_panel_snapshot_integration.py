@@ -18,7 +18,8 @@ class _Interface:
             "charge": {"stage": "IDLE"},
         })
 
-    async def get_operator_actions(self):
+    async def get_operator_actions(self, *, snapshot=None):
+        self.last_actions_snapshot = snapshot
         from application.operator_actions import OperatorActionsView
         return OperatorActionsView.for_state("IDLE", safety_allowed=True)
 
@@ -55,6 +56,7 @@ class OperatorPanelIntegrationTests(unittest.IsolatedAsyncioTestCase):
             await app._refresh_operator_panel(1, 2, 99)
         finally:
             operator_dashboard._main_graph_markup = original
+        self.assertIsNotNone(app.operator_interface.last_actions_snapshot)
         self.assertEqual(len(app.bot.edited), 1)
         self.assertEqual(app.bot.edited[0]["message_id"], 99)
         self.assertIn("12.80", app.bot.edited[0]["caption"])

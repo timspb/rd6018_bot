@@ -15,9 +15,6 @@ class HardwareCapability:
     min_current: float
     max_current: float
     current_resolution: float
-    supports_ovp: bool
-    supports_ocp: bool
-    supports_reset_protection: bool
     supports_voltage_readback: bool
     supports_current_readback: bool
     supports_output_state_readback: bool

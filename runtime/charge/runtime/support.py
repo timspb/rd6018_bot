@@ -18,6 +18,35 @@ from runtime.charge.strategy.mix_variables import (
 from runtime.charge.strategy.safe_wait_variables import safe_wait_max_seconds
 
 
+def output_is_known(value: Any) -> bool:
+    return value is not None and str(value).lower() not in {
+        "unavailable",
+        "unknown",
+        "",
+    }
+
+
+def output_is_on(value: Any) -> bool:
+    return value is True or str(value).lower() == "on"
+
+
+def phase_log(logger: Any, phase: str, voltage: float, current: float, temp: float) -> None:
+    try:
+        from time_utils import format_time_user_tz
+
+        stamp = format_time_user_tz()
+    except Exception:
+        stamp = "-"
+    logger.info(
+        "%s | %-12s | %5.2fВ | %5.2fА | %5.1f°C",
+        stamp,
+        phase,
+        voltage,
+        current,
+        temp,
+    )
+
+
 def current_targets(host: Any, temp_c: Optional[float] = None) -> Tuple[float, float]:
     if host.current_stage == host.STAGE_MAIN:
         return host._main_target(temp_c)
@@ -130,6 +159,9 @@ def main_stage_limit_seconds() -> float:
 
 __all__ = [
     "current_targets",
+    "output_is_known",
+    "output_is_on",
+    "phase_log",
     "exit_cc_condition",
     "exit_cv_condition",
     "main_stage_limit_seconds",

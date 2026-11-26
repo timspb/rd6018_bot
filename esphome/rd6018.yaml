@@ -43,6 +43,11 @@ packages:
   intrinsic_safety: !include packages/rd6018_intrinsic_safety.yaml
   live_adoption: !include packages/rd6018_live_adoption.yaml
 
+external_components:
+  - source:
+      type: local
+      path: components
+
 esphome:
   name: ${device_name}
   friendly_name: ${device_friendly_name}
@@ -67,6 +72,14 @@ status_led:
 api:
   encryption:
     key: !secret rd6018_api_encryption_key
+  actions:
+    - action: rd6018_output_command
+      variables:
+        request_id: string
+        enabled: bool
+      supports_response: none
+      then:
+        - lambda: id(rd6018_output_public).request(std::string(request_id.c_str()), enabled);
 
 ota:
   - platform: esphome
@@ -392,18 +405,21 @@ number:
     step: 1
 
 switch:
-  # Public operator/HA Output entity retained for compatibility. The separate
-  # internal safety output in packages/rd6018_safety_lease.yaml is the watchdog actuator.
-  - platform: modbus_controller
+  # Public entity and sole R18 writer on the existing powersupply Modbus hub.
+  - platform: rd6018_output_owner
     id: rd6018_output_public
     name: "Output"
     modbus_controller_id: powersupply
-    address: 18
-    register_type: holding
-    bitmask: 0x1
+    status_sensor_id: rd6018_output_command_status
     entity_category: config
 
 text_sensor:
+  - platform: template
+    id: rd6018_output_command_status
+    name: "RD6018 Output Command Status"
+    entity_category: diagnostic
+    lambda: return {};
+    update_interval: never
   - platform: wifi_info
     ip_address:
       name: "IP Address"

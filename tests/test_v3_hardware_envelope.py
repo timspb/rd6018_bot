@@ -9,7 +9,7 @@ from runtime.physical.envelope import (
 
 
 def _hardware(chemistry=(ChemistryProfile.AGM,)):
-    capability = HardwareCapability(True, True, 10, 18, .01, .1, 12, .01, True, True, True, True, True, True)
+    capability = HardwareCapability(True, True, 10, 18, .01, .1, 12, .01, True, True, True)
     return HardwareSafetyEnvelope(10, 18, 12, 220, ("MAIN", "MIX"), chemistry, capability)
 
 

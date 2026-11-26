@@ -61,8 +61,6 @@ class FakeControl:
             "output_state_code_v2": 1,
             "set_voltage": 15.10,
             "set_current": 0.18,
-            "ovp": 15.30,
-            "ocp": 0.40,
         }
         self.base_dispatch_calls = 0
         self._status = self.base_status
@@ -93,8 +91,6 @@ class FakeControl:
         return {
             "set_voltage_v": float(value.set_voltage_v),
             "set_current_a": float(value.set_current_a),
-            "ovp_v": float(value.ovp_v),
-            "ocp_a": float(value.ocp_a),
         }
 
     @staticmethod
@@ -113,8 +109,6 @@ class FakeD061:
         return ManagedAdoptionFingerprint(
             float(live["set_voltage"]),
             float(live["set_current"]),
-            float(live["ovp"]),
-            float(live["ocp"]),
         )
 
 

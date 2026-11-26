@@ -91,9 +91,11 @@ class _BlockingGuard:
         self.hass = hass
         self.allow_read = allow_read
         self.raw_calls = 0
+        self.read_started = asyncio.Event()
 
     async def _raw_live(self):
         self.raw_calls += 1
+        self.read_started.set()
         await self.allow_read.wait()
         return dict(self.hass.live)
 
@@ -103,18 +105,23 @@ class _FakeManager:
         self.guard = guard
         self.pb_managed = True
         self.hands_off = False
-        self._edge_autonomous = False
+        self._record_edge_autonomous(False)
 
     @property
     def edge_autonomous(self):
         return self._edge_autonomous
 
+    def _record_edge_autonomous(self, active):
+        if not isinstance(active, bool):
+            raise TypeError("edge autonomous observation must be explicit")
+        self._edge_autonomous = active
+
     def _observe_edge_mode(self, live):
         raw = str(live.get("autonomous_mode", "")).strip().lower()
         if raw == "on":
-            self._edge_autonomous = True
+            self._record_edge_autonomous(True)
         elif raw == "off":
-            self._edge_autonomous = False
+            self._record_edge_autonomous(False)
 
     async def return_pb_control(self):
         self.pb_managed = True
@@ -166,6 +173,15 @@ class V2StartupAuthorityIntegrationTests(unittest.IsolatedAsyncioTestCase):
         guard = _BlockingGuard(hass, allow_edge_read)
         manager = _FakeManager(guard)
         fake_runtime = self._fake_runtime(hass, controller)
+        from unittest.mock import AsyncMock
+        safety_owner = types.SimpleNamespace(
+            telemetry_recovery_active=False,
+            get_all_live=AsyncMock(return_value=dict(hass.live)),
+        )
+        fake_runtime.runtime_safety_guard = safety_owner
+        hass.get_all_live = AsyncMock(
+            side_effect=AssertionError("Deferred restore must use the composed Safety owner")
+        )
         gate = RdStartupAuthorityGate(fake_runtime, manager)
         physical = _FakePhysicalControl()
         recovery_calls = 0
@@ -178,28 +194,19 @@ class V2StartupAuthorityIntegrationTests(unittest.IsolatedAsyncioTestCase):
             recovery_calls += 1
             return True
 
-        async def runtime_main():
-            # Reproduce the production race: runtime startup reaches restore while the
-            # authority task is still blocked on the first edge-mode read.
-            ok, message = controller.try_restore_session(
-                12.4,
-                0.0,
-                4.1,
-                output_is_on=False,
-                is_cv=False,
-                is_cc=False,
-            )
-            self.assertFalse(ok)
-            self.assertIsNone(message)
-            self.assertTrue(gate.deferred_restore_requested)
-            self.assertEqual(controller.restore_calls, [])
+        # A legacy restore request may be captured before the production run loop.
+        # The edge read is released independently while Composition.run awaits it.
+        ok, message = controller.try_restore_session(
+            12.4, 0.0, 4.1, output_is_on=False, is_cv=False, is_cc=False,
+        )
+        self.assertFalse(ok)
+        self.assertIsNone(message)
+        self.assertTrue(gate.deferred_restore_requested)
+        self.assertEqual(controller.restore_calls, [])
 
-            allow_edge_read.set()
-            await asyncio.wait_for(restored.wait(), timeout=1.0)
-            for _ in range(20):
-                if not gate.deferred_restore_requested:
-                    break
-                await asyncio.sleep(0)
+        async def runtime_main():
+            self.assertTrue(gate.managed_actuation_ready)
+            self.assertEqual(len(controller.restore_calls), 1)
             self.assertFalse(gate.deferred_restore_requested)
 
         recovery = types.SimpleNamespace(
@@ -221,7 +228,12 @@ class V2StartupAuthorityIntegrationTests(unittest.IsolatedAsyncioTestCase):
             for name, value in replacements.items():
                 setattr(composition, name, value)
             bot.init_production_storage = init_storage
-            await bot.main()
+            run_task = asyncio.create_task(bot.main())
+            await asyncio.wait_for(guard.read_started.wait(), timeout=1.0)
+            self.assertFalse(gate.managed_actuation_ready)
+            self.assertFalse(controller.restore_calls)
+            allow_edge_read.set()
+            await asyncio.wait_for(run_task, timeout=2.0)
         finally:
             for name, value in originals.items():
                 setattr(composition, name, value)
@@ -233,33 +245,31 @@ class V2StartupAuthorityIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(args, (12.5, 0.0, 4.2))
         self.assertEqual(kwargs["output_is_on"], False)
         self.assertTrue(gate.managed_actuation_ready)
-        self.assertEqual(hass.get_all_calls, 1)
-        self.assertEqual(hass.turn_on_calls, 1)
+        self.assertEqual(hass.get_all_calls, 0)
+        safety_owner.get_all_live.assert_awaited_once()
+        hass.get_all_live.assert_not_awaited()
+        self.assertEqual(hass.turn_on_calls, 0)
         self.assertEqual(hass.turn_off_calls, 0)
-        self.assertEqual(hass.write_calls, 4)
-        self.assertEqual(hass.live["switch"], "on")
+        self.assertEqual(hass.write_calls, 0)
+        self.assertEqual(hass.live["switch"], "off")
         self.assertEqual(fake_runtime.last_checkpoint_time, 1234.0)
         self.assertEqual(physical.starts, 1)
         self.assertEqual(physical.stops, 1)
 
-    async def test_failed_physical_resume_retries_without_restoring_session_twice(self):
-        """Retry only physical convergence after software restore has already succeeded."""
+    async def test_cold_start_restore_restores_software_state_without_reenergizing(self):
+        """Cold-start recovery may restore software state but must leave Output OFF."""
         restored = asyncio.Event()
         hass = _FakeHass(turn_on_results=[False, True])
         controller = _FakeController(restored)
         fake_runtime = self._fake_runtime(hass, controller)
-        with self.assertRaisesRegex(RuntimeError, "safe Output enable was not confirmed"):
-            await StartupRecovery(fake_runtime, None, None).replay_deferred_startup_restore()
-
-        self.assertTrue(controller.is_active)
-        self.assertEqual(len(controller.restore_calls), 1)
-        self.assertEqual(hass.live["switch"], "off")
 
         await StartupRecovery(fake_runtime, None, None).replay_deferred_startup_restore()
 
+        self.assertTrue(controller.is_active)
         self.assertEqual(len(controller.restore_calls), 1)
-        self.assertEqual(hass.turn_on_calls, 2)
-        self.assertEqual(hass.live["switch"], "on")
+        self.assertEqual(hass.turn_on_calls, 0)
+        self.assertEqual(hass.write_calls, 0)
+        self.assertEqual(hass.live["switch"], "off")
 
 
 if __name__ == "__main__":

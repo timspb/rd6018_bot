@@ -1,7 +1,7 @@
 import asyncio
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from runtime import production_runtime
 
@@ -34,25 +34,29 @@ class AiDialogContextTests(unittest.TestCase):
         self.assertEqual(context["output_status"], "UNKNOWN")
         self.assertFalse(context["capacity_known"])
 
-    def test_handle_dialog_mode_has_no_name_error_for_structured_context(self):
+    def test_dialog_uses_one_text_projection_and_only_prompt_override_fields(self):
         message = _Message()
+        captured = []
 
-        async def fake_ask(_payload):
+        async def fake_ask(payload):
+            captured.append(payload)
             return "Готово"
 
         async def fake_context():
             return "Контекст недоступен"
 
-        async def fake_context_dict():
-            return {"output_status": "UNKNOWN"}
-
         with patch.object(production_runtime, "DEEPSEEK_API_KEY", "configured"), \
                 patch.object(production_runtime, "get_ai_context", fake_context), \
-                patch.object(production_runtime, "get_ai_context_dict", fake_context_dict), \
+                patch.object(production_runtime, "get_ai_context_dict", new_callable=AsyncMock) as unused_context_dict, \
                 patch.object(production_runtime, "ask_deepseek", fake_ask):
             asyncio.run(production_runtime.handle_dialog_mode(message))
 
+        unused_context_dict.assert_not_awaited()
         self.assertTrue(message.answers)
+        self.assertTrue(message.edits)
+        self.assertEqual(len(captured), 1)
+        self.assertEqual(set(captured[0]), {"system_prompt_override", "user_prompt_override"})
+        self.assertIn("Контекст недоступен", captured[0]["user_prompt_override"])
 
 
 if __name__ == "__main__":

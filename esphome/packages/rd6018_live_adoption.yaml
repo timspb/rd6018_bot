@@ -78,7 +78,10 @@ button:
             if (!control_fresh) return;
             if (id(rd6018_safety_managed_session)) return;
             if (!id(rd6018_safety_output_on_readback)) return;
-            if (id(rd6018_safety_protection_code) != 0U) return;
+            const uint16_t protection_code = id(rd6018_safety_protection_code);
+            if (protection_code != 0U &&
+                protection_code != 1U &&
+                protection_code != 2U) return;
 
             // Preserve Output and every RD setpoint/protection register exactly as-is.
             // Only managed ownership/dead-man state changes.

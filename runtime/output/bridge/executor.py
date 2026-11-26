@@ -90,8 +90,6 @@ class PhysicalExecutionGate:
             violations.append("hardware_capability_required")
         elif not _capability_supports(plan, capability):
             violations.append("hardware_capability_mismatch")
-        if plan.intent.action is OutputAction.ENABLE and (plan.protection_ovp is None or plan.protection_ocp is None):
-            violations.append("protection_targets_required")
         if envelope is not None and not envelope.allowed:
             violations.append("hardware_battery_envelope_blocked")
         if violations:
@@ -114,13 +112,11 @@ class PhysicalExecutionGate:
 def _capability_supports(plan: PhysicalCommandPlan, capability: HardwareCapability) -> bool:
     action = plan.intent.action
     if action is OutputAction.ENABLE:
-        return (capability.supports_enable and capability.supports_ovp and capability.supports_ocp
+        return (capability.supports_enable
                 and capability.supports_voltage_readback and capability.supports_current_readback
                 and capability.supports_output_state_readback)
     if action is OutputAction.DISABLE:
         return capability.supports_disable and capability.supports_output_state_readback
-    if action is OutputAction.RESET_PROTECTION:
-        return capability.supports_reset_protection
     return True
 
 
@@ -169,10 +165,6 @@ class PhysicalBridgeExecutor:
                     values["value"] = plan.intent.target_voltage
                 elif step.name == "set_current":
                     values["value"] = plan.intent.target_current
-                elif step.name == "set_ovp":
-                    values["value"] = plan.protection_ovp
-                elif step.name == "set_ocp":
-                    values["value"] = plan.protection_ocp
                 self.transport.apply(step.name, **values)
                 actions.append(step.name)
             if plan.intent.action is OutputAction.ENABLE:
@@ -252,12 +244,10 @@ class PhysicalBridgeExecutor:
         actions = ["before_snapshot"]
         self.gate.begin(validation)
         try:
-            for name, method in (("set_voltage", "set_voltage"), ("set_current", "set_current"),
-                                 ("set_ovp", "set_ovp"), ("set_ocp", "set_ocp")):
+            for name, method in (("set_voltage", "set_voltage"), ("set_current", "set_current")):
                 await getattr(self.transport, method)(parameters[name])
                 actions.append(name)
-                field = {"set_voltage": "voltage_setpoint", "set_current": "current_setpoint",
-                         "set_ovp": "ovp", "set_ocp": "ocp"}[name]
+                field = {"set_voltage": "voltage_setpoint", "set_current": "current_setpoint"}[name]
                 programmed = await _wait_for_setpoint(
                     self.transport, field, parameters[name], tolerances or {},
                     timeout_s=readback_timeout_s, poll_interval_s=readback_poll_interval_s,
@@ -266,8 +256,7 @@ class PhysicalBridgeExecutor:
                     raise PhysicalExecutionError(f"{name} readback missing")
             programmed = await self.transport.read_snapshot()
             actions.append("readback_parameters")
-            expected = {"voltage_setpoint": parameters["set_voltage"], "current_setpoint": parameters["set_current"],
-                        "ovp": parameters["set_ovp"], "ocp": parameters["set_ocp"]}
+            expected = {"voltage_setpoint": parameters["set_voltage"], "current_setpoint": parameters["set_current"]}
             tolerances = tolerances or {}
             for field, value in expected.items():
                 actual = getattr(programmed, {"voltage_setpoint": "configured_voltage", "current_setpoint": "configured_current"}.get(field, field))
@@ -400,13 +389,12 @@ def _readback_value(readback: Any, name: str) -> Any:
 
 
 def build_disable_plan() -> PhysicalCommandPlan:
-    """Build the only rollback action: verified disable then protection reset."""
+    """Build the rollback action: verified disable."""
     return PhysicalCommandPlan(
         intent=SafeOutputIntent(OutputAction.DISABLE, source="physical_bridge:rollback"),
         steps=(
             PhysicalCommandStep("disable"),
             PhysicalCommandStep("read_output_state", True),
             PhysicalCommandStep("confirm_off", True),
-            PhysicalCommandStep("reset_protection"),
         ),
     )

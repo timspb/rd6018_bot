@@ -1,4 +1,4 @@
-"""Regression for retiring a quarantined unresolved MAIN current/OCP proposal.
+"""Regression for retiring a quarantined unresolved MAIN current-setpoint proposal.
 
 No hardware calls: all inputs are persisted snapshots and mocked owner state.
 """

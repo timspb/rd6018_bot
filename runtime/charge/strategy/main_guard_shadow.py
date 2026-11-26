@@ -79,7 +79,7 @@ class MainGuardShadow:
         """Publish safe shadow clock state to the existing session writer.
 
         Caller holds the common ExecutionPort owner lock and has admitted the
-        canonical session plus current Native Iset/OCP preimage. This never
+        canonical session plus current Native Iset preimage. This never
         changes the ratcheted ceiling or moves a pending/faulted transaction.
         """
         shadow = self.guard

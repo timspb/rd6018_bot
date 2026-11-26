@@ -1,4 +1,6 @@
 .env
+.env.secrets
+env.secrets
 # Local secret store: never commit, archive, or package these files.
 .secrets/
 config/secrets/
@@ -165,7 +167,6 @@ cython_debug/
 .continue/
 .continue/agents/
 .env
-config.py
 
 # Runtime state (не коммитить)
 charge_session.json
@@ -195,3 +196,6 @@ charge_session.json.mix-authority.json
 # Local vendor hardware resources, not source code
 local_assets/
 infrastructure/wsl/
+
+# Local Recipe Studio isolated workspace (never publish or deploy)
+.recipe-studio-local/

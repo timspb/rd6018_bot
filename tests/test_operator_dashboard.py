@@ -9,12 +9,20 @@ import operator_hmi as hmi
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from operator_dashboard import (
     _active_graph_panel_markup,
+    _panel_actions,
+    _toolbar_actions,
     build_truthful_hmi_state,
     install_operator_graph_dashboard,
     render_truthful_panel,
 )
 from operator_hmi import HmiProcessState, build_operator_keyboard
+from application.operator_actions import OperatorAction, OperatorActionSpec, OperatorActionsView
+from runtime.ui.components.hmi_action_keyboard import (
+    _panel_actions as component_panel_actions,
+    _toolbar_actions as component_toolbar_actions,
+)
 from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
+from runtime.ui.telegram.panel_lifecycle import TerminalPanelManager
 
 
 class FakeApp:
@@ -61,7 +69,123 @@ def _callbacks(app, state):
     }
 
 
+class OperatorActionViewFilterTests(unittest.TestCase):
+    def setUp(self):
+        self.actions = OperatorActionsView(tuple(
+            OperatorActionSpec(action)
+            for action in (
+                OperatorAction.SHOW_LOG,
+                OperatorAction.SHOW_DIAGNOSTICS,
+                OperatorAction.SHOW_GRAPH,
+                OperatorAction.START_CHARGE,
+            )
+        ))
+
+    def test_dashboard_names_remain_direct_component_imports(self):
+        self.assertIs(_panel_actions, component_panel_actions)
+        self.assertIs(_toolbar_actions, component_toolbar_actions)
+
+    def test_dashboard_install_is_app_bound_and_leaves_hmi_globals_untouched(self):
+        app_a, app_b = FakeGraphApp(), FakeGraphApp()
+        app_a._graph_probe = "a"
+        app_b._graph_probe = "b"
+        builder = hmi.build_operator_hmi_state
+        panel = hmi.render_operator_panel
+        details = hmi.render_operator_details
+        graph = hmi._render_graph_workspace
+        install_operator_graph_dashboard(app_a)
+        renderer_a = app_a._render_graph_workspace
+        install_operator_graph_dashboard(app_b)
+        self.assertIs(hmi.build_operator_hmi_state, builder)
+        self.assertIs(hmi.render_operator_panel, panel)
+        self.assertIs(hmi.render_operator_details, details)
+        self.assertIs(hmi._render_graph_workspace, graph)
+        self.assertIsNot(renderer_a, app_b._render_graph_workspace)
+
+    def test_graph_keyboard_exports_are_direct_telegram_adapter_functions(self):
+        import operator_dashboard as dashboard
+        from runtime.ui.telegram import operator_graph_keyboard as layout
+        for name in (
+            "_hide_active_release_button", "_graph_toolbar",
+            "_composed_operator_rows", "_main_graph_markup",
+            "_active_graph_panel_markup",
+        ):
+            self.assertIs(getattr(dashboard, name), getattr(layout, name))
+
+    def test_release_filter_does_not_mutate_input(self):
+        import operator_dashboard as dashboard
+        source = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="Release", callback_data="rd_hands_off_release_confirm"),
+            InlineKeyboardButton(text="Refresh", callback_data="operator_refresh"),
+        ]])
+        result = dashboard._hide_active_release_button(source)
+        self.assertEqual([b.callback_data for row in result.inline_keyboard for b in row], ["operator_refresh"])
+        self.assertEqual(len(source.inline_keyboard[0]), 2)
+
+    def test_none_is_preserved_by_both_filters(self):
+        self.assertIsNone(_panel_actions(None, dark=True))
+        self.assertIsNone(_panel_actions(None, dark=False))
+        self.assertIsNone(_toolbar_actions(None))
+
+    def test_non_dark_panel_returns_same_view(self):
+        self.assertIs(_panel_actions(self.actions, dark=False), self.actions)
+
+    def test_dark_panel_filters_only_diagnostics_and_preserves_order(self):
+        result = _panel_actions(self.actions, dark=True)
+
+        self.assertEqual(
+            tuple(item.action for item in result.available_actions),
+            (OperatorAction.SHOW_LOG, OperatorAction.SHOW_GRAPH, OperatorAction.START_CHARGE),
+        )
+        self.assertEqual(
+            tuple(item.action for item in self.actions.available_actions),
+            (OperatorAction.SHOW_LOG, OperatorAction.SHOW_DIAGNOSTICS,
+             OperatorAction.SHOW_GRAPH, OperatorAction.START_CHARGE),
+        )
+        self.assertIsNot(result, self.actions)
+
+    def test_toolbar_filters_only_graph_and_preserves_order_and_input(self):
+        result = _toolbar_actions(self.actions)
+
+        self.assertEqual(
+            tuple(item.action for item in result.available_actions),
+            (OperatorAction.SHOW_LOG, OperatorAction.SHOW_DIAGNOSTICS, OperatorAction.START_CHARGE),
+        )
+        self.assertEqual(
+            tuple(item.action for item in self.actions.available_actions),
+            (OperatorAction.SHOW_LOG, OperatorAction.SHOW_DIAGNOSTICS,
+             OperatorAction.SHOW_GRAPH, OperatorAction.START_CHARGE),
+        )
+        self.assertIsNot(result, self.actions)
+
+
 class OperatorDashboardTruthTests(unittest.TestCase):
+    def test_semantic_owner_and_dashboard_compatibility_exports(self):
+        import operator_dashboard as dashboard
+
+        self.assertIs(dashboard._binary, hmi._binary)
+        self.assertIs(dashboard._fresh, hmi._fresh)
+        self.assertIs(dashboard._raw_available, hmi._raw_available)
+        self.assertIs(dashboard._regulation_fresh, hmi._regulation_fresh)
+        self.assertIs(dashboard._ownership_conflict, hmi._ownership_conflict)
+        self.assertIs(dashboard._contain_idle_for_safety, hmi._contain_idle_for_safety)
+        self.assertIsNot(dashboard.build_truthful_hmi_state, hmi.build_truthful_hmi_state)
+
+    def test_dashboard_delegate_honors_captured_base_builder_once(self):
+        app = FakeApp()
+        live = _live()
+        calls = []
+        original = hmi._BASE_BUILD_OPERATOR_HMI_STATE
+
+        def base_builder(app_arg, live_arg):
+            calls.append((app_arg, live_arg))
+            return original(app_arg, live_arg)
+
+        state = build_truthful_hmi_state(app, live, base_builder=base_builder)
+
+        self.assertEqual(calls, [(app, live)])
+        self.assertEqual(state.process_state, HmiProcessState.IDLE)
+
     def test_unknown_output_is_containment_not_idle_or_off(self):
         app = FakeApp()
         state = build_truthful_hmi_state(app, _live(switch="unavailable"))
@@ -98,25 +222,20 @@ class OperatorDashboardTruthTests(unittest.TestCase):
         self.assertIn("OUTPUT НЕ ПОДТВЕРЖДЁН", text)
         self.assertIn("устарела", state.progress)
 
-    def test_missing_protection_status_contains_idle_and_hides_start(self):
+    def test_missing_retired_ocp_flag_does_not_create_false_containment(self):
         app = FakeApp()
         live = _live()
         live.pop("ocp_triggered")
         state = build_truthful_hmi_state(app, live)
         text = render_truthful_panel(state)
-        callbacks = _callbacks(app, state)
 
-        self.assertEqual(state.process_state, HmiProcessState.CONTAINMENT)
-        self.assertEqual(state.attention, "warning")
-        self.assertIn("ЗАЩИТА НЕ ПОДТВЕРЖДЕНА", text)
-        self.assertIn("Статус защит RD6018 не подтверждён", text)
-        self.assertNotIn("Защита: норма", text)
-        self.assertNotIn(CHARGE_CALLBACK_DATA, callbacks)
-        self.assertNotIn("v2_manual_choose", callbacks)
+        self.assertEqual(state.process_state, HmiProcessState.IDLE)
+        self.assertIn(CHARGE_CALLBACK_DATA, _callbacks(app, state))
+        self.assertNotIn("СРАБОТАЛА ЗАЩИТА", text)
 
     def test_confirmed_off_and_protections_remain_normal_idle(self):
         app = FakeApp()
-        state = build_truthful_hmi_state(app, _live())
+        state = build_truthful_hmi_state(app, _live(protection_code=0))
         text = render_truthful_panel(state)
 
         self.assertEqual(state.process_state, HmiProcessState.IDLE)
@@ -133,7 +252,7 @@ class OperatorDashboardTruthTests(unittest.TestCase):
 
         self.assertEqual(state.process_state, HmiProcessState.CONTAINMENT)
         self.assertEqual(state.attention, "alarm")
-        self.assertIn("Статус защит RD6018 не подтверждён", state.safety)
+        self.assertIn("Требуется проверка ownership", state.safety)
 
     def test_raw_opp_trip_is_visible_and_idle_start_is_withheld(self):
         app = FakeApp()
@@ -146,8 +265,8 @@ class OperatorDashboardTruthTests(unittest.TestCase):
 
         self.assertEqual(state.process_state, HmiProcessState.CONTAINMENT)
         self.assertEqual(state.attention, "alarm")
-        self.assertIn("СРАБОТАЛА ЗАЩИТА OPP", text)
-        self.assertIn("Защита: OPP", text)
+        self.assertIn("СРАБОТАЛА ЗАЩИТА", text)
+        self.assertIn("Защита сработала", text)
         self.assertNotIn("Защита: норма", text)
         self.assertNotIn(CHARGE_CALLBACK_DATA, callbacks)
         self.assertNotIn("v2_manual_choose", callbacks)
@@ -161,7 +280,7 @@ class OperatorDashboardTruthTests(unittest.TestCase):
         text = render_truthful_panel(state)
 
         self.assertEqual(state.attention, "alarm")
-        self.assertIn("Защита: OPP", text)
+        self.assertIn("Защита сработала", text)
         self.assertNotIn("Защита: норма", text)
 
     def test_unknown_raw_protection_code_is_not_downgraded_by_legacy_bits(self):
@@ -172,9 +291,9 @@ class OperatorDashboardTruthTests(unittest.TestCase):
         )
 
         self.assertEqual(state.attention, "alarm")
-        self.assertIn("Статус защит RD6018 не подтверждён", state.safety)
+        self.assertIn("Требуется проверка ownership", state.safety)
 
-    def test_stale_raw_protection_contains_idle_even_when_code_was_normal(self):
+    def test_stale_neutral_raw_code_does_not_create_idle_alarm(self):
         app = FakeApp()
         old = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
         now = datetime.now(timezone.utc).isoformat()
@@ -187,9 +306,9 @@ class OperatorDashboardTruthTests(unittest.TestCase):
         )
         state = build_truthful_hmi_state(app, live)
 
-        self.assertEqual(state.process_state, HmiProcessState.CONTAINMENT)
-        self.assertNotIn(CHARGE_CALLBACK_DATA, _callbacks(app, state))
-        self.assertIn("Статус защит RD6018 не подтверждён", state.safety)
+        self.assertEqual(state.process_state, HmiProcessState.IDLE)
+        self.assertIn(CHARGE_CALLBACK_DATA, _callbacks(app, state))
+        self.assertNotIn("СРАБОТАЛА ЗАЩИТА", state.safety)
 
     def test_raw_regulation_code_overrides_legacy_mode_flags(self):
         app = FakeApp()
@@ -206,6 +325,11 @@ class FakeGraphBot:
         self.media_edits = []
         self.deleted = []
         self.caption_edits = []
+        self.photo_sends = []
+
+    async def send_photo(self, chat_id, **kwargs):
+        self.photo_sends.append((chat_id, kwargs))
+        return types.SimpleNamespace(message_id=90)
 
     async def edit_message_media(self, **kwargs):
         self.media_edits.append(kwargs)
@@ -249,6 +373,9 @@ class FakeGraphApp(FakeApp):
         self.InputMediaPhoto = lambda **kwargs: kwargs
         self.user_dashboard = {}
         self.chat_dashboard = {}
+        self.user_graph_dashboard = {}
+        self.chat_graph_dashboard = {}
+        self._graph_cache_keys = {}
         self.user_chart_range = {1: self.CHART_RANGE_2H}
         self._build_and_send_dashboard = None
 
@@ -267,6 +394,37 @@ class FakeGraphApp(FakeApp):
 
 
 class OperatorGraphWorkspaceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_initial_graph_dashboard_uses_terminal_publication_owner(self):
+        app = FakeGraphApp()
+        app.terminal_panel_manager = TerminalPanelManager(app)
+        app.operator_interface = types.SimpleNamespace(
+            get_operator_snapshot=AsyncMock(return_value=object()),
+            get_operator_actions=AsyncMock(return_value=None),
+        )
+        app.InlineKeyboardMarkup = InlineKeyboardMarkup
+        state = hmi.OperatorHmiState(
+            hmi.HmiProcessState.RUNNING, hmi.HmiAuthority.AUTO, "RD",
+            True, "CV", "EFB", 14.76, 0.23, 17.0, 26.0, 35.0, 14.8, 8.0, "", "OK",
+        )
+        markup = InlineKeyboardMarkup(inline_keyboard=[])
+        install_operator_graph_dashboard(app)
+        with patch("operator_dashboard.OperatorSnapshotProvider.hmi_state_from_snapshot", return_value=state), \
+                patch("operator_dashboard._dark_panel_enabled", return_value=False), \
+                patch("operator_dashboard._graph_display_allowed", return_value=True), \
+                patch("operator_dashboard._main_graph_markup", return_value=markup):
+            message_id = await app._build_and_send_dashboard(10, 1)
+
+        owner = app.terminal_panel_manager
+        self.assertEqual(message_id, 90)
+        self.assertEqual(owner.graph_id(10, 1), 90)
+        self.assertEqual(owner.panel_id(10), 90)
+        self.assertEqual(app._graph_cache_keys[1], (app.CHART_RANGE_2H, 2, 2))
+        self.assertEqual(len(app.bot.photo_sends), 1)
+        self.assertIs(owner._graph_refresh_callback, app._refresh_graph_message)
+        owner._graph_refresh_task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await owner._graph_refresh_task
+
     def test_active_graph_panel_hides_rd_release_control(self):
         app = FakeGraphApp()
         app.InlineKeyboardMarkup = InlineKeyboardMarkup
@@ -294,18 +452,8 @@ class OperatorGraphWorkspaceTests(unittest.IsolatedAsyncioTestCase):
     async def test_range_change_edits_existing_graph_workspace(self):
         app = FakeGraphApp()
         call = types.SimpleNamespace(message=FakeGraphMessage())
-        old_builder = hmi.build_operator_hmi_state
-        old_panel = hmi.render_operator_panel
-        old_details = hmi.render_operator_details
-        old_graph = hmi._render_graph_workspace
-        try:
-            install_operator_graph_dashboard(app)
-            await hmi._render_graph_workspace(app, call, 1)
-        finally:
-            hmi.build_operator_hmi_state = old_builder
-            hmi.render_operator_panel = old_panel
-            hmi.render_operator_details = old_details
-            hmi._render_graph_workspace = old_graph
+        install_operator_graph_dashboard(app)
+        await app._render_graph_workspace(app, call, 1)
 
         self.assertEqual(len(app.bot.media_edits), 1)
         self.assertEqual(app.bot.media_edits[0]["message_id"], 77)
@@ -414,6 +562,88 @@ class OperatorGraphWorkspaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(app.bot.deleted, [])
         self.assertEqual(app.user_graph_dashboard[1], 77)
         self.assertEqual(app._graph_cache_keys[1][1:], (2, 2))
+
+    async def test_media_delivery_failure_preserves_graph_cache_key(self):
+        app = FakeGraphApp()
+        app.user_graph_dashboard = {1: 77}
+        app.chat_graph_dashboard = {10: 77}
+        previous_key = (app.CHART_RANGE_2H, 1, 1)
+        app._graph_cache_keys = {1: previous_key}
+        owner = TerminalPanelManager(app)
+        app.terminal_panel_manager = owner
+        app.bot.edit_message_media = AsyncMock(side_effect=RuntimeError("telegram unavailable"))
+        original_keyboard = hmi.build_operator_keyboard
+        try:
+            hmi.build_operator_keyboard = lambda *_args, **_kwargs: InlineKeyboardMarkup(inline_keyboard=[])
+            install_operator_graph_dashboard(app)
+            await owner.refresh_graph(10, 1, app._refresh_graph_message)
+        finally:
+            hmi.build_operator_keyboard = original_keyboard
+        self.assertEqual(app._graph_cache_keys[1], previous_key)
+        app.bot.edit_message_media.assert_awaited_once()
+
+    async def test_caption_message_not_modified_is_swallowed(self):
+        app = FakeGraphApp()
+        app.user_graph_dashboard = {1: 77}
+        app.chat_graph_dashboard = {10: 77}
+        key = (app.CHART_RANGE_2H, 2, 2)
+        app._graph_cache_keys = {1: key}
+        app.bot.edit_message_caption = AsyncMock(
+            side_effect=RuntimeError("Bad Request: message is not modified")
+        )
+        owner = TerminalPanelManager(app)
+        app.terminal_panel_manager = owner
+        install_operator_graph_dashboard(app)
+        await owner.refresh_graph(10, 1, app._refresh_graph_message)
+        app.bot.edit_message_caption.assert_awaited_once()
+        self.assertEqual(app._graph_cache_keys[1], key)
+
+    async def test_stale_refresh_does_not_edit_replacement_graph_id(self):
+        app = FakeGraphApp()
+        app.user_graph_dashboard = {1: 77}
+        app.chat_graph_dashboard = {10: 77}
+        app._graph_cache_keys = {1: (app.CHART_RANGE_2H, 1, 1)}
+        owner = TerminalPanelManager(app)
+        app.terminal_panel_manager = owner
+
+        async def graph_read(*, limit, since_timestamp):
+            app.user_graph_dashboard[1] = 99
+            app.chat_graph_dashboard[10] = 99
+            return [1, 2], [13.0, 13.1], [1.0, 0.9], [25.0, 25.1]
+
+        app.get_graph_data_with_temp = graph_read
+        original_keyboard = hmi.build_operator_keyboard
+        try:
+            hmi.build_operator_keyboard = lambda *_args, **_kwargs: InlineKeyboardMarkup(inline_keyboard=[])
+            install_operator_graph_dashboard(app)
+            await owner.refresh_graph(10, 1, app._refresh_graph_message)
+        finally:
+            hmi.build_operator_keyboard = original_keyboard
+        self.assertEqual(app.bot.media_edits, [])
+        self.assertEqual(app._graph_cache_keys[1], (app.CHART_RANGE_2H, 1, 1))
+
+    async def test_missing_graph_id_never_sends_refresh(self):
+        app = FakeGraphApp()
+        app.user_graph_dashboard = {}
+        owner = TerminalPanelManager(app)
+        app.terminal_panel_manager = owner
+        install_operator_graph_dashboard(app)
+        await owner.refresh_graph(10, 1, app._refresh_graph_message)
+        self.assertEqual(app.bot.media_edits, [])
+        self.assertEqual(app.bot.caption_edits, [])
+
+    async def test_registered_refresh_owner_retires_graph_when_charge_inactive(self):
+        app = FakeGraphApp()
+        app.charge_controller.is_active = False
+        app.user_graph_dashboard = {1: 77}
+        app.chat_graph_dashboard = {10: 77}
+        owner = TerminalPanelManager(app)
+        app.terminal_panel_manager = owner
+        install_operator_graph_dashboard(app)
+        await owner.refresh_graph(10, 1, app._refresh_graph_message)
+        self.assertEqual(app.bot.deleted, [(10, 77)])
+        self.assertEqual(app.user_graph_dashboard, {})
+        self.assertEqual(app.bot.media_edits, [])
 
     async def test_back_to_existing_graph_updates_caption_without_chart_rebuild(self):
         app = FakeGraphApp()

@@ -19,12 +19,13 @@ class D061GlobalGateTests(unittest.TestCase):
             values[4] = 0  # st_uid
             return os.stat_result(values)
 
-        root = patch.object(pairing.os, 'geteuid', return_value=0)
+        root = patch.object(pairing.os, 'geteuid', return_value=0, create=True)
         fstat = patch.object(pairing.os, 'fstat', side_effect=fake_root_fstat)
         root.start()
         fstat.start()
         self.addCleanup(fstat.stop)
         self.addCleanup(root.stop)
+    @unittest.skipIf(os.name == "nt", "global gate requires POSIX flock and /proc semantics")
     def test_one_node_lock_rejects_a_second_window_and_releases_on_exit(self):
         with tempfile.TemporaryDirectory() as temp:
             lock = Path(temp) / "physical.lock"
@@ -40,6 +41,7 @@ class D061GlobalGateTests(unittest.TestCase):
             self.assertTrue(lock.is_file())
             self.assertEqual(lock.stat().st_mode & 0o777, 0o600)
 
+    @unittest.skipIf(os.name == "nt", "global gate requires POSIX flock and /proc semantics")
     def test_old_python_c_acceptance_owner_blocks_new_window(self):
         with tempfile.TemporaryDirectory() as temp:
             with patch.object(pairing, "NODE104_ACCEPTANCE_LOCK", Path(temp)/"physical.lock"), patch.object(
@@ -49,6 +51,7 @@ class D061GlobalGateTests(unittest.TestCase):
                     with pairing.node104_acceptance_gate():
                         pass
 
+    @unittest.skipIf(os.name == "nt", "global gate requires POSIX permission bits and flock")
     def test_unsafe_preexisting_lock_file_permissions_fail_closed(self):
         with tempfile.TemporaryDirectory() as temp:
             lock = Path(temp) / "physical.lock"
@@ -59,6 +62,7 @@ class D061GlobalGateTests(unittest.TestCase):
                     with pairing.node104_acceptance_gate():
                         pass
 
+    @unittest.skipIf(os.name == "nt", "global gate requires POSIX symlink and no-follow semantics")
     def test_symlink_lock_is_rejected(self):
         if not hasattr(os, "O_NOFOLLOW"):
             self.skipTest("O_NOFOLLOW unsupported")

@@ -30,8 +30,6 @@ _FIELD_KEYS = {
     "external_temperature": ("temp_ext_v2", "temp_ext"),
     "internal_temperature": ("temp_int_v2", "temp_int"),
     "output_state": ("output_state", "output_state_code_v2", "switch"),
-    "ovp": ("ovp", "ovp_readback_v2"),
-    "ocp": ("ocp", "ocp_readback_v2"),
     "protection_status": ("protection_status", "protection_code"),
     "programmed_voltage": ("set_voltage_readback_v2", "set_voltage"),
     "programmed_current": ("set_current_readback_v2", "set_current"),
@@ -103,7 +101,7 @@ def normalize_live(
 
     values["readback_valid"] = all(
         values.get(field) is not None
-        for field in ("programmed_voltage", "programmed_current", "ovp", "ocp")
+        for field in ("programmed_voltage", "programmed_current")
     )
     values["timestamp"] = now
     values["source"] = source

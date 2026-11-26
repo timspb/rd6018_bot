@@ -1,8 +1,9 @@
 """Invoke an existing production stage owner through a native recipe identity.
 
-The profile/intent belong to the accepted controller session. This adapter
-does not choose targets, enable hardware, or introduce a second stage loop.
-It is not wired into production until full parity/cutover is accepted.
+The profile/intent belong to the accepted controller session. Production
+wires this adapter from application.charge_session_tick; it delegates to the
+existing run_charge_stage_tick and does not introduce a second stage loop or
+authority.
 """
 from __future__ import annotations
 

@@ -127,7 +127,7 @@ class DesulfationCompletionEffectTests(unittest.TestCase):
                              for n in ast.walk(recovery)), 1)
         authority_owner = recovery_source[
             recovery_source.index("def apply_desulfation_authority_tick("):
-            recovery_source.index("def _output_is_known(")
+            recovery_source.index("async def run_authoritative_recovery_scaffold(")
         ]
         for forbidden in ("execution_port", ".turn_on(", ".turn_off(", ".set_voltage(", ".set_output("):
             self.assertNotIn(forbidden, authority_owner)

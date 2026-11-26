@@ -1,5 +1,18 @@
 # Deployment and rollback runbook
 
+## CURRENT OPERATIONAL BASELINE — 2026-11-09 (supersedes historical frozen slot14 instructions below)
+
+**Production node104 is not frozen at slot14.** The user authorized reinstall, and exact D145 EXECUTE completed with D144 slot **16 COMMITTED**, installed source **`3f50133b0dca9d274a08d4dd7999f730ce90e962`**, candidate identity `844a12c7c75eb50968a6a85cfd2823d986a959dd616e238579f5142e75f28316`, transaction `a771161de4834eaa93db8ee71e3fcdbc`. D137 PASS on installed source; service `active/running` PID `237957`, `NRestarts=0`; Telegram polling started 2026-11-08 15:20:11 UTC. Post-deploy direct ESP Native API and independent HA Output OFF, U/I=0, edge lease disarmed, no active session. No manual Output ON has been physically tested.
+
+Prior release source `d49cb6d1bb24fa3d2496ca4564aaf1d4ea91fa5b` remains D144 slot14 COMMITTED; slot15 transaction for `0276a15` remains `RESTORED` (historical, not installed). D137 selection and D145 app/venv permissions repaired in source commit `3f50133` and focused **103 PASS**. Installed app root:rd6018 mode 0750, bot.py 0644; service user read and traversal PASS.
+
+Backup on node104: `/opt/services/rd6018-bot/backups/before-reinstall-20261108T150501Z.tar.gz`, root-only, 502289851 bytes, SHA256 `ce294f06f159f7e827a3113cf096180a411948c33966a01295264db6cdf5bdb6`; D144 recovery backup `d144-backup-16`. These are protected evidence, not cleanup targets. Source acceptance is not proof of physical manual ON.
+
+**Unresolved:** `state/rd_control_mode_v2.json` was `pb_managed` post-install, with retired charge session/quarantine. Operator must deliberately activate the **existing** Telegram `🔓 Режим РД — не лезь` (HANDS_OFF) when using front-panel Output; neither assistant nor install silently changes actuator ownership. Verify physical manual control as separate acceptance. Remaining code tasks: full WSL regression on latest source, project issues only when reproducible, reconcile feature branch with main through reviewed workflow; no implicit merge or new deploy.
+
+**Source-vs-installed distinction:** local checkpoint/report documentation commit is `496bf6e52b3c7edf6294cc877f17bf09712533e7`, installed source remains `3f50133`. Do not deploy the documentation commit as a new build. Read latest `docs/assistant/RD6018_CURRENT_CHECKPOINT.md` and exact Git state before tasks. All older statements below describing slot14 as *current*, P5 test partitions as *unfinished*, or node104 deployment as *not authorized* are historical and superseded by this section. New physical actions still require direct Native evidence and explicit authorization.
+
+
 ## Mandatory live-node preflight — direct ESP first
 
 **Always obtain NEW, CURRENT physical data directly from ESP Native API**;
@@ -429,3 +442,22 @@ the transient D091 timestamp and source nonces. It still carries the stable
 session/Guard identity and exact candidate source/venv inventories. The live
 D091 proof remains in the D138 prepare evidence and is reacquired by D144 for
 each transaction phase.
+
+
+## 2026-11-14 — ESPHome Device Builder OTA path (RD6018)
+
+HA102 is running ESPHome Device Builder 2026.10.0. The matching official Device Builder 1.25.0 API is documented at https://github.com/esphome/device-builder/blob/1.25.0/docs/API.md.
+
+For the existing RD6018 build, use the exact configuration filename `rd6018.yaml`:
+1. Read-only: `firmware/get_binaries` with `{configuration: "rd6018.yaml"}`. An empty result means there is no retained build artifact.
+2. If an artifact exists, obtain its one-use download token using `firmware/download_token` with the exact `file` returned by step 1; download it through `GET /api/firmware/download?token=...`. Verify filename, SHA256 and size against the ESP8266 `esp01_1m` OTA budget before upload.
+3. Only after fresh direct ESP Native preflight proves Output OFF, measured U/I zero, no active recovery/high-voltage stage, correct identity and safety/lease state, upload the existing artifact using `firmware/upload` with `{configuration: "rd6018.yaml", port: "OTA"}`. OTA uses the configured `esphome.address`; do not invent a target IP.
+
+Do **not** use `firmware/install` for this controlled acceptance: it queues compile + upload, and Device Builder 1.25.0 may defer an OTA install for an offline device and arm it to flash automatically on its next wake. That is not acceptable for this controlled RD6018 transition.
+
+Current status: API mechanism is proven, but authenticated `firmware/get_binaries` has not yet been queried; the HA ingress request from the non-browser session returned HTTP 401. The existing compile job `f1ea89a72a59` completed with exit code 0, but retained artifact presence, OTA image size/SHA256, and direct Native preflight remain unverified. **OTA remains HOLD; no upload or flash has been issued.**
+
+
+### 2026-11-14 — Device Builder MCP limitation
+
+ESPHome 2026.10.0 bundles Device Builder 1.25.0 (the 2026.10.0b6 release notes explicitly bump the bundled builder to 1.25.0: https://github.com/esphome/home-assistant-addon/releases). That version also exposes a built-in `POST /api/mcp` endpoint ([source](https://github.com/esphome/device-builder/blob/1.25.0/esphome_device_builder/api/mcp/__init__.py)), but its MCP tool registry exposes `compile` and `install`, not `firmware/get_binaries` or `firmware/upload`. It therefore cannot safely reuse the existing compile artifact without invoking the compile+upload `install` chain. Use the authenticated Device Builder WebSocket command path for `get_binaries` and `upload`; the non-browser ingress probe returned HTTP 401, and the add-on's direct 6052 port is not reachable from the HA host. No browser cookies or credentials were read.

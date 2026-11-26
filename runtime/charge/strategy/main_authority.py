@@ -9,7 +9,10 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from runtime.charge.evidence.first_stage import FirstStageAssessment, FirstStageState
-from recovery_policy import RecoveryDecision
+from recovery_policy import (
+    RecoveryDecision,
+    is_unsafe_recovery_decision as _unsafe_policy_decision,
+)
 
 from runtime.charge.decisions import AuthorityAction, AuthorityDecision
 from .main_variables import AGM_TIMEOUT_TAIL_CURRENT_A
@@ -17,14 +20,6 @@ from .main_variables import AGM_TIMEOUT_TAIL_CURRENT_A
 
 AUTOMATIC_HV_INTENTS = frozenset({"normal", "recovery", "conditioning"})
 RECOVERY_INTENTS = AUTOMATIC_HV_INTENTS
-
-
-def _unsafe_policy_decision(decision: RecoveryDecision) -> bool:
-    return decision in {
-        RecoveryDecision.HOLD_OUTPUT_OFF,
-        RecoveryDecision.PAUSE_THERMAL,
-        RecoveryDecision.REST_AND_DIAGNOSE,
-    }
 
 
 def decide_main_transition(

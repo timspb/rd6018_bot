@@ -81,6 +81,61 @@ class PhysicalConnectorCompositionTests(unittest.TestCase):
                 session.requested,
             )
 
+    def test_close_releases_physical_backend_and_ha_sidecar_session(self):
+        import asyncio
+
+        class Backend:
+            def __init__(self):
+                self.close_calls = 0
+
+            async def close(self):
+                self.close_calls += 1
+
+        class Session:
+            def __init__(self):
+                self.closed = False
+                self.close_calls = 0
+
+            async def close(self):
+                self.close_calls += 1
+                self.closed = True
+
+        async def exercise():
+            backend = Backend()
+            session = Session()
+            client = HassClient("http://ha.example:8123", "secret", backend=backend)
+            client._session = session
+            await client.close()
+            self.assertEqual(backend.close_calls, 1)
+            self.assertTrue(session.closed, "HA sidecar session must be closed even with backend")
+            self.assertEqual(session.close_calls, 1)
+
+        asyncio.run(exercise())
+
+    def test_close_releases_ha_sidecar_even_if_backend_close_raises(self):
+        import asyncio
+
+        class Backend:
+            async def close(self):
+                raise RuntimeError("synthetic backend close failure")
+
+        class Session:
+            def __init__(self):
+                self.closed = False
+
+            async def close(self):
+                self.closed = True
+
+        async def exercise():
+            session = Session()
+            client = HassClient("http://ha.example:8123", "secret", backend=Backend())
+            client._session = session
+            with self.assertRaisesRegex(RuntimeError, "synthetic backend close failure"):
+                await client.close()
+            self.assertTrue(session.closed)
+
+        asyncio.run(exercise())
+
     def test_native_lease_state_and_button_bypass_ha(self):
         class Backend:
             def __init__(self):

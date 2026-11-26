@@ -99,6 +99,7 @@ sensor:
       - multiply: 0.01
 
   # RD stores temperature sign and magnitude in separate 16-bit registers.
+  # RD stores temperature sign and magnitude in separate 16-bit registers.
   - platform: modbus_controller
     id: rd6018_temp_int_sign_raw
     modbus_controller_id: powersupply
@@ -150,7 +151,7 @@ sensor:
     filters:
       - multiply: 0.01
 
-  # Register 16 is a status code: 0 normal / 1 OVP / 2 OCP / 3 OPP.
+  # Neutral raw register-16 status telemetry. Only the separate OPP guard has action authority.
   - platform: modbus_controller
     id: rd6018_protection_status_code
     name: "Protection Status Code"

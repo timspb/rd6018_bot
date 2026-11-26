@@ -26,8 +26,6 @@ class FakeHass:
         self.output_on = False
         self.set_voltage_value = 15.10
         self.set_current_value = 0.18
-        self.ovp_value = 15.30
-        self.ocp_value = 0.40
         self.set_current_calls = []
         self.turn_off_calls = 0
 
@@ -44,8 +42,6 @@ class FakeHass:
             "set_voltage": self.set_voltage_value,
             "set_current": self.set_current_value,
             "set_current_readback_v2": self.set_current_value,
-            "ovp": self.ovp_value,
-            "ocp": self.ocp_value,
             "_meta": {"set_current_readback_v2": {"status": "ok", "age_s": 0.0}},
         }
 
@@ -79,6 +75,18 @@ class FakeControlMode:
         return True
 
 
+class FakeAdoption:
+    active = False
+    off_pending = False
+    managed_authority = False
+
+    def authorize_managed_write(self, field, value):
+        return None
+
+    def ratchet_after_managed_write(self, field, value):
+        return None
+
+
 class FakeManual:
     def __init__(self, hass, lease):
         self.hass = hass
@@ -91,8 +99,6 @@ class FakeManual:
         self.request = request
         self.hass.set_voltage_value = float(request.voltage_v)
         self.hass.set_current_value = float(request.current_a)
-        self.hass.ovp_value = float(request.ovp_v)
-        self.hass.ocp_value = float(request.ocp_a)
         self.hass.output_on = True
         self.lease.armed = True
         self.lease.remaining_s = 900.0
@@ -149,8 +155,8 @@ class FakeApp:
         self.rd_control_mode_manager = FakeControlMode()
         self.manual_session_manager = FakeManual(self.hass, self.lease)
         self.charge_controller = SimpleNamespace(is_active=False)
-        self.rd_managed_live_adoption = SimpleNamespace(active=False, off_pending=False)
-        self.rd_managed_mix_adoption = SimpleNamespace(active=False, off_pending=False)
+        self.rd_managed_live_adoption = FakeAdoption()
+        self.rd_managed_mix_adoption = FakeAdoption()
         self.diagnostic_action_journal = journal
 
 
@@ -187,7 +193,7 @@ class DiagnosticPhysicalControlTests(unittest.IsolatedAsyncioTestCase):
             response = await self.control.dispatch(
                 {"op": "diagnostic_probe_cancel_after_step", "battery_id": "battery-a"}
             )
-        self.assertTrue(response["ok"])
+        self.assertTrue(response["ok"], response)
         result = response["result"]
         self.assertTrue(result["cancelled"])
         self.assertTrue(result["original_current_restored_before_off"])
@@ -208,7 +214,7 @@ class DiagnosticPhysicalControlTests(unittest.IsolatedAsyncioTestCase):
             response = await self.control.dispatch(
                 {"op": "diagnostic_probe_prepare_restart_window", "battery_id": "battery-a"}
             )
-            self.assertTrue(response["ok"])
+            self.assertTrue(response["ok"], response)
             result = response["result"]
             self.assertTrue(result["ready_for_sigkill"])
             self.assertEqual(result["journal_status"], "running")

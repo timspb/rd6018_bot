@@ -50,18 +50,14 @@ def _is_off(live: Any, max_age_s: float) -> bool:
     meta = live.get("_meta")
     output = _number(live.get("output_state_code_v2"))
     voltage, current = _number(live.get("voltage")), _number(live.get("current"))
-    required = ("output_state_code_v2", "voltage", "current", "protection_code",
-                "ovp_readback_v2", "ocp_readback_v2")
+    required = ("output_state_code_v2", "voltage", "current", "protection_code")
     if not all(_fresh(meta, key, max_age_s) for key in required):
         return False
     protection = _number(live.get("protection_code"))
-    ovp, ocp = _number(live.get("ovp_readback_v2")), _number(live.get("ocp_readback_v2"))
-    # Raw protection NORMAL is code 0; configured protection must remain present
-    # and positive.  This check never writes or attempts to repair a setting.
+    # Raw protection code 3 is the independent OPP trip; 1/2 are neutral.
     return (output == 0 and voltage is not None and abs(voltage) <= 0.02
             and current is not None and abs(current) <= 0.02
-            and protection == 0 and ovp is not None and ovp > 0
-            and ocp is not None and ocp > 0)
+            and protection in (0, 1, 2))
 
 
 def _state(entity: str, report: Any, max_age_s: float) -> Any:

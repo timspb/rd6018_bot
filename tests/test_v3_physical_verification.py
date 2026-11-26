@@ -15,7 +15,7 @@ class PhysicalVerificationTests(unittest.TestCase):
     def snapshot(self, **changes):
         values = dict(timestamp=100, connection_state="connected", output_state=False,
                       measured_voltage=0, measured_current=0, configured_voltage=13.94,
-                      configured_current=.55, ovp=16.7, ocp=12, temperature=31)
+                      configured_current=.55, temperature=31)
         values.update(changes)
         return HardwareSnapshot(**values)
 

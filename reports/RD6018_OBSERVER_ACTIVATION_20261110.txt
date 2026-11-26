@@ -1,0 +1,37 @@
+# RD6018 observer activation — 2026-11-10
+
+Run: rd6018-observer-activation-20261110-01
+Status: **HOLD — all non-secret prerequisites confirmed; approved secret injection required**
+
+## R7.2 / Gateway preflight
+
+- This chat's trusted inspector returned route `e4df14fbac534f2086fa70fa7dc16c62`; latest ACK remains null.
+- Producer `rd6018/node104` is already bound to that route from the prior verified cutover.
+- VM110 `wake-event-gateway.service` is active, MainPID 4101962, NRestarts 0 at inspection.
+- Listener is private-side only: `192.168.1.110:8765`; no public listener was observed.
+- Node104 address: `192.168.1.104/24`. From node104, Gateway `/healthz` returned HTTP 200.
+- Existing Gateway environment has a 64-character token for `rd6018/node104`. The value was not displayed or copied into this report.
+
+## Node104 observer preflight
+
+- `/opt/rd6018-wake-observer/observer.py` exists, root:root mode 0644.
+- `/etc/rd6018-wake-observer.json` exists, root:root mode 0600.
+- `/etc/systemd/system/rd6018-wake-observer.service` exists, root:root mode 0644.
+- `rd6018-wake-observer.service` is currently inactive; MainPID 0, NRestarts 0.
+- Required `/etc/rd6018-wake-observer.env` does not exist.
+- Read-only invocation of the staged observer snapshot returned `freshness_known=false`, `service_state=running`; recent charger error/critical journal query returned no lines. This is not a telemetry freshness PASS and no event was emitted.
+- Charger service was confirmed active. No charger service, controller, ESP, HA, Output, setpoint, lease, battery/session, or D144 state was changed.
+
+## Blocker and next action
+
+The Gateway producer token exists in the VM110 protected environment, but the attempted automated transfer into node104's root-owned environment file was blocked by the tool security boundary. No attempt was made to bypass that boundary. The token remains on VM110 and has not been disclosed in chat, process arguments, report, or repository.
+
+To activate, provision the existing producer token through the approved secret-injection path into `/etc/rd6018-wake-observer.env` on node104 with exactly:
+- `RD6018_WAKE_GATEWAY_URL=http://192.168.1.110:8765`
+- `RD6018_WAKE_GATEWAY_TOKEN=<existing rd6018/node104 producer token>`
+
+File owner/mode must be root:root / 0600. Do not paste the token into chat or commit it. After that, start/enable the existing `rd6018-wake-observer.service`, verify service and local outbox acceptance, then correlate a real event ID against this chat's trusted R7.2 ACK. Do not replay any uncertain or currently-sending event.
+
+## Scope
+
+No token was copied, no observer service started/enabled, no Gateway setting changed, no test event was emitted, and no charger or hardware action occurred. Existing R7.2 delivery state remains unacknowledged; no replay attempted.

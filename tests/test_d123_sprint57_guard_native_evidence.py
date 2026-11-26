@@ -157,6 +157,56 @@ class Sprint57NativeEvidenceTests(unittest.TestCase):
         client = HassClient(backend=types.SimpleNamespace(name="ha_esp"))
         self.assertIsNone(asyncio.run(client.get_native_guard_pre_on_snapshot()))
 
+    def test_native_snapshot_rejects_wrong_provenance_type_and_callback_time(self):
+        for mutation in ("wrong_source", "wrong_type", "future_callback", "missing_callback"):
+            with self.subTest(mutation=mutation):
+                snapshot = native_live()
+                meta = snapshot["_meta"]["set_current_readback_v2"]
+                if mutation == "wrong_source":
+                    meta["source"] = "ha_rest"
+                elif mutation == "wrong_type":
+                    meta["native_type"] = "NumberState"
+                elif mutation == "future_callback":
+                    meta["subscription_timestamp_monotonic"] = time.monotonic() + 1.0
+                else:
+                    meta.pop("subscription_timestamp_monotonic")
+                client = self.direct_client(snapshot)
+                self.assertIsNone(
+                    asyncio.run(client.get_native_guard_pre_on_snapshot())
+                )
+
+    def test_invalid_lease_provenance_or_callback_time_blocks_restore_admission(self):
+        document = guarded_document()
+        for mutation in ("wrong_source", "wrong_type", "future_callback"):
+            with self.subTest(mutation=mutation):
+                path_root = tempfile.TemporaryDirectory()
+                self.addCleanup(path_root.cleanup)
+                path = Path(path_root.name) / "charge_session.json"
+                path.write_text(json.dumps(document), encoding="utf-8")
+                client = self.direct_client(native_live())
+
+                async def bad_lease_state(_entity):
+                    meta = {
+                        "source": "esp_native_api", "status": "ok",
+                        "native_type": "BinarySensorState",
+                        "subscription_timestamp_monotonic": time.monotonic(),
+                    }
+                    if mutation == "wrong_source":
+                        meta["source"] = "ha_rest"
+                    elif mutation == "wrong_type":
+                        meta["native_type"] = "SensorState"
+                    else:
+                        meta["subscription_timestamp_monotonic"] += 1.0
+                    return True, meta
+
+                client._physical_backend.get_state = bad_lease_state
+                app = self.app_for(client, document)
+                recovery = self.run_recovery(app, path)
+                self.assertEqual(recovery.last_guard_assessment.reason,
+                                 "execution_owner_or_lease_unproven")
+                self.assertIsNotNone(app.charge_controller._guarded_restore_candidate)
+                self.assertFalse(app.charge_controller.is_active)
+
     def test_stale_callback_and_stale_lease_block_assessment(self):
         document = guarded_document()
         with tempfile.TemporaryDirectory() as root:
@@ -175,12 +225,82 @@ class Sprint57NativeEvidenceTests(unittest.TestCase):
             self.assertEqual(recovery.last_guard_assessment.reason,
                              "execution_owner_or_lease_unproven")
 
-    def test_native_protection_iset_and_ocp_faults_are_assessed(self):
+    def test_native_reader_failure_during_registered_restore_keeps_candidate_held(self):
+        """An unavailable direct callback cannot fall through to HA or restore."""
+        document = guarded_document()
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / "charge_session.json"
+            original = json.dumps(document, indent=2).encode()
+            path.write_bytes(original)
+            client = self.direct_client(native_live())
+            client._physical_backend.get_all_live = unittest.mock.AsyncMock(
+                side_effect=OSError("native callback unavailable")
+            )
+            app = self.app_for(client, document)
+            recovery = self.run_recovery(app, path)
+            self.assertEqual(recovery.last_guard_assessment.status, "BLOCKED")
+            self.assertEqual(recovery.last_guard_assessment.reason,
+                             "direct_native_callback_evidence_unavailable")
+            self.assertIsNotNone(app.charge_controller._guarded_restore_candidate)
+            self.assertFalse(app.charge_controller.is_active)
+            self.assertTrue(app.execution_port.guarded_restore_activated_off is False)
+            self.assertEqual(path.read_bytes(), original)
+
+    def test_cancellation_during_native_pre_on_read_quarantines_and_never_restores(self):
+        """Cancellation in the guarded branch is covered by the actual lock wrapper."""
+        document = guarded_document()
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / "charge_session.json"
+            original = json.dumps(document, indent=2).encode()
+            path.write_bytes(original)
+            client = self.direct_client(native_live())
+            client.get_native_guard_pre_on_snapshot = unittest.mock.AsyncMock(
+                side_effect=asyncio.CancelledError()
+            )
+            app = self.app_for(client, document)
+            recovery = StartupRecovery(app, object(), object())
+            with patch("runtime.startup_recovery.SESSION_FILE", str(path)):
+                with self.assertRaises(asyncio.CancelledError):
+                    asyncio.run(recovery.replay_deferred_startup_restore())
+            self.assertTrue(app.execution_port.session_recovery_guard.quarantined)
+            self.assertEqual(app.execution_port.session_recovery_guard.state.reason,
+                             "deferred_restore_cancelled")
+            self.assertIsNotNone(app.charge_controller._guarded_restore_candidate)
+            self.assertFalse(app.charge_controller.is_active)
+            self.assertFalse(app.execution_port.guarded_restore_activated_off)
+            self.assertEqual(path.read_bytes(), original)
+
+    def test_unexpected_native_restore_exception_quarantines_candidate(self):
+        """A callback exception after candidate load must latch the existing guard."""
+        document = guarded_document()
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / "charge_session.json"
+            original = json.dumps(document, indent=2).encode()
+            path.write_bytes(original)
+            client = self.direct_client(native_live())
+            client.get_native_guard_pre_on_snapshot = unittest.mock.AsyncMock(
+                side_effect=RuntimeError("native restore callback failed")
+            )
+            app = self.app_for(client, document)
+            recovery = StartupRecovery(app, object(), object())
+            with patch("runtime.startup_recovery.SESSION_FILE", str(path)):
+                with self.assertRaisesRegex(RuntimeError, "native restore callback failed"):
+                    asyncio.run(recovery.replay_deferred_startup_restore())
+            self.assertTrue(app.execution_port.session_recovery_guard.quarantined)
+            self.assertEqual(
+                app.execution_port.session_recovery_guard.state.reason,
+                "deferred_restore_failed:RuntimeError",
+            )
+            self.assertIsNotNone(app.charge_controller._guarded_restore_candidate)
+            self.assertFalse(app.charge_controller.is_active)
+            self.assertFalse(app.execution_port.guarded_restore_activated_off)
+            self.assertEqual(path.read_bytes(), original)
+
+    def test_native_protection_and_iset_faults_block_guard_reconciliation(self):
         document = guarded_document()
         cases = (
-            (native_live(protection=2), "native_protection_not_normal"),
+            (native_live(protection=3), "safety_protection_not_clear"),
             (native_live(iset=5.0), "physical_iset_does_not_match_resume_target"),
-            (native_live(ocp=6.3), "physical_ocp_not_confirmed"),
         )
         with tempfile.TemporaryDirectory() as root:
             path = Path(root) / "charge_session.json"
@@ -191,6 +311,36 @@ class Sprint57NativeEvidenceTests(unittest.TestCase):
                     recovery = self.run_recovery(app, path)
                     self.assertEqual(recovery.last_guard_assessment.reason, reason)
                     self.assertIsNotNone(app.charge_controller._guarded_restore_candidate)
+
+    def test_r16_ovp_ocp_do_not_block_guarded_off_restore(self):
+        document = guarded_document()
+        for code in (1, 2):
+            with self.subTest(protection_code=code):
+                with tempfile.TemporaryDirectory() as root:
+                    path = Path(root) / "charge_session.json"
+                    original = json.dumps(document).encode()
+                    path.write_bytes(original)
+                    app = self.app_for(self.direct_client(native_live(protection=code)), document)
+                    recovery = self.run_recovery(app, path)
+                    self.assertEqual(recovery.last_guard_assessment.status, "RECONCILED")
+                    self.assertFalse(asyncio.run(app.execution_port.request_verified_on()))
+                    self.assertEqual(path.read_bytes(), original)
+
+    def test_ocp_is_not_an_extra_pre_on_main_guard_gate(self):
+        # Canonical MAIN Guard reconciles fresh OFF/protection/Iset/journal
+        # evidence. Hardware OCP is checked by separate physical safety
+        # authorities; this pure reconciliation never authorizes Output ON.
+        document = guarded_document()
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / "charge_session.json"
+            path.write_text(json.dumps(document), encoding="utf-8")
+            app = self.app_for(self.direct_client(native_live(ocp=6.3)), document)
+            recovery = self.run_recovery(app, path)
+            self.assertEqual(recovery.last_guard_assessment.status, "RECONCILED")
+            self.assertEqual(recovery.last_guard_assessment.reason,
+                             "native_iset_matches_canonical_main_guard")
+            self.assertTrue(app.charge_controller._guarded_restore_activated_off)
+            self.assertFalse(asyncio.run(app.execution_port.request_verified_on()))
 
     def test_invalid_guard_and_changed_canonical_revision_remain_blocked(self):
         document = guarded_document()

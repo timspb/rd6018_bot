@@ -73,8 +73,8 @@ class D072OwnerTransactionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.owner.events, [("voltage_start", 14.4)])
         self.assertFalse(racing.done())
 
-        # OFF is deliberately not queued behind an ordinary setter transaction.
-        self.assertTrue(await asyncio.wait_for(self.port.request_verified_off(), timeout=1))
+        # Emergency OFF deliberately bypasses an ordinary setter transaction.
+        self.assertTrue(await asyncio.wait_for(self.port.request_emergency_off(), timeout=1))
         self.assertEqual(self.owner.events[-1], ("emergency_off",))
         self.owner.release_voltage.set()
 
@@ -125,7 +125,7 @@ class D072OwnerTransactionTests(unittest.IsolatedAsyncioTestCase):
             if isinstance(n, ast.ClassDef) and n.name == "ProductionRuntimeLifecycle"
         )
         for method, required_calls in (
-            ("run", ("controller.try_restore_session", "execution_port.request_verified_on")),
+            ("run", ("controller.try_restore_session",)),
             ("on_shutdown", ("app.charge_controller._save_session",)),
         ):
             fn = next(n for n in cls.body if isinstance(n, ast.AsyncFunctionDef) and n.name == method)
@@ -143,6 +143,43 @@ class D072OwnerTransactionTests(unittest.IsolatedAsyncioTestCase):
                 if all(call in calls for call in required_calls):
                     owners.append(n)
             self.assertEqual(len(owners), 1, method)
+
+    def test_production_startup_restore_is_cold_start_vetoed_before_any_enable(self):
+        path = Path(__file__).resolve().parents[1] / "runtime" / "production_lifecycle.py"
+        module = ast.parse(path.read_text(encoding="utf-8"))
+        cls = next(node for node in module.body
+                   if isinstance(node, ast.ClassDef) and node.name == "ProductionRuntimeLifecycle")
+        run = next(node for node in cls.body
+                   if isinstance(node, ast.AsyncFunctionDef) and node.name == "run")
+        calls = {
+            ast.unparse(node.func) for node in ast.walk(run) if isinstance(node, ast.Call)
+        }
+        self.assertIn("authorize_recovery_action", calls)
+        self.assertNotIn("execution_port.request_verified_on", calls)
+        self.assertNotIn("app._apply_phase_protection", calls)
+        self.assertIn("execution_port.request_verified_off", calls)
+        policy_calls = [node for node in ast.walk(run)
+                        if isinstance(node, ast.Call)
+                        and ast.unparse(node.func) == "RecoveryAuthorizationInput"]
+        self.assertEqual(len(policy_calls), 1)
+        self.assertTrue(any(keyword.arg == "cold_start"
+                            and isinstance(keyword.value, ast.Constant)
+                            and keyword.value.value is True
+                            for keyword in policy_calls[0].keywords))
+        policy_branch = min(
+            (node for node in ast.walk(run)
+             if isinstance(node, ast.If)
+             and any(candidate is policy_calls[0] for candidate in ast.walk(node))),
+            key=lambda node: sum(1 for _ in ast.walk(node)),
+        )
+        policy_branch_calls = {
+            ast.unparse(node.func) for node in ast.walk(policy_branch)
+            if isinstance(node, ast.Call)
+        }
+        for forbidden in ("execution_port.request_verified_on",
+                          "execution_port.program_voltage",
+                          "execution_port.program_current"):
+            self.assertNotIn(forbidden, policy_branch_calls)
 
     def test_manual_lifecycle_methods_are_explicitly_serialized(self):
         path = Path(__file__).resolve().parents[1] / "manual_runtime.py"
@@ -199,12 +236,12 @@ class D072OwnerTransactionTests(unittest.IsolatedAsyncioTestCase):
             if isinstance(n, ast.ClassDef) and n.name == "SessionRecoveryService"
         )
         expected = {
-            "reenable_active": {"self._apply_phase_protection", "self._port.program_voltage",
+            "reenable_active": {"self._port.program_voltage",
                                 "self._port.program_current", "self._port.request_verified_on"},
-            "restore_idle_link": {"self._apply_phase_protection", "self._port.program_voltage",
+            "restore_idle_link": {"self._port.program_voltage",
                                   "self._port.program_current", "self._port.request_verified_off",
                                   "self._port.request_verified_on"},
-            "restore_output_on": {"self._apply_phase_protection", "self._port.program_voltage",
+            "restore_output_on": {"self._port.program_voltage",
                                   "self._port.program_current", "self._port.request_verified_off"},
         }
         for name, required in expected.items():
@@ -250,12 +287,15 @@ class D072OwnerTransactionTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("execute_main_current_guard_reduction(",
                          path.read_text(encoding="utf-8"))
 
-    def test_both_legacy_manual_text_formats_use_atomic_port_pair(self):
-        runtime_path = Path(__file__).resolve().parents[1] / "runtime" / "production_runtime.py"
-        source = runtime_path.read_text(encoding="utf-8")
-        self.assertEqual(
-            source.count("ok_v, ok_i = await _runtime_execution_port().program_voltage_current("),
-            2,
+    def test_manual_text_route_delegates_to_production_manual_owner(self):
+        root = Path(__file__).resolve().parents[1]
+        text_source = (root / "manual_text.py").read_text(encoding="utf-8")
+        runtime_source = (root / "runtime" / "production_runtime.py").read_text(encoding="utf-8")
+        self.assertIn("ProductionManualSessionManager", text_source)
+        self.assertIn("route.submit_request(", text_source)
+        self.assertNotIn(
+            "ok_v, ok_i = await _runtime_execution_port().program_voltage_current(",
+            runtime_source,
         )
 
 

@@ -8,7 +8,6 @@ from typing import Any, Mapping
 class PhysicalCommand(str, Enum):
     SET_VOLTAGE = "SET_VOLTAGE"
     SET_CURRENT = "SET_CURRENT"
-    RESET_PROTECTION = "RESET_PROTECTION"
     DISABLE_OUTPUT = "DISABLE_OUTPUT"
 
 

@@ -5,13 +5,20 @@ not a hand-authored session mock. No HA, Modbus, ESPHome or node104 connections.
 """
 import asyncio
 import json
+import os
 import tempfile
 import time
 from pathlib import Path
+import unittest
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock, patch
 
 import aiosqlite
+
+if os.name != "posix":
+    raise unittest.SkipTest(
+        "D063 sidecar contract uses POSIX fcntl locking; exercised on Linux"
+    )
 
 import charge_controller
 from d123_final_safe_wait_helpers import enter_final_safe_wait

@@ -51,6 +51,23 @@ class RecoveryQuarantineJournalTests(unittest.TestCase):
         self.assertEqual(document["identity"], {"session_id": "session-A", "battery_id": "battery-B"})
         self.assertEqual(journal.load().reason, "first")
 
+    def test_retirement_binding_is_read_by_journal_owner(self):
+        app = SimpleNamespace(charge_controller=SimpleNamespace(
+            _v2_trace_session_id="session-A", _v2_battery_id="battery-B"))
+        journal = RecoveryQuarantineJournal(self.path, app)
+        journal.persist("incident")
+        journal.retire(
+            operator_id="operator",
+            session_id="session-A",
+            confirmed_off_evidence="off-1",
+        )
+
+        binding = journal.retirement_binding()
+        self.assertEqual(binding["session_id"], "session-A")
+        self.assertEqual(binding["battery_id"], "battery-B")
+        self.assertEqual(binding["operator_id"], "operator")
+        self.assertEqual(binding["confirmed_off_evidence"], "off-1")
+
     def test_failed_write_does_not_release_guard(self):
         path = Path(self.tmp.name) / "missing" / JOURNAL_NAME
         journal = RecoveryQuarantineJournal(path)

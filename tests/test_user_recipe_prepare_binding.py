@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from unittest.mock import Mock
 from pathlib import Path
 from application.recipe_existing_session import prepare_existing_recipe_binding
 from application.recipe_execution_adapter import RecipeExecutionIdentity
@@ -28,3 +29,19 @@ class PrepareBindingTests(unittest.TestCase):
             Path(args["state_path"]).write_text("existing")
             with self.assertRaisesRegex(ValueError, "already exists"):
                 prepare_existing_recipe_binding(**args, voltage_ceiling_v=15.5)
+
+    def test_existing_start_selection_is_reused_without_second_library_load(self):
+        with tempfile.TemporaryDirectory() as directory:
+            catalog = RecipeCatalog(RecipeLibrary(directory, max_voltage_v=15.5, max_current_a=7.2))
+            selected = catalog.library.save({"id":"custom","version":1,"steps":[
+                {"action":"set","params":{"voltage_v":14.7,"current_a":1.0},
+                 "until":{"after_seconds":60}},
+            ]})
+            catalog.library.load = Mock(side_effect=AssertionError("recipe was loaded twice"))
+            binding = prepare_existing_recipe_binding(
+                catalog=catalog, recipe_id="custom", version=1, recipe=selected,
+                port=object(), identity=RecipeExecutionIdentity("s", "t"),
+                safety_context=SafetyContext(), voltage_ceiling_v=15.5,
+                state_path=Path(directory)/"runner.json",
+            )
+            self.assertIs(binding.session.recipe, selected)

@@ -15,8 +15,8 @@ from rd_managed_mix import (
     PriorMixAge,
     PriorMixAgeSource,
 )
-from runtime_safety import RuntimeSafetyError
-from safe_output import SafetyPolicy
+from runtime.safety.runtime_guard import RuntimeSafetyError
+from runtime.safety.output_policy import SafetyPolicy
 
 
 class Clock:
@@ -85,9 +85,14 @@ class FakeGuard:
         self._off_unconfirmed = False
         self._orphan_output_seen_at = None
         self.edge_safety_lease = None
+        self.managed_read_calls = 0
 
     async def _raw_live(self):
         return dict(self.app.hass.live)
+
+    async def get_all_live(self):
+        self.managed_read_calls += 1
+        return await self._raw_live()
 
 
 class FakeManager:
@@ -153,8 +158,6 @@ class FakeD061:
             return ManagedAdoptionFingerprint(
                 float(live["set_voltage"]),
                 float(live["set_current"]),
-                float(live["ovp"]),
-                float(live["ocp"]),
             )
         except (KeyError, TypeError, ValueError):
             return None
@@ -228,7 +231,7 @@ class ManagedMixHardeningTests(unittest.IsolatedAsyncioTestCase):
             battery_id="Baic72",
             chemistry=BatteryChemistry.CA_CA,
             capacity_ah=72.0,
-            fingerprint=ManagedAdoptionFingerprint(16.50, 1.00, 16.70, 1.20),
+            fingerprint=ManagedAdoptionFingerprint(16.50, 1.00),
             prior_age=PriorMixAge(
                 float(prior_s),
                 PriorMixAgeSource.RECORDER,
@@ -347,7 +350,7 @@ class ManagedMixHardeningTests(unittest.IsolatedAsyncioTestCase):
                 battery_id="varta_agm80_a0019828108",
                 chemistry=BatteryChemistry.AGM,
                 capacity_ah=80.0,
-                fingerprint=ManagedAdoptionFingerprint(15.10, 0.18, 15.30, 0.40),
+                fingerprint=ManagedAdoptionFingerprint(15.10, 0.18),
                 prior_age=PriorMixAge(3 * 3600, PriorMixAgeSource.RECORDER, clock.wall),
             )
 

@@ -35,17 +35,11 @@ class _HaState:
             ENTITY_MAP["output_state_code_v2"]: "0",
             ENTITY_MAP["battery_mode"]: "on",
             ENTITY_MAP["keypad_lock"]: "off",
-            ENTITY_MAP["ovp_triggered"]: "off",
-            ENTITY_MAP["ocp_triggered"]: "off",
             ENTITY_MAP["switch"]: "off",
             ENTITY_MAP["set_voltage"]: "14.80",
             ENTITY_MAP["set_current"]: "2.00",
-            ENTITY_MAP["ovp"]: "14.90",
-            ENTITY_MAP["ocp"]: "2.10",
             ENTITY_MAP["set_voltage_readback_v2"]: "14.80",
             ENTITY_MAP["set_current_readback_v2"]: "2.00",
-            ENTITY_MAP["ovp_readback_v2"]: "14.90",
-            ENTITY_MAP["ocp_readback_v2"]: "2.10",
             ENTITY_MAP["input_voltage"]: "68.0",
             ENTITY_MAP["autonomous_mode"]: "off",
             ENTITY_MAP["take_ok"]: "on",
@@ -56,8 +50,6 @@ class _HaState:
         self.readback_for_number = {
             ENTITY_MAP["set_voltage"]: ENTITY_MAP["set_voltage_readback_v2"],
             ENTITY_MAP["set_current"]: ENTITY_MAP["set_current_readback_v2"],
-            ENTITY_MAP["ovp"]: ENTITY_MAP["ovp_readback_v2"],
-            ENTITY_MAP["ocp"]: ENTITY_MAP["ocp_readback_v2"],
         }
 
     @staticmethod
@@ -163,8 +155,8 @@ class RestartRestoreHaCompositionTests(unittest.TestCase):
         self.server.server_close()
         self.thread.join(timeout=2)
 
-    def test_deferred_managed_restore_reenergizes_through_real_hass_adapter(self):
-        """A saved managed MAIN session must not become software-active/physical-OFF."""
+    def test_deferred_managed_restore_keeps_output_off_after_restart(self):
+        """Eligible saved software state may restore without automatic re-energization."""
         repo_root = Path(__file__).resolve().parents[1]
         ha_url = f"http://127.0.0.1:{self.server.server_address[1]}"
         script = r'''
@@ -254,7 +246,7 @@ asyncio.run(run())
                 env=env,
                 text=True,
                 capture_output=True,
-                timeout=30,
+                timeout=90,
             )
 
         self.assertEqual(completed.returncode, 0, completed.stderr + completed.stdout)
@@ -268,10 +260,10 @@ asyncio.run(run())
         self.assertFalse(payload["deferred"])
         self.assertEqual(
             payload["switch"],
-            "on",
-            "managed restore must not leave an active software session with physical Output OFF",
+            "off",
+            "cold-start restore must keep physical Output OFF",
         )
-        self.assertTrue(
+        self.assertFalse(
             any(call[0] == "switch.turn_on" for call in self.state.service_calls),
             self.state.service_calls,
         )

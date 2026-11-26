@@ -78,7 +78,7 @@ Safety-relevant invariants include:
 
 - fresh/valid telemetry before managed energization;
 - chemistry/recipe envelopes for automatic voltage/current authority;
-- explicit OVP/OCP and configured-value readback;
+- preserved OVP/OCP entities/readbacks and managed trip diagnostics (thresholds are not automatically programmed by the current physical adapter);
 - ownership/session reconciliation before START;
 - edge lease/dead-man behavior during managed operation;
 - fail-closed handling of stale or contradictory evidence;

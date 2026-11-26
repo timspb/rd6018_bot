@@ -25,10 +25,7 @@ class DiagnosticSnapshotOwnershipTests(unittest.TestCase):
                             and node.module == "runtime.charge.diagnostics"
                             and any(alias.name == "diagnostic_assessment_snapshot" for alias in node.names)
                             for node in application.body))
-        controller = ast.parse((ROOT / "diagnostic_controller.py").read_text(encoding="utf-8"))
-        self.assertNotIn("diagnostic_snapshot", {
-            node.name for node in ast.walk(controller) if isinstance(node, ast.FunctionDef)
-        })
+        self.assertFalse((ROOT / "diagnostic_controller.py").exists())
 
 
 if __name__ == "__main__":

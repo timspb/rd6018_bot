@@ -27,7 +27,7 @@ class ProductionExtensionOwnershipTests(unittest.TestCase):
         self.assertTrue({"_apply_continuous_tail_hold", "_save_session"}.issubset(
             ManagedChargeController.__dict__
         ))
-        for source_name in ("production_controller.py", "auto_strategy.py", "diagnostic_controller.py"):
+        for source_name in ("production_controller.py",):
             source = ast.parse((ROOT / source_name).read_text())
             for cls in (node for node in source.body if isinstance(node, ast.ClassDef)):
                 methods = {
@@ -35,6 +35,8 @@ class ProductionExtensionOwnershipTests(unittest.TestCase):
                     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
                 }
                 self.assertTrue(removed.isdisjoint(methods), f"{source_name}:{cls.name}")
+        self.assertFalse((ROOT / "auto_strategy.py").exists())
+        self.assertFalse((ROOT / "diagnostic_controller.py").exists())
         tree = ast.parse((ROOT / "application/production_session_extensions.py").read_text())
         self.assertFalse(any(isinstance(node, ast.ClassDef) for node in tree.body))
         functions = {
@@ -64,7 +66,7 @@ class ProductionExtensionOwnershipTests(unittest.TestCase):
             isinstance(node, ast.Import) and any(alias.name == "os" for alias in node.names)
             for node in tree.body
         ))
-        for source_name in ("production_controller.py", "auto_strategy.py", "diagnostic_controller.py"):
+        for source_name in ("production_controller.py",):
             controller_tree = ast.parse((ROOT / source_name).read_text())
             for cls in (node for node in controller_tree.body if isinstance(node, ast.ClassDef)):
                 methods = {

@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import math
-import os
 import sqlite3
 import time
 from dataclasses import dataclass
@@ -20,6 +18,7 @@ from manual_mode import (
 )
 from battery_registry import get_battery
 from runtime.charge.evidence.first_stage import tail_current_threshold_a
+from runtime.charge.manual_session_store import read_manual_session_document
 from rd6018_telemetry import as_bool, finite_float
 from application.execution_intent.models import ExecutionIntent, SafetyContext
 from application.execution_port import get_or_create_execution_port
@@ -157,21 +156,20 @@ class ProductionManualSessionManager(ManualSessionManager):
         return document
 
     def _restore_as_interrupted(self) -> None:
-        saved_reach_v: Optional[float] = None
-        saved_reach_i: Optional[float] = None
-        if os.path.exists(self.session_file):
-            try:
-                with open(self.session_file, "r", encoding="utf-8") as handle:
-                    raw = json.load(handle)
-                saved_reach_v = _finite_optional(raw.get("reach_voltage_v"))
-                saved_reach_i = _finite_optional(raw.get("reach_current_a"))
-            except (OSError, json.JSONDecodeError, TypeError):
-                pass
-        super()._restore_as_interrupted()
-        self.reach_voltage_v = saved_reach_v
-        self.reach_current_a = saved_reach_i
-        if self.state is ManualSessionState.INTERRUPTED:
-            self._persist()
+        raw = read_manual_session_document(self.session_file)
+        self.reach_voltage_v = (
+            _finite_optional(raw.get("reach_voltage_v")) if raw is not None else None
+        )
+        self.reach_current_a = (
+            _finite_optional(raw.get("reach_current_a")) if raw is not None else None
+        )
+        # The base manager consumes the exact same parsed document. Its dynamic
+        # _persist() call now includes the restored reach fields in the single
+        # terminal INTERRUPTED write; do not reread or write a second time.
+        super()._restore_as_interrupted(
+            raw_document=raw,
+            document_loaded=True,
+        )
 
     @staticmethod
     def _validate_reach(value: Optional[float], *, ceiling: float, name: str) -> Optional[float]:
@@ -371,12 +369,21 @@ class ProductionManualSessionManager(ManualSessionManager):
         now: float,
     ) -> Optional[str]:
         """Mirror the persistent V1 Manual-OFF overlay inside managed Manual state."""
-        v_ge = _finite_optional(getattr(self.app, "manual_off_voltage", None))
-        v_le = _finite_optional(getattr(self.app, "manual_off_voltage_le", None))
-        i_le = _finite_optional(getattr(self.app, "manual_off_current", None))
-        i_ge = _finite_optional(getattr(self.app, "manual_off_current_ge", None))
-        time_sec = _finite_optional(getattr(self.app, "manual_off_time_sec", None))
-        start_time = _finite_optional(getattr(self.app, "manual_off_start_time", None))
+        state = getattr(self.app, "_operator_off_conditions", None)
+        if state is None:
+            v_ge = _finite_optional(getattr(self.app, "manual_off_voltage", None))
+            v_le = _finite_optional(getattr(self.app, "manual_off_voltage_le", None))
+            i_le = _finite_optional(getattr(self.app, "manual_off_current", None))
+            i_ge = _finite_optional(getattr(self.app, "manual_off_current_ge", None))
+            time_sec = _finite_optional(getattr(self.app, "manual_off_time_sec", None))
+            start_time = _finite_optional(getattr(self.app, "manual_off_start_time", None))
+        else:
+            v_ge = _finite_optional(getattr(state, "voltage_ge", None))
+            v_le = _finite_optional(getattr(state, "voltage_le", None))
+            i_le = _finite_optional(getattr(state, "current_le", None))
+            i_ge = _finite_optional(getattr(state, "current_ge", None))
+            time_sec = _finite_optional(getattr(state, "time_sec", None))
+            start_time = _finite_optional(getattr(state, "start_time", None))
 
         if v_ge is not None and v_le is not None and abs(v_ge - v_le) < 0.01:
             if _crossed(self._previous_voltage_v, voltage, v_ge):
@@ -410,7 +417,7 @@ class ProductionManualSessionManager(ManualSessionManager):
         if not self.is_active or self.request is None:
             return
 
-        live = await self.app.hass.get_all_live()
+        live = await self.execution_port.read_live()
         voltage = finite_float(live.get("battery_voltage"))
         current = finite_float(live.get("current"))
         if voltage is not None and current is not None and self.state is not ManualSessionState.COOLING:

@@ -1,5 +1,7 @@
 import pathlib
+import subprocess
 import unittest
+from source_audit_inventory import production_python_sources
 
 from pb_domain import BatteryChemistry, BatteryCondition, ChargeIntent
 from application.recipe_policy import (
@@ -89,9 +91,9 @@ class RecipePolicyTests(unittest.TestCase):
     def test_production_graph_has_no_legacy_recipe_adapter_import(self):
         root = pathlib.Path(__file__).resolve().parents[1]
         violations = []
-        for path in root.rglob("*.py"):
-            rel = path.relative_to(root).as_posix()
-            if rel.startswith("tests/") or rel == "legacy_recipe_adapter.py":
+        for rel_path, path in production_python_sources(root):
+            rel = rel_path.as_posix()
+            if rel == "legacy_recipe_adapter.py":
                 continue
             source = path.read_text(encoding="utf-8")
             if "legacy_recipe_adapter" in source:

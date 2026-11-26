@@ -1,14 +1,37 @@
 """D106 strict read-only dual-source projection and independent recovery gates."""
 import copy
+import os
+import subprocess
+import sys
 import time
 import unittest
 from unittest.mock import patch
 
 from tools import node104_d106_readonly_projection as O
 from tests.test_node104_d105_trial_lifecycle import TrialLifecycleTests, TX
+import node104_d106_proof_types as proof_types
 
 
 class ObserverProjectionTests(unittest.TestCase):
+    def test_projection_imports_without_transaction_or_fcntl_modules(self):
+        code = (
+            "import builtins; original=builtins.__import__; "
+            "blocked={'fcntl','node104_d090_transaction'}; "
+            "builtins.__import__=lambda name,*a,**k: "
+            "(_ for _ in ()).throw(ImportError(name)) if name in blocked "
+            "else original(name,*a,**k); "
+            "import tools.node104_d106_live_observer as observer; "
+            "p=observer.projection; "
+            "import node104_d106_proof_types as t; "
+            "assert p.TrialOffProof is t.TrialOffProof and p.TransactionError is t.TransactionError"
+        )
+        result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+        self.assertEqual(0, result.returncode, result.stderr)
+
+    def test_projection_proof_is_the_shared_pure_dto(self):
+        self.assertIs(O.TrialOffProof, proof_types.TrialOffProof)
+        self.assertIs(O.TransactionError, proof_types.TransactionError)
+
     def snapshot(self):
         now = time.time()
         fields = {
@@ -16,7 +39,7 @@ class ObserverProjectionTests(unittest.TestCase):
             "protection_r16": 0, "autonomous": False, "lease_armed": False,
             "lease_remaining_s": 0.0, "lease_ttl_s": 900.0,
             "modbus_age_s": 1.0, "set_voltage_v": 13.57,
-            "set_current_a": 0.10, "ovp_v": 14.07, "ocp_a": 0.20,
+            "set_current_a": 0.10,
         }
         result = {"captured_at_epoch": now,
                   "source_nonces": ["a"*32, "b"*32]}
@@ -95,7 +118,7 @@ class ObserverProjectionTests(unittest.TestCase):
         with self.assertRaises(O.TransactionError):
             O.project_off(snap)
         snap = self.snapshot()
-        snap["esp128"]["ovp_v"]["value"] = 14.4
+        snap["esp128"]["set_voltage_v"]["value"] = 14.4
         with self.assertRaisesRegex(O.TransactionError, "disagreement"):
             O.project_off(snap)
 
@@ -103,6 +126,7 @@ class ObserverProjectionTests(unittest.TestCase):
 class SeparateRecoveryAdmissionTests(TrialLifecycleTests):
     """Reuse exact D105 fixture with a separately admitted recovery path."""
 
+    @unittest.skipIf(os.name == "nt", "D090 recovery execution requires POSIX fcntl transaction lock")
     def test_recovery_with_activation_socket_gone(self):
         self.trial()
         self.tx.trial_socket_ready = None
@@ -111,6 +135,7 @@ class SeparateRecoveryAdmissionTests(TrialLifecycleTests):
         self.assertEqual("TRIAL_RESTORED", restored["phase"])
         self.assert_old()
 
+    @unittest.skipIf(os.name == "nt", "D090 recovery execution requires POSIX fcntl transaction lock")
     def test_finish_without_activation_permission(self):
         self.trial()
         self.tx._trial_gate = lambda: (_ for _ in ()).throw(TX.TransactionError('activation disabled'))
@@ -120,6 +145,7 @@ class SeparateRecoveryAdmissionTests(TrialLifecycleTests):
         self.assertEqual("TRIAL_RESTORED", restored["phase"])
         self.assert_old()
 
+    @unittest.skipIf(os.name == "nt", "D090 recovery execution requires POSIX fcntl transaction lock")
     def test_recovery_fails_closed_without_independent_edge_observer(self):
         self.trial()
         self.tx.trial_edge_proof = None
@@ -129,6 +155,7 @@ class SeparateRecoveryAdmissionTests(TrialLifecycleTests):
                 self.tx.recover()
         self.assertEqual(stops, self.service.stops)
 
+    @unittest.skipIf(os.name == "nt", "D090 recovery execution requires POSIX fcntl transaction lock")
     def test_recovery_at_every_restore_copy_crash(self):
         for failpoint in (
             "trial-restore-app", "trial-restore-state", "trial-restore-venv",

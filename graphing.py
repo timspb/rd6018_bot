@@ -44,17 +44,19 @@ def _smooth(y: List[float], window: int = 5) -> List[float]:
     return out
 
 
-def _parse_timestamps(times: List[str]) -> List[datetime]:
+def _parse_timestamps(times: List[str]) -> List[Optional[datetime]]:
     """Строки времени (ISO из БД или HH:MM:SS) → datetime в USER_TIMEZONE. В БД хранится UTC (Z)."""
     from time_utils import now_user_tz, get_user_timezone
 
-    result: List[datetime] = []
+    result: List[Optional[datetime]] = []
     base_date = now_user_tz().date()
     user_tz = get_user_timezone()
 
     for ts in times:
         if not ts or not isinstance(ts, str):
-            result.append(now_user_tz())
+            # A value without its source timestamp is not a current measurement.
+            # Keep the invalid slot explicit so its paired telemetry is omitted.
+            result.append(None)
             continue
         try:
             if "T" in ts:
@@ -77,10 +79,11 @@ def _parse_timestamps(times: List[str]) -> List[datetime]:
                     dt = datetime.combine(base_date, time(h, m, s))
                     dt = user_tz.localize(dt)
                 else:
-                    dt = now_user_tz()
+                    result.append(None)
+                    continue
             result.append(dt)
         except (ValueError, TypeError):
-            result.append(now_user_tz())
+            result.append(None)
     return result
 
 
@@ -124,11 +127,17 @@ def generate_chart(
     if n == 0:
         return None
 
-    times_parsed = _parse_timestamps(times[:n])
-    v_list = v_list[:n]
-    i_list = i_list[:n]
+    parsed = _parse_timestamps(times[:n])
+    valid = [idx for idx, value in enumerate(parsed) if value is not None]
+    if not valid:
+        return None
+    times_parsed = [parsed[idx] for idx in valid]
+    # Keep each measurement attached to its original timestamp. Never draw a
+    # timestamp-less point at "now" or shift measurements across a missing row.
+    v_list = [v_list[idx] for idx in valid]
+    i_list = [i_list[idx] for idx in valid]
     if temps is not None:
-        t_list = t_list[:n]
+        t_list = [t_list[idx] for idx in valid]
     # Сглаживание рядов (зубья — дискретные замеры; при линейном изменении график плавный)
     v_list = _smooth(v_list, window=5)
     i_list = _smooth(i_list, window=5)

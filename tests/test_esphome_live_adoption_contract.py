@@ -18,14 +18,26 @@ class EspHomeLiveAdoptionContractTests(unittest.TestCase):
         self.assertIn("if (id(rd6018_safety_managed_session)) return;", text)
         self.assertIn("if (!id(rd6018_safety_output_on_readback)) return;", text)
 
-        # D061 must inspect the complete raw register-16 code locally. Legacy OVP/OCP
-        # bit sensors cannot safely stand in for OPP/unknown protection states.
+        # D061 must inspect the complete raw register-16 code locally. OVP/OCP
+        # remain observable but do not block managed adoption; OPP/unknown codes do.
         self.assertIn("address: 16", text)
         self.assertIn("id: rd6018_safety_protection_probe", text)
         self.assertIn("id(rd6018_safety_last_protection_rx_ms) = millis();", text)
         self.assertIn("id(rd6018_safety_protection_code) = (uint16_t) x;", text)
         self.assertIn("protection_fresh", text)
-        self.assertIn("if (id(rd6018_safety_protection_code) != 0U) return;", text)
+        self.assertIn(
+            "const uint16_t protection_code = id(rd6018_safety_protection_code);",
+            text,
+        )
+        self.assertIn(
+            "if (protection_code != 0U &&\n"
+            "                protection_code != 1U &&\n"
+            "                protection_code != 2U) return;",
+            text,
+        )
+        self.assertNotIn(
+            "if (id(rd6018_safety_protection_code) != 0U) return;", text
+        )
 
         self.assertIn("id(rd6018_safety_managed_session) = true;", text)
         self.assertIn("id(rd6018_safety_last_renew_ms) = now;", text)

@@ -14,6 +14,8 @@ from enum import Enum
 from types import MappingProxyType
 from typing import Mapping
 
+from runtime.safety.protection_boundary import native_protection_generation
+
 class SessionStatus(str, Enum):
     IDLE = "idle"
     ACTIVE = "active"
@@ -129,14 +131,14 @@ def issue_guarded_physical_resume_permit(*, candidate, document, revision,
     meta = native_live.get("_meta") if isinstance(native_live, Mapping) else None
     if not isinstance(meta, Mapping):
         raise ValueError("new Native evidence required")
-    keys = ("output_state_code_v2", "set_current_readback_v2", "ocp_readback_v2", "protection_code")
     generation = []
-    for key in keys:
+    for key in ("output_state_code_v2", "set_current_readback_v2"):
         item = meta.get(key)
         stamp = item.get("subscription_timestamp_monotonic") if isinstance(item, Mapping) else None
         if isinstance(stamp, bool) or not isinstance(stamp, (int, float)):
             raise ValueError("Native evidence generation incomplete")
         generation.append((key, float(stamp)))
+    generation.extend(native_protection_generation(native_live))
     canonical = json.dumps(document, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
     return GuardedPhysicalResumePermit(
         candidate.session_id or "", candidate.battery_id or "", int(revision),
@@ -165,12 +167,13 @@ def _issue_guarded_restore_activation_permit(*, candidate, document, revision,
     if not isinstance(meta, Mapping):
         raise ValueError("native evidence metadata required")
     generation = []
-    for key in ("output_state_code_v2", "set_current_readback_v2", "ocp_readback_v2", "protection_code"):
+    for key in ("output_state_code_v2", "set_current_readback_v2"):
         item = meta.get(key)
         stamp = item.get("subscription_timestamp_monotonic") if isinstance(item, Mapping) else None
         if isinstance(stamp, bool) or not isinstance(stamp, (int, float)):
             raise ValueError("native evidence generation incomplete")
         generation.append((key, float(stamp)))
+    generation.extend(native_protection_generation(native_live))
     canonical = json.dumps(document, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
     return GuardedRestoreActivationPermit(
         candidate.session_id or "", candidate.battery_id or "", int(revision),
@@ -223,8 +226,18 @@ def new_trace_identity(host: object, *, now: float | None = None) -> TraceIdenti
     )
 
 
-def restore_trace_identity(host: object, document: dict[str, object]) -> TraceIdentitySnapshot:
-    """Restore identity, including deterministic one-way migration for old sessions."""
+def project_trace_identity(
+    document: dict[str, object],
+    *,
+    total_start_time: object,
+    battery_type: object,
+    ah_capacity: object,
+    battery_id: object,
+    intent_default: object,
+    condition_default: object,
+    now_s: float | None = None,
+) -> TraceIdentitySnapshot:
+    """Project persisted trace identity using explicit, host-free context."""
     raw_started_at = document.get("v2_trace_started_at")
     if raw_started_at is None:
         raw_started_at = document.get("total_start_time")
@@ -233,29 +246,21 @@ def restore_trace_identity(host: object, document: dict[str, object]) -> TraceId
     try:
         started_at = float(raw_started_at)
     except (TypeError, ValueError, OverflowError):
-        started_at = float(getattr(host, "total_start_time", 0.0) or time.time())
+        started_at = float(total_start_time or (time.time() if now_s is None else now_s))
     if not math.isfinite(started_at) or started_at <= 0:
-        started_at = float(getattr(host, "total_start_time", 0.0) or time.time())
+        started_at = float(total_start_time or (time.time() if now_s is None else now_s))
 
     raw_id = str(document.get("v2_trace_session_id") or "").strip()
     if not raw_id:
         seed = "|".join((
-            str(document.get("profile") or getattr(host, "battery_type", "")),
-            str(document.get("ah_limit") or getattr(host, "ah_capacity", "")),
+            str(document.get("profile") or battery_type),
+            str(document.get("ah_limit") or ah_capacity),
             f"{started_at:.6f}",
             str(document.get("saved_at") or ""),
         ))
         raw_id = uuid.uuid5(uuid.NAMESPACE_URL, f"rd6018-recovery:{seed}").hex
 
     saved_battery_id = document.get("v2_battery_id")
-    configuration = getattr(host, "host_configuration", None)
-    intent_default = getattr(
-        configuration, "restore_trace_default_intent", getattr(host, "_v2_intent", "normal")
-    )
-    condition_default = getattr(
-        configuration, "restore_trace_default_condition",
-        getattr(host, "_v2_condition_before", "unknown"),
-    )
     intent_value = str(
         document.get("v2_intent") or getattr(intent_default, "value", intent_default)
     )
@@ -276,31 +281,81 @@ def restore_trace_identity(host: object, document: dict[str, object]) -> TraceId
         started_at=started_at,
         battery_id=(
             str(saved_battery_id) if saved_battery_id
-            else getattr(host, "_v2_battery_id", None)
+            else battery_id
         ),
         intent=str(getattr(intent, "value", intent)),
         condition_before=str(getattr(condition, "value", condition)),
     )
 
 
-def apply_trace_identity(host: object, snapshot: TraceIdentitySnapshot) -> None:
-    host._v2_trace_session_id = snapshot.session_id
-    host._v2_trace_started_at = snapshot.started_at
-    host._v2_battery_id = snapshot.battery_id
+def restore_trace_identity(host: object, document: dict[str, object]) -> TraceIdentitySnapshot:
+    """Compatibility wrapper collecting host context for the pure projector."""
+    configuration = getattr(host, "host_configuration", None)
+    intent_default = getattr(
+        configuration, "restore_trace_default_intent", getattr(host, "_v2_intent", "normal")
+    )
+    condition_default = getattr(
+        configuration, "restore_trace_default_condition",
+        getattr(host, "_v2_condition_before", "unknown"),
+    )
+    return project_trace_identity(
+        document,
+        total_start_time=getattr(host, "total_start_time", 0.0),
+        battery_type=getattr(host, "battery_type", ""),
+        ah_capacity=getattr(host, "ah_capacity", ""),
+        battery_id=getattr(host, "_v2_battery_id", None),
+        intent_default=intent_default,
+        condition_default=condition_default,
+    )
+
+
+def prepare_trace_identity_application(
+    host: object, snapshot: TraceIdentitySnapshot,
+) -> tuple[object, object]:
+    """Prepare the legacy host-specific intent and condition values without mutation."""
     current_intent = getattr(host, "_v2_intent", None)
     current_condition = getattr(host, "_v2_condition_before", None)
-    host._v2_intent = (
+    prepared_intent = (
         type(current_intent)(snapshot.intent)
         if current_intent is not None else snapshot.intent
     )
-    host._v2_condition_before = (
+    prepared_condition = (
         type(current_condition)(snapshot.condition_before)
         if current_condition is not None else snapshot.condition_before
     )
+    return prepared_intent, prepared_condition
 
 
-def set_current_stage(host: object, value: str) -> None:
-    """Apply a stage value and record its single canonical history edge."""
+def apply_trace_identity(
+    host: object,
+    snapshot: TraceIdentitySnapshot,
+    *,
+    prepared: tuple[object, object] | None = None,
+) -> None:
+    host._v2_trace_session_id = snapshot.session_id
+    host._v2_trace_started_at = snapshot.started_at
+    host._v2_battery_id = snapshot.battery_id
+    if prepared is None:
+        current_intent = getattr(host, "_v2_intent", None)
+        current_condition = getattr(host, "_v2_condition_before", None)
+        host._v2_intent = (
+            type(current_intent)(snapshot.intent)
+            if current_intent is not None else snapshot.intent
+        )
+        host._v2_condition_before = (
+            type(current_condition)(snapshot.condition_before)
+            if current_condition is not None else snapshot.condition_before
+        )
+    else:
+        host._v2_intent, host._v2_condition_before = prepared
+
+
+def set_current_stage(host: object, value: str, *, now_s: float | None = None) -> None:
+    """Apply a stage value and record its single canonical history edge.
+
+    Session initialization may supply its transaction timestamp so detached
+    and live START projections record the same initial stage edge.
+    """
     previous = getattr(host, "_current_stage", None)
     host._current_stage = value
     if not getattr(host, "_stage_tracking_enabled", False) or previous in (None, value):
@@ -309,7 +364,7 @@ def set_current_stage(host: object, value: str) -> None:
     host._stage_history.append({
         "from": previous, "to": value,
         "reason": str(getattr(host, "_last_transition_reason", "") or "").strip(),
-        "ts": time.time(),
+        "ts": time.time() if now_s is None else float(now_s),
     })
     host._stage_start_voltage = 0.0
     host._stage_start_current = 0.0
@@ -321,13 +376,19 @@ def set_current_stage(host: object, value: str) -> None:
     host._last_transition_reason = ""
 
 
-def restore_stage_history(host: object, previous_stage: object, reason: object, history: object, *, now: float) -> None:
-    """Restore the established persisted stage-history schema."""
-    host.previous_stage = previous_stage
-    host._last_transition_reason = str(reason or "")
-    host._stage_history.clear()
+def normalize_restored_stage_history(
+    previous_stage: object,
+    reason: object,
+    history: object,
+    *,
+    now: float,
+    maxlen: int,
+) -> tuple[object, str, tuple[dict[str, object], ...]]:
+    """Project persisted stage history without accessing host state or I/O."""
+    normalized_reason = str(reason or "")
+    normalized: list[dict[str, object]] = []
     if isinstance(history, list):
-        for item in history[-host._stage_history.maxlen:]:
+        for item in history[-maxlen:]:
             if not isinstance(item, dict):
                 continue
             from_stage = str(item.get("from") or "").strip()
@@ -338,12 +399,25 @@ def restore_stage_history(host: object, previous_stage: object, reason: object, 
                 timestamp = float(item.get("ts") or now)
             except (TypeError, ValueError, OverflowError):
                 timestamp = float(now)
-            host._stage_history.append({
+            normalized.append({
                 "from": from_stage, "to": to_stage,
                 "reason": str(item.get("reason") or "").strip(), "ts": timestamp,
             })
-    if host._stage_history and not host.previous_stage:
-        host.previous_stage = str(host._stage_history[-1].get("from") or "") or None
+    # A zero-capacity deque cannot derive a previous stage.
+    if normalized and maxlen != 0 and not previous_stage:
+        previous_stage = str(normalized[-1].get("from") or "") or None
+    return previous_stage, normalized_reason, tuple(normalized)
+
+
+def restore_stage_history(host: object, previous_stage: object, reason: object, history: object, *, now: float) -> None:
+    """Restore the established persisted stage-history schema."""
+    previous_stage, normalized_reason, normalized_history = normalize_restored_stage_history(
+        previous_stage, reason, history, now=now, maxlen=host._stage_history.maxlen
+    )
+    host.previous_stage = previous_stage
+    host._last_transition_reason = normalized_reason
+    host._stage_history.clear()
+    host._stage_history.extend(normalized_history)
 
 
 def clear_stage_history(host: object) -> None:

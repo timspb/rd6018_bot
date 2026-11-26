@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+import os
 import tempfile
 import unittest
 
@@ -33,6 +34,7 @@ class D144OwnerBindingTests(unittest.TestCase):
         self.owner.service = self.service
         self.owner.proof = lambda: 'original'
         self.owner._read_proof = lambda *,require_service_stopped: 'fresh'
+        self.owner._read_recovery_proof = lambda *,require_service_stopped: 'fresh-recovery'
         self.check = lambda: None
         self.owner.host_check = self.check
         self.gates = patch.multiple(binding.d090, production_host_check=self.check)
@@ -42,6 +44,7 @@ class D144OwnerBindingTests(unittest.TestCase):
         self.root_patch.start()
         self.addCleanup(self.root_patch.stop)
 
+    @unittest.skipIf(os.name == "nt", "D090 transaction locking uses POSIX fcntl; keep this contract required on Linux")
     def test_owner_lock_and_no_service_mutation(self):
         proof = {
             "preflight": "PASS_AT_OBSERVATION_ONLY",
@@ -76,6 +79,7 @@ class D144OwnerBindingTests(unittest.TestCase):
             binding.prepare_only(self.owner, stage=self.root, source_sha=SOURCE,
                 preimage_sha256=PREIMAGE, collector=self.root / "collector")
 
+    @unittest.skipIf(os.name == "nt", "prepare_only enters the existing POSIX D090 fcntl lock")
     def test_incomplete_combined_proof_refused(self):
         with patch.object(binding.d090, "verify_pinned_preimage_app"), \
              patch.object(binding, "assess", return_value={"preflight": "BLOCKED"}):
@@ -92,6 +96,7 @@ class D144OwnerBindingTests(unittest.TestCase):
                                         collector=self.root / "collector")
         self.assertFalse((self.root / "candidate-d144").exists())
 
+    @unittest.skipIf(os.name == "nt", "D144 execution enters the POSIX D090 lock and checks Unix ownership/mode bits")
     def test_execute_copies_candidate_before_engine_and_uses_lock(self):
         from unittest.mock import MagicMock
         import tools.d144_state_preserving_transition as engine
@@ -111,24 +116,36 @@ class D144OwnerBindingTests(unittest.TestCase):
             candidate = kwargs["candidate"]
             self.assertEqual((candidate / "app" / "bot.py").read_text(), "candidate")
             self.assertEqual((candidate / "venv" / "pyvenv.cfg").read_text(), "venv")
+            self.assertEqual((candidate / "app").stat().st_mode & 0o050, 0o050)
+            self.assertEqual((candidate / "app" / "bot.py").stat().st_mode & 0o040, 0o040)
+            self.assertEqual((candidate / "venv").stat().st_mode & 0o050, 0o050)
+            self.assertEqual((candidate / "venv" / "pyvenv.cfg").stat().st_mode & 0o040, 0o040)
             self.assertEqual(kwargs["release_identity"]["source_sha"], SOURCE)
             def run_fixture():
                 for stopped in (False, False, True, False):
-                    self.assertEqual(kwargs["evidence"](require_stopped=stopped), "fresh")
+                    self.assertEqual(kwargs["evidence"](require_stopped=stopped), "fresh-recovery")
                 return {"phase":"COMMITTED"}
             return SimpleNamespace(run=run_fixture)
-        with patch.object(binding, "prepare_only", return_value=proof), \
+        with patch.object(binding, "_service_account", return_value=(
+                SimpleNamespace(pw_uid=os.getuid()), SimpleNamespace(gr_gid=os.getgid()))), \
+             patch("os.chown"), \
+             patch.object(binding, "prepare_only", return_value={
+                **proof, "preserved_quarantine": {"incident_id": "incident-1"}}), \
              patch.object(capacity, "require_capacity", return_value={"capacity_pass":True}), \
-             patch.object(engine, "OwnerTransition", side_effect=check_engine) as ctor:
+             patch.object(engine, "OwnerTransition", side_effect=check_engine) as ctor, \
+             patch("tools.d149_observer_router.ReadOnlyObserverRouter") as router_factory:
             result = binding.execute_under_owner(self.owner, stage=stage,
                       preimage_sha256=PREIMAGE, collector=self.root / "collector")
         self.assertEqual(result["phase"],"COMMITTED")
         self.assertEqual(ctor.call_count,1)
+        # D145 preserves quarantine even when no charge_session.json exists.
+        router_factory.assert_called_once_with(self.root, state_preserving_recovery=True)
         self.assertEqual(self.owner._lock_depth,0)
         self.assertEqual(self.owner.proof(), 'original')
         self.assertFalse((self.root / "D144_TRANSACTION.json").exists())
 
 
+    @unittest.skipIf(os.name == "nt", "D144 recovery enters the existing POSIX D090 fcntl lock")
     def test_recover_refuses_wrong_candidate_identity_before_service_access(self):
         import tools.d144_state_preserving_transition as engine
         (self.root / "D144_TRANSACTION.json").write_text(
@@ -141,6 +158,7 @@ class D144OwnerBindingTests(unittest.TestCase):
                     self.owner, expected_candidate_identity_sha256='b'*64)
             ctor.assert_not_called()
 
+    @unittest.skipIf(os.name == "nt", "D144 recovery enters the existing POSIX D090 fcntl lock")
     def test_recovery_uses_owner_lock_and_fresh_recovery_callback(self):
         import tools.d144_state_preserving_transition as engine
         from unittest.mock import MagicMock
@@ -167,6 +185,38 @@ class D144OwnerBindingTests(unittest.TestCase):
         self.assertEqual(self.owner._lock_depth,0)
 
 
+    @unittest.skipIf(os.name == "nt", "D144 execution enters the POSIX D090 lock and checks Unix ownership/mode bits")
+    def test_python_only_without_quarantine_uses_recovery_off_proof(self):
+        import tools.d144_state_preserving_transition as engine
+        import tools.d140_disk_guard as capacity
+        (self.root / "app").mkdir()
+        (self.root / "venv").mkdir()
+        (self.root / "D090_TRANSACTION.json").write_text('{"phase":"STARTED"}')
+        stage=self.root/"stage"
+        (stage/"tree").mkdir(parents=True)
+        (stage/"venv").mkdir()
+        (stage/"tree"/"bot.py").write_text("candidate")
+        (stage/"venv"/"pyvenv.cfg").write_text("venv")
+        self.owner._read_proof=lambda *,require_service_stopped: (_ for _ in ()).throw(
+            AssertionError("legacy voltage-zero proof not valid for Python-only release"))
+        self.owner._read_recovery_proof=lambda *,require_service_stopped: "software-off-proof"
+        def construct(*args,**kwargs):
+            for stopped in (False,False,True,False):
+                self.assertEqual(kwargs["evidence"](require_stopped=stopped),"software-off-proof")
+            return SimpleNamespace(run=lambda:{"phase":"COMMITTED"})
+        with patch.object(binding,"_service_account",return_value=(
+                SimpleNamespace(pw_uid=os.getuid()),SimpleNamespace(gr_gid=os.getgid()))), \
+             patch("os.chown"), \
+             patch.object(binding,"prepare_only",return_value={
+                 "status":"PREPARE_ONLY_PASS","candidate_identity_sha256":"a"*64,
+                 "preserved_quarantine":None,"preserved_guarded_main":False}), \
+             patch.object(capacity,"require_capacity",return_value={"capacity_pass":True}), \
+             patch.object(engine,"OwnerTransition",side_effect=construct):
+            result=binding.execute_under_owner(self.owner,stage=stage,
+                    preimage_sha256=PREIMAGE,collector=self.root/"collector")
+        self.assertEqual(result["phase"],"COMMITTED")
+
+    @unittest.skipIf(os.name == "nt", "D144 execution enters the POSIX D090 lock and checks Unix ownership/mode bits")
     def test_execute_restores_original_proof_after_failure(self):
         import tools.d144_state_preserving_transition as engine
         import tools.d140_disk_guard as capacity
@@ -178,10 +228,13 @@ class D144OwnerBindingTests(unittest.TestCase):
         (stage / "venv").mkdir()
         (stage / "tree" / "bot.py").write_text("candidate")
         (stage / "venv" / "pyvenv.cfg").write_text("venv")
-        self.owner._read_proof = lambda *,require_service_stopped: (_ for _ in ()).throw(RuntimeError("fresh proof failed"))
+        self.owner._read_recovery_proof = lambda *,require_service_stopped: (_ for _ in ()).throw(RuntimeError("fresh proof failed"))
         def construct(*args, **kwargs):
             return SimpleNamespace(run=lambda: kwargs["evidence"](require_stopped=False))
-        with patch.object(binding, "prepare_only", return_value={
+        with patch.object(binding, "_service_account", return_value=(
+                SimpleNamespace(pw_uid=os.getuid()), SimpleNamespace(gr_gid=os.getgid()))), \
+             patch("os.chown"), \
+             patch.object(binding, "prepare_only", return_value={
                 "status":"PREPARE_ONLY_PASS","candidate_identity_sha256":"a"*64}), \
              patch.object(capacity, "require_capacity", return_value={"capacity_pass":True}), \
              patch.object(engine, "OwnerTransition", side_effect=construct):

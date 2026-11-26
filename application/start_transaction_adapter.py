@@ -12,6 +12,14 @@ from pb_domain import BatteryCondition, ChargeIntent
 from .start_plan import ApprovedStartPlan
 
 
+class StartPersistenceStatus(str, Enum):
+    NOT_ATTEMPTED = "NOT_ATTEMPTED"
+    PENDING = "PENDING"
+    COMMITTED = "COMMITTED"
+    ROLLED_BACK = "ROLLED_BACK"
+    OUTCOME_UNCERTAIN = "OUTCOME_UNCERTAIN"
+
+
 class StartExecutionStatus(str, Enum):
     STARTED = "STARTED"
     FAILED = "FAILED"
@@ -63,6 +71,7 @@ class StartTransactionOutcome:
     session_cleared: bool = False
     session_contained: bool = False
     reason: str = ""
+    persistence_status: StartPersistenceStatus = StartPersistenceStatus.NOT_ATTEMPTED
 
 
 @dataclass(frozen=True)
@@ -73,6 +82,7 @@ class StartExecutionResult:
     reason: str
     transaction_input: StartTransactionInput
     session_id: str | None = None
+    persistence_status: StartPersistenceStatus = StartPersistenceStatus.NOT_ATTEMPTED
 
 
 class StartTransactionAdapter:
@@ -162,6 +172,7 @@ class StartTransactionAdapter:
             outcome.reason or status.value,
             transaction_input,
             session_id=session_id or transaction_input.session_id,
+            persistence_status=outcome.persistence_status,
         )
 
     def execute(

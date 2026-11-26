@@ -1,0 +1,7 @@
+RD6018 P1-AD026 — Verified OFF serialization boundary feasibility (2026-11-13)
+
+Architectural decision: source audit AD025 has proven the static gap: normal ExecutionPort.enable is serialized by app execution owner, but ExecutionPort.request_verified_off and disable are not; RuntimeSafetyGuard uses a distinct _off_lock. This is not proof of a deployed race. Do not add a knowingly failing production acceptance test or alter locks without a deterministic fake reproduction.
+
+First bounded task AD026 is REPORT-ONLY feasibility: inspect existing fake concurrency harness, app ExecutionPort factory/owner lock, decorator semantics, verified OFF and RuntimeSafetyGuard. Design a deterministic no-sleep concurrency test using events/barriers that distinguishes same-owner serialization from separate safety lock. Verify whether test can exercise the real existing composition/wrapper wiring without physical calls. Define exact expected current result and failure point, whether one new test file can be added without modifying fixtures, and proposed minimal follow-on production change only if proven needed. Also verify OFF semantics: command accepted vs fresh evidence, failed/uncertain state, resume admission. No source/test/doc/registry changes in this task.
+
+No lock/actor/writer/policy added. Preserve V->I and I->V paths, R16=3, lease 900 sec. No node104, HA/ESP/device/network/deploy. Preserve dirty HEAD/WIP, no stage/reset/commit/push. Report only.

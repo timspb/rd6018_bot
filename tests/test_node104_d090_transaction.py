@@ -37,7 +37,31 @@ class FakeService:
         return self.running and expected_sha in (release.SOURCE_SHA, release.OLD_SHA)
 
 
+
+def _requires_posix_flock(test):
+    """Gate lifecycle methods that enter D090's existing flock owner."""
+    return unittest.skipUnless(
+        os.name == "posix",
+        "D090 transaction lifecycle requires POSIX fcntl.flock cross-process locking",
+    )(test)
+
 class D090TransactionTests(unittest.TestCase):
+    def test_transaction_keeps_public_shared_proof_type_aliases(self):
+        from node104_d106_proof_types import TransactionError, TrialOffProof
+        self.assertIs(TX.TransactionError, TransactionError)
+        self.assertIs(TX.TrialOffProof, TrialOffProof)
+
+    def test_transaction_validator_accepts_exact_shared_proof_class(self):
+        self.tx._read_proof = lambda **kwargs: None
+        expected = TX.TrialOffProof(time.time(), False, False, 0.0, 900, 0,
+                                    1.0, 13.5, 0.1, "c" * 32)
+        self.tx.trial_edge_proof = lambda: expected
+        self.assertIs(self.tx._trial_read_proofs(service_stopped=True), expected)
+
+        self.tx.trial_edge_proof = lambda: tuple(expected)
+        with self.assertRaisesRegex(TX.TransactionError, "unsupported proof type"):
+            self.tx._trial_read_proofs(service_stopped=True)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='node104-fake-')
         self.root = Path(self.temp.name) / 'node104-fake-root'
@@ -128,6 +152,7 @@ class D090TransactionTests(unittest.TestCase):
             release_admission=lambda: None)
         return self.tx
 
+    @_requires_posix_flock
     def test_software_recovery_preserves_current_session_and_d084_quarantine(self):
         self._started_journal()
         session = self.root / 'state' / 'charge_session.json'
@@ -147,6 +172,7 @@ class D090TransactionTests(unittest.TestCase):
         self.assertEqual(live_state_before, result['recovery_state_inventory'])
         self.assertEqual((1, 1), (self.service.stops, self.service.starts))
 
+    @_requires_posix_flock
     def test_software_recovery_uses_distinct_pre_stop_stopped_and_post_start_proofs(self):
         self._started_journal()
         (self.root / 'state' / 'charge_session.json').write_text(
@@ -174,6 +200,7 @@ class D090TransactionTests(unittest.TestCase):
         self.assertEqual([True, True, False, False, False, True],
                          [event[1] for event in events])
 
+    @_requires_posix_flock
     def test_software_recovery_refuses_unstable_running_owner_before_stop(self):
         self._started_journal()
         tx = self._software_recovery_executor()
@@ -183,6 +210,7 @@ class D090TransactionTests(unittest.TestCase):
         self.assertTrue(self.service.running)
         self.assertEqual((0, 0), (self.service.stops, self.service.starts))
 
+    @_requires_posix_flock
     def test_software_recovery_refuses_stale_or_unsafe_proof_before_stop(self):
         self._started_journal()
         tx = self._software_recovery_executor()
@@ -201,6 +229,7 @@ class D090TransactionTests(unittest.TestCase):
         self.assertEqual((0, 0), (self.service.stops, self.service.starts))
         self.assertTrue(self.service.running)
 
+    @_requires_posix_flock
     def test_software_recovery_refuses_state_drift_after_durable_snapshot(self):
         self._started_journal()
         (self.root / 'state' / 'charge_session.json').write_text(
@@ -225,6 +254,7 @@ class D090TransactionTests(unittest.TestCase):
         self.assertEqual(0, self.service.starts)
         self.assertIn('recovery_state_inventory', json.loads(tx.journal.read_text()))
 
+    @_requires_posix_flock
     def test_started_reconciliation_commits_without_service_lifecycle_change(self):
         before = self._started_journal()
         result = self.tx.reconcile_started()
@@ -235,6 +265,7 @@ class D090TransactionTests(unittest.TestCase):
         self.assertTrue(self.service.running)
         self.assertEqual(before['transaction'], json.loads(self.tx.journal.read_text())['transaction'])
 
+    @_requires_posix_flock
     def test_legacy_started_without_candidate_inventory_is_read_only_fail_closed(self):
         record = self._started_journal()
         record.pop('candidate_inventory')
@@ -252,6 +283,7 @@ class D090TransactionTests(unittest.TestCase):
         self.assertEqual((0, 0), (self.service.stops, self.service.starts))
         self.assertTrue(self.service.running)
 
+    @_requires_posix_flock
     def test_started_reconciliation_refusals_preserve_service_and_journal(self):
         mutations = ('env', 'unit', 'marker', 'backup')
         for mutation in mutations:
@@ -268,6 +300,7 @@ class D090TransactionTests(unittest.TestCase):
                 self.assertEqual((0, 0), (self.service.stops, self.service.starts))
                 self.assertTrue(self.service.running)
 
+    @_requires_posix_flock
     def test_started_reconciliation_failure_before_marker_is_read_only(self):
         self._started_journal()
         journal_before = self.tx.journal.read_bytes()
@@ -278,6 +311,7 @@ class D090TransactionTests(unittest.TestCase):
         self.assertEqual(release.OLD_SHA, (self.root / TX.MARKER).read_text().strip())
         self.assertEqual((0, 0), (self.service.stops, self.service.starts))
 
+    @_requires_posix_flock
     def test_healthy_transaction_commits_exact_sha_and_preserves_runtime_inputs(self):
         state_before = (self.root / 'state' / 'battery.db').read_bytes()
         env_before = (self.root / '.env').read_bytes()
@@ -295,6 +329,7 @@ class D090TransactionTests(unittest.TestCase):
         self.assertNotIn('do-not-print-this-secret', json.dumps(record))
         self.assertEqual(1, self.service.starts)
 
+    @_requires_posix_flock
     def test_small_analog_jitter_does_not_forge_or_break_fresh_off_proof(self):
         original_proof = self.tx.proof
         from dataclasses import replace
@@ -308,6 +343,7 @@ class D090TransactionTests(unittest.TestCase):
         self.assertEqual("COMMITTED", result["phase"])
         self.assertEqual(release.SOURCE_SHA, (self.root / ".deploy_sha").read_text().strip())
 
+    @_requires_posix_flock
     def test_faults_at_journal_and_swap_boundaries_recover_idempotently(self):
         points = (
             'after-journal-stopped', 'after-journal-backup_durable', 'before-swap',
@@ -331,6 +367,7 @@ class D090TransactionTests(unittest.TestCase):
                 self.assertTrue(self.service.running)
                 self.assertEqual('ROLLED_BACK', self.tx.recover()['phase'])
 
+    @_requires_posix_flock
     def test_crash_after_initial_journal_recovers_only_verified_unchanged_preimage(self):
         with self.assertRaisesRegex(RuntimeError, 'injected fault'):
             self._run(failpoint='after-journal-before-stop')
@@ -338,6 +375,7 @@ class D090TransactionTests(unittest.TestCase):
         self.assertEqual('old-app', (self.root / 'app' / 'version').read_text())
         self.assertEqual('ROLLED_BACK', json.loads(self.tx.journal.read_text())['phase'])
 
+    @_requires_posix_flock
     def test_post_stop_prebackup_preimage_tamper_never_restarts_old_service(self):
         def break_preimage_at_stopped(point):
             if point == 'after-journal-stopped':
@@ -354,6 +392,7 @@ class D090TransactionTests(unittest.TestCase):
             self.tx.recover()
         self.assertFalse(self.service.running)
 
+    @_requires_posix_flock
     def test_post_stop_prebackup_stale_proof_never_restarts_old_service(self):
         original = self.tx.proof
         def stale_only_when_stopped():
@@ -371,6 +410,7 @@ class D090TransactionTests(unittest.TestCase):
             self.tx.recover()
         self.assertFalse(self.service.running)
 
+    @_requires_posix_flock
     def test_d134_started_live_state_drift_rejected_without_stop(self):
         self._started_journal()
         original_journal = self.tx.journal.read_bytes()
@@ -382,6 +422,7 @@ class D090TransactionTests(unittest.TestCase):
         self.assertEqual(self.service.stops, stops_before)
         self.assertEqual(self.tx.journal.read_bytes(), original_journal)
 
+    @_requires_posix_flock
     def test_d134_started_corrupt_backup_rejected_without_stop(self):
         record = self._started_journal()
         backup_app = self.root / 'backups' / record['backup'] / 'app' / 'version'
@@ -393,6 +434,7 @@ class D090TransactionTests(unittest.TestCase):
         self.assertEqual(self.service.stops, 0)
         self.assertEqual(self.tx.journal.read_bytes(), original_journal)
 
+    @_requires_posix_flock
     def test_d134_started_missing_baseline_rejected_without_stop(self):
         self._started_journal()
         record = json.loads(self.tx.journal.read_text())
@@ -405,6 +447,7 @@ class D090TransactionTests(unittest.TestCase):
         self.assertEqual(self.service.stops, 0)
         self.assertEqual(self.tx.journal.read_bytes(), original_journal)
 
+    @_requires_posix_flock
     def test_backup_corruption_blocks_recovery_and_preserves_running_service(self):
         with self.assertRaisesRegex(RuntimeError, 'injected fault'):
             self._run(failpoint='before-swap')
@@ -417,6 +460,7 @@ class D090TransactionTests(unittest.TestCase):
             self.tx.recover()
         self.assertTrue(self.service.running)
 
+    @_requires_posix_flock
     def test_bad_source_or_host_fails_before_service_mutation(self):
         with patch.object(release, 'verify_staged_release', return_value={'source_sha': '0' * 40}):
             with self.assertRaisesRegex(TX.TransactionError, 'pinned D090 source'):
@@ -439,6 +483,7 @@ class D090TransactionTests(unittest.TestCase):
         with self.assertRaisesRegex(TX.TransactionError, 'differ from'):
             TX.verify_pinned_preimage_app(self.root / 'app', '0' * 64)
 
+    @_requires_posix_flock
     def test_activation_rechecks_immutable_sha_and_prepared_candidate(self):
         with patch.object(release, 'verify_staged_release', return_value={'source_sha': release.SOURCE_SHA}), \
              patch.object(release, 'validate_physical_acceptance', return_value=None):
@@ -451,6 +496,7 @@ class D090TransactionTests(unittest.TestCase):
                 self.tx.activate(self.staged, acceptance_record={}, evidence_dir=self.root, prepared=prepared)
         self.assertEqual(0, self.service.stops)
 
+    @_requires_posix_flock
     def test_stale_off_proof_and_unaccepted_firmware_stop_before_systemd(self):
         stale = replace(self.proof(), captured_at_epoch=time.time() - 31)
         self.tx.proof = lambda: stale

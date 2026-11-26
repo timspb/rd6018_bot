@@ -9,26 +9,25 @@ from application.execution_intent.models import SafetyContext
 from runtime.charge.programs.recipe_schema import parse_recipe
 
 
-class FakeOwner:
-    def __init__(self):
-        self.output = True
-    async def get_all_live(self):
-        return {"switch": "on" if self.output else "off"}
-
-
 class FakePort:
     def __init__(self):
-        self.execution_owner = FakeOwner()
+        self.output = True
         self.actions = []
+
+    async def read_live(self):
+        return {"switch": "on" if self.output else "off"}
+
     async def apply_intent(self, intent, **kwargs):
         self.actions.append(("set", intent.requested_voltage_v))
         return SimpleNamespace(accepted=True, verified=True)
+
     async def disable(self, intent, **kwargs):
-        self.execution_owner.output = False
+        self.output = False
         self.actions.append(("off", 0))
         return SimpleNamespace(accepted=True, verified=True)
+
     async def enable(self, intent, **kwargs):
-        self.execution_owner.output = True
+        self.output = True
         self.actions.append(("enable", intent.requested_voltage_v))
         return SimpleNamespace(accepted=True, verified=True)
 
@@ -56,7 +55,7 @@ class FullCycleTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(session.state.completed)
             self.assertEqual([a[0] for a in port.actions],
                              ["set","off","enable","off"])
-            self.assertFalse(port.execution_owner.output)
+            self.assertFalse(port.output)
             session,receipt=await advance_in_existing_session(
                 session,host=host,port=port,now_s=9,measurements={},
                 safety_context=SafetyContext(),voltage_ceiling_v=15.5,

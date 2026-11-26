@@ -75,6 +75,11 @@ def normalize_operator_state(app: Any, state: Any, live: Mapping[str, Any], hmi:
             state = replace(state, output_on=bool(physical))
         return _mark_output_truth(state, True)
 
+    # Graph presentation may normalize a truthful projection again.
+    # Preserve its explicit freshness-denial status and button restrictions.
+    if getattr(state, "attention", None) == "output_unknown":
+        return _mark_output_truth(replace(state, output_on=False), False)
+
     process_state = getattr(state, "process_state", None)
     authority = getattr(state, "authority", None)
 
@@ -84,7 +89,7 @@ def normalize_operator_state(app: Any, state: Any, live: Mapping[str, Any], hmi:
             output_on=False,
             regulator="",
             progress=(
-                "Состояние Output не подтверждено · HANDS_OFF не меняет Output/V/I/OVP/OCP"
+                "Состояние Output не подтверждено · HANDS_OFF не меняет Output/V/I"
             ),
             safety="⚠️ Output state: UNKNOWN / telemetry stale",
             attention="warning",
@@ -146,9 +151,29 @@ def filter_keyboard_for_output_truth(
     markup: InlineKeyboardMarkup,
     hmi: Any,
 ) -> InlineKeyboardMarkup:
-    del app
+    # Enforce the current app's AUTONOMOUS boundary as the final renderer
+    # regardless of which earlier HMI wrapper captured a semantic builder.
+    from runtime.ui.components.hmi_action_keyboard import _autonomous_keyboard
+    markup = _autonomous_keyboard(app, state, markup)
+    autonomous = getattr(app, "rd_autonomous_mode", None)
+    autonomous_boundary = bool(
+        autonomous is not None
+        and (
+            getattr(autonomous.manager, "edge_autonomous", False)
+            or getattr(autonomous, "_entry_transition_pending", False)
+            or getattr(autonomous, "_entry_uncertain", False)
+        )
+    )
+    if not output_known(state) or autonomous_boundary:
+        markup = _filter_callbacks(markup, {"operator_managed_stop"})
     if output_known(state):
+        if bool(getattr(state, "output_on", False)):
+            return _filter_callbacks(markup, {"rd_autonomous_exit", "rd_autonomous_confirm"})
         return markup
+
+    # Both autonomous transitions require fresh Output-OFF evidence, regardless of
+    # which semantic HMI state the caller supplied.
+    markup = _filter_callbacks(markup, {"rd_autonomous_exit", "rd_autonomous_confirm"})
 
     process_state = getattr(state, "process_state", None)
     authority = getattr(state, "authority", None)
@@ -164,8 +189,25 @@ def filter_keyboard_for_output_truth(
                 "rd_live_mix",
                 "rd_managed_adopt",
                 "rd_managed_mix",
+                "rd_autonomous_exit",
+                "rd_autonomous_confirm",
             },
         )
+        autonomous = getattr(app, "rd_autonomous_mode", None)
+        autonomous_boundary = bool(
+            autonomous is not None
+            and (
+                getattr(autonomous.manager, "edge_autonomous", False)
+                or getattr(autonomous, "_entry_transition_pending", False)
+                or getattr(autonomous, "_entry_uncertain", False)
+            )
+        )
+        if autonomous_boundary:
+            # The explicit edge AUTONOMOUS path has no bot-originated OFF action.
+            return _filter_callbacks(
+                markup,
+                {"rd_hands_off_output_off", "rd_ownership_output_off"},
+            )
         return _prepend_unique(
             markup,
             InlineKeyboardButton(
@@ -215,62 +257,7 @@ def _render_unknown_output(text: str, state: Any) -> str:
 
 
 def install_operator_output_truth(app: Any) -> None:
-    """Make the final production HMI preserve Output ON/OFF/UNKNOWN evidence.
-
-    This installer must run after every semantic keyboard composition layer. It changes
-    no actuator authority: callbacks continue to use their existing fresh-readback and
-    verified-OFF transactions. It only prevents stale/unknown Output telemetry from
-    being presented as OFF or from exposing actions whose precondition is proven OFF.
-
-    The legacy V1 compatibility shell is intentionally not installed here. The root
-    dashboard must use the canonical state-driven HMI keyboard directly; charge
-    preparation remains a separate workspace.
-    """
+    """Retain the per-app composition marker; HMI policy runs through app-aware calls."""
     if bool(getattr(app, "_operator_output_truth_installed", False)):
         return
-
-    import operator_hmi as hmi
-
-    original_state_builder = hmi.build_operator_hmi_state
-    original_keyboard_builder = hmi.build_operator_keyboard
-    original_more_keyboard = hmi._more_keyboard
-    original_details = hmi.render_operator_details
-    original_service_details = hmi.render_operator_service_details
-
-    def build_state(app_arg: Any, live: Mapping[str, Any]) -> Any:
-        state = original_state_builder(app_arg, live)
-        return normalize_operator_state(app_arg, state, live, hmi)
-
-    def build_keyboard(
-        app_arg: Any,
-        state: Any,
-        *,
-        actions: Any = None,
-    ) -> InlineKeyboardMarkup:
-        markup = (
-            original_keyboard_builder(app_arg, state, actions=actions)
-            if actions is not None
-            else original_keyboard_builder(app_arg, state)
-        )
-        if actions is not None:
-            return markup
-        return filter_keyboard_for_output_truth(app_arg, state, markup, hmi)
-
-    def more_keyboard(state: Any) -> InlineKeyboardMarkup:
-        markup = original_more_keyboard(state)
-        if output_known(state):
-            return markup
-        return _filter_callbacks(markup, {"rd_hands_off_disable"})
-
-    def render_details(app_arg: Any, state: Any, live: Mapping[str, Any]) -> str:
-        return _render_unknown_output(original_details(app_arg, state, live), state)
-
-    def render_service_details(app_arg: Any, state: Any, live: Mapping[str, Any]) -> str:
-        return _render_unknown_output(original_service_details(app_arg, state, live), state)
-
-    hmi.build_operator_hmi_state = build_state
-    hmi.build_operator_keyboard = build_keyboard
-    hmi._more_keyboard = more_keyboard
-    hmi.render_operator_details = render_details
-    hmi.render_operator_service_details = render_service_details
     app._operator_output_truth_installed = True

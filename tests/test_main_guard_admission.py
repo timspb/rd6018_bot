@@ -7,9 +7,8 @@ import tempfile
 import time
 import unittest
 
-from runtime.charge.strategy.main_guard_admission import (
-    admit_main_guard_shadow, read_canonical_session,
-)
+from runtime.charge.strategy.main_guard_admission import admit_main_guard_shadow
+from runtime.charge.persistence import read_canonical_session
 from runtime.charge.strategy.main_guard_shadow import MainGuardShadow
 
 SID = "a"*32
@@ -33,7 +32,8 @@ class MainGuardAdmissionTests(unittest.TestCase):
         }
         self.live = {
             "output_state_code_v2": 1, "current": 4.0,
-            "set_current_readback_v2": 7.0, "ocp_readback_v2": 7.1,
+            "set_current_readback_v2": 7.0,
+            "protection_code": 0,
         }
         self.live["_meta"] = {
             key: {"status": "ok", "age_s": 0.2,
@@ -79,10 +79,16 @@ class MainGuardAdmissionTests(unittest.TestCase):
                     "ah_limit":70,"target_current":7.0,"output_intent":"off",
                 }
 
+    def test_live_iset_admission_accepts_physical_register_tolerance(self):
+        self.live["set_current_readback_v2"] = 7.04
+        self.assertIsNotNone(self.admit())
+        self.live["set_current_readback_v2"] = 7.051
+        self.assertIsNone(self.admit())
+
     def test_live_programming_must_match_durable_recipe(self):
         for key,value in [
             ("set_current_readback_v2",7.3), ("set_current_readback_v2",None),
-            ("ocp_readback_v2",6.5), ("output_state_code_v2",0),
+            ("protection_code",3), ("output_state_code_v2",0),
         ]:
             with self.subTest(field=key):
                 saved=self.live[key]
@@ -92,8 +98,18 @@ class MainGuardAdmissionTests(unittest.TestCase):
         self.controller.ah_capacity=100
         self.assertIsNone(self.admit())
 
+    def test_ovp_ocp_codes_do_not_gate_guard_but_opp_does(self):
+        for code in (1, 2, 3):
+            with self.subTest(code=code):
+                self.live["protection_code"] = code
+                admission = self.admit()
+                if code == 3:
+                    self.assertIsNone(admission)
+                else:
+                    self.assertIsNotNone(admission)
+
     def test_native_freshness_must_cover_all_required_registers(self):
-        for key in ("output_state_code_v2","current","set_current_readback_v2","ocp_readback_v2"):
+        for key in ("output_state_code_v2","current","set_current_readback_v2","protection_code"):
             with self.subTest(key=key):
                 original=self.live["_meta"][key]
                 self.live["_meta"][key]={"status":"ok","age_s":30}
@@ -103,7 +119,7 @@ class MainGuardAdmissionTests(unittest.TestCase):
         self.assertIsNone(self.admit())
 
     def test_fresh_ha_metadata_cannot_authorize_main_guard(self):
-        for key in ("output_state_code_v2", "current", "set_current_readback_v2", "ocp_readback_v2"):
+        for key in ("output_state_code_v2", "current", "set_current_readback_v2", "protection_code"):
             original = self.live["_meta"][key]
             self.live["_meta"][key] = {"status": "ok", "age_s": 0.0}
             self.assertIsNone(self.admit(), key)
@@ -123,7 +139,12 @@ class MainGuardAdmissionTests(unittest.TestCase):
             path.unlink()
             target=Path(root)/"other.json"
             target.write_text(json.dumps(self.doc))
-            path.symlink_to(target)
+            try:
+                path.symlink_to(target)
+            except OSError as exc:
+                if getattr(exc, "winerror", None) == 1314:
+                    self.skipTest("Windows symlink privilege is unavailable")
+                raise
             self.assertIsNone(read_canonical_session(path))
 
     def test_actual_shadow_accumulates_and_invalid_binding_breaks_continuity(self):
@@ -146,10 +167,21 @@ class MainGuardAdmissionTests(unittest.TestCase):
         self.assertEqual(holder.guard.hardware_limit_a,7.0)
 
     def test_runtime_binding_calls_only_shadow_inside_owner(self):
-        source=(Path(__file__).resolve().parents[1]/"runtime/production_runtime.py").read_text()
+        source=(Path(__file__).resolve().parents[1]/"runtime/production_runtime.py").read_text(encoding="utf-8")
         self.assertIn("admit_main_guard_shadow(",source)
         self.assertIn("read_canonical_session(SESSION_FILE)",source)
         self.assertNotIn("execute_main_current_guard_reduction(",source)
+
+    def test_canonical_session_reader_has_one_persistence_owner(self):
+        root = Path(__file__).resolve().parents[1]
+        persistence = (root/"runtime/charge/persistence.py").read_text(encoding="utf-8")
+        admission = (root/"runtime/charge/strategy/main_guard_admission.py").read_text(encoding="utf-8")
+        startup = (root/"runtime/startup_recovery.py").read_text(encoding="utf-8")
+        self.assertIn("def read_canonical_session(", persistence)
+        self.assertNotIn("def read_canonical_session(", admission)
+        self.assertIn("from runtime.charge.persistence import (", startup)
+        self.assertIn("SESSION_FILE", startup)
+        self.assertIn("read_canonical_session", startup)
 
 
 if __name__ == "__main__":

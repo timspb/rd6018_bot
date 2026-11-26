@@ -10,7 +10,9 @@ import os
 import time
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import Any, Optional, Tuple
+from typing import Any, Mapping, Optional, Tuple
+from dataclasses import dataclass
+from enum import Enum
 
 from charging_log import log_session_header
 from runtime.charge.runtime.variables import STAGE_CLOCK_SANITY_MAX_HOURS
@@ -18,7 +20,9 @@ from runtime.charge.strategy.main_variables import AGM_STAGE_VOLTAGES_V
 from runtime.charge.strategy.mix_variables import mix_finish_hold_seconds
 from runtime.safety.variables import MAX_STAGE_CURRENT_A
 from runtime.safety.voltage_variables import clamp_pb_automatic_target_voltage
-from runtime.charge.session_atomic import atomic_session_write
+from runtime.charge.session_atomic import (
+    atomic_session_write, compare_replace_session, compare_delete_session, WriteStatus,
+)
 from runtime.charge.session import restore_stage_history
 from runtime.charge.terminal_intent import (
     DONE_COMPLETION_STORAGE,
@@ -27,21 +31,253 @@ from runtime.charge.terminal_intent import (
     DONE_OUTPUT_OFF,
     TerminalPersistenceRequest,
 )
+from runtime.charge.restore_admission import (
+    DONE_STATE_VERSION,
+    _explicit_storage_outcome,
+    restore_allows_auto_enable,
+    INTERRUPTION_OWNER,
+    INTERRUPTION_REASON,
+    session_identity,
+    validate_interruption_marker,
+)
+from runtime.charge.restore_projection import (
+    project_restore_scalars,
+    project_restore_stage_timeline,
+)
+from runtime.charge.restore_finalization import finalize_restored_session
 
 
 logger = logging.getLogger("rd6018")
 
 SESSION_FILE = "charge_session.json"
+START_PENDING_KEY = "start_transaction_pending_v1"
+
+
+class StartPendingStatus(str, Enum):
+    COMMITTED = "COMMITTED"
+    NOT_COMMITTED = "NOT_COMMITTED"
+    OUTCOME_UNCERTAIN = "OUTCOME_UNCERTAIN"
+
+
+class StartPendingAction(str, Enum):
+    COMMIT = "COMMIT"
+    ROLLBACK = "ROLLBACK"
+
+
+@dataclass(frozen=True)
+class StartPendingResult:
+    status: StartPendingStatus
+    pending_raw: bytes | None = None
+    pending: Mapping[str, Any] | None = None
+    observed_raw: bytes | None = None
+    reason: str | None = None
+
+
+def _pending_start_document(document: Any) -> bool:
+    return isinstance(document, dict) and any(
+        str(key).startswith("start_transaction_") and key != "start_transaction_generation"
+        for key in document
+    )
+
+
+def read_start_pending(path: str | Path = SESSION_FILE) -> tuple[bytes | None, Mapping[str, Any] | None, str | None]:
+    """Return exact canonical bytes and a validated pending envelope, if present."""
+    file = Path(path)
+    try:
+        raw = file.read_bytes()
+    except FileNotFoundError:
+        return None, None, None
+    except OSError as exc:
+        return None, None, f"canonical_read_failed:{type(exc).__name__}"
+    try:
+        doc = json.loads(raw.decode("utf-8"))
+    except (UnicodeError, ValueError):
+        return raw, None, "canonical_malformed"
+    if not isinstance(doc, dict):
+        return raw, None, "canonical_malformed"
+    pending = doc.get(START_PENDING_KEY)
+    if pending is None:
+        return raw, None, None
+    if (not isinstance(pending, dict) or pending.get("schema_version") != 1
+            or pending.get("phase") != "START_PENDING"
+            or type(pending.get("generation")) is not int
+            or pending["generation"] <= 0
+            or not isinstance(pending.get("transaction_id"), str)
+            or not pending["transaction_id"]
+            or not isinstance(pending.get("previous_raw_utf8"), str)
+            or not isinstance(pending.get("previous_sha256"), str)
+            or type(pending.get("previous_exists")) is not bool
+            or type(pending.get("previous_generation")) is not int
+            or not isinstance(pending.get("candidate_sha256"), str)):
+        return raw, None, "start_pending_malformed"
+    previous = pending["previous_raw_utf8"].encode("utf-8")
+    if hashlib.sha256(previous).hexdigest() != pending["previous_sha256"]:
+        return raw, None, "start_pending_previous_hash_mismatch"
+    if not isinstance(pending.get("candidate"), dict):
+        return raw, None, "start_pending_candidate_malformed"
+    if pending["previous_exists"]:
+        try:
+            previous_doc = json.loads(previous.decode("utf-8"))
+        except (UnicodeError, ValueError):
+            return raw, None, "start_pending_previous_malformed"
+        if not isinstance(previous_doc, dict) or _pending_start_document(previous_doc):
+            return raw, None, "start_pending_previous_malformed"
+        prior_generation = previous_doc.get("start_transaction_generation", 0)
+        if (type(prior_generation) is not int
+                or prior_generation != pending["previous_generation"]
+                or pending["generation"] != prior_generation + 1):
+            return raw, None, "start_pending_generation_mismatch"
+    elif previous or pending["previous_generation"] != 0 or pending["generation"] != 1:
+        return raw, None, "start_pending_generation_mismatch"
+    try:
+        candidate_bytes = json.dumps(
+            pending["candidate"], ensure_ascii=False, sort_keys=True,
+            separators=(",", ":"), allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError, UnicodeError):
+        return raw, None, "start_pending_candidate_malformed"
+    if hashlib.sha256(candidate_bytes).hexdigest() != pending["candidate_sha256"]:
+        return raw, None, "start_pending_candidate_hash_mismatch"
+    return raw, pending, None
+
+
+def begin_start_pending(candidate: Mapping[str, Any], *, transaction_id: str,
+                        path: str | Path = SESSION_FILE) -> StartPendingResult:
+    """Durably write the START intent in the sole canonical document."""
+    if not isinstance(transaction_id, str) or not transaction_id.strip():
+        return StartPendingResult(StartPendingStatus.NOT_COMMITTED, reason="transaction_id_required")
+    prior_raw, pending, error = read_start_pending(path)
+    if error or pending is not None:
+        return StartPendingResult(StartPendingStatus.OUTCOME_UNCERTAIN if error
+                                  else StartPendingStatus.NOT_COMMITTED, reason=error or "pending_exists")
+    try:
+        prior_doc = json.loads(prior_raw.decode("utf-8")) if prior_raw is not None else None
+    except (UnicodeError, ValueError):
+        return StartPendingResult(StartPendingStatus.NOT_COMMITTED, reason="prior_malformed")
+    if prior_doc is not None and not isinstance(prior_doc, dict):
+        return StartPendingResult(StartPendingStatus.NOT_COMMITTED, reason="prior_not_object")
+    generation = 1
+    if isinstance(prior_doc, dict):
+        prior_gen = prior_doc.get("start_transaction_generation", 0)
+        if type(prior_gen) is not int or prior_gen < 0:
+            return StartPendingResult(StartPendingStatus.NOT_COMMITTED, reason="prior_generation_invalid")
+        generation = prior_gen + 1
+    candidate_dict = dict(candidate)
+    try:
+        candidate_hash = hashlib.sha256(json.dumps(
+            candidate_dict, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")).hexdigest()
+    except (TypeError, ValueError, UnicodeError):
+        return StartPendingResult(StartPendingStatus.NOT_COMMITTED,
+                                  reason="candidate_not_json_serializable")
+    pending_doc = {
+        START_PENDING_KEY: {
+            "schema_version": 1, "phase": "START_PENDING",
+            "transaction_id": str(transaction_id), "generation": generation,
+            "previous_exists": prior_raw is not None,
+            "previous_generation": generation - 1,
+            "previous_raw_utf8": prior_raw.decode("utf-8") if prior_raw is not None else "",
+            "previous_sha256": hashlib.sha256(prior_raw or b"").hexdigest(),
+            "candidate": candidate_dict, "candidate_sha256": candidate_hash,
+        }
+    }
+    status, _ = compare_replace_session(path, prior_raw, pending_doc)
+    observed, envelope, error = read_start_pending(path)
+    classified = StartPendingStatus(status)
+    if status == StartPendingStatus.COMMITTED.value:
+        if error or observed is None or envelope != pending_doc[START_PENDING_KEY]:
+            classified = StartPendingStatus.OUTCOME_UNCERTAIN
+    elif observed is None and prior_raw is None:
+        classified = StartPendingStatus.NOT_COMMITTED
+    return StartPendingResult(classified,
+                              observed if envelope is not None else None,
+                              envelope if envelope is not None else None,
+                              observed, error)
+
+
+def finish_start_pending(expected_pending_raw: bytes, pending: Mapping[str, Any],
+                         replacement: Mapping[str, Any] | None = None, *,
+                         action: StartPendingAction = StartPendingAction.COMMIT,
+                         path: str | Path = SESSION_FILE) -> StartPendingResult:
+    """CAS commit candidate or restore exact prior bytes/absence."""
+    current_raw, current, error = read_start_pending(path)
+    if error or current is None or current_raw != expected_pending_raw:
+        return StartPendingResult(StartPendingStatus.OUTCOME_UNCERTAIN, reason=error or "pending_mismatch")
+    if (current.get("transaction_id") != pending.get("transaction_id")
+            or current.get("generation") != pending.get("generation")):
+        return StartPendingResult(StartPendingStatus.NOT_COMMITTED, reason="transaction_identity_mismatch")
+    prior = pending.get("previous_raw_utf8", "").encode("utf-8")
+    if action == StartPendingAction.ROLLBACK:
+        if pending.get("previous_exists"):
+            try:
+                prior_document = json.loads(prior.decode("utf-8"))
+            except (UnicodeError, ValueError):
+                return StartPendingResult(StartPendingStatus.NOT_COMMITTED, reason="embedded_prior_invalid")
+            status, observed = compare_replace_session(
+                path, expected_pending_raw, prior_document,
+                transaction_id=str(pending["transaction_id"]), generation=pending["generation"],
+                replacement_bytes=prior,
+            )
+            if status == "COMMITTED" and observed != prior:
+                status = StartPendingStatus.OUTCOME_UNCERTAIN.value
+        else:
+            status = compare_delete_session(
+                path, expected_pending_raw,
+                transaction_id=str(pending["transaction_id"]), generation=pending["generation"],
+            )
+            observed = None
+        try:
+            actual = Path(path).read_bytes()
+        except FileNotFoundError:
+            actual = None
+        except OSError:
+            actual = b"?"
+        expected_after = prior if pending.get("previous_exists") else None
+        if status == "COMMITTED" and actual != expected_after:
+            status = StartPendingStatus.OUTCOME_UNCERTAIN.value
+        return StartPendingResult(StartPendingStatus(status), observed_raw=actual)
+    if action != StartPendingAction.COMMIT or replacement is None:
+        return StartPendingResult(StartPendingStatus.NOT_COMMITTED, reason="commit_candidate_required")
+    document = dict(replacement)
+    if document != dict(pending.get("candidate", {})):
+        return StartPendingResult(StartPendingStatus.NOT_COMMITTED, reason="candidate_mismatch")
+    document["start_transaction_generation"] = pending["generation"]
+    status, observed = compare_replace_session(
+        path, expected_pending_raw, document,
+        transaction_id=str(pending["transaction_id"]), generation=pending["generation"],
+    )
+    if status == "COMMITTED":
+        try:
+            readback = Path(path).read_bytes()
+        except OSError:
+            return StartPendingResult(StartPendingStatus.OUTCOME_UNCERTAIN, reason="candidate_readback_failed")
+        if readback != observed:
+            return StartPendingResult(StartPendingStatus.OUTCOME_UNCERTAIN, observed_raw=readback,
+                                      reason="candidate_readback_mismatch")
+        observed = readback
+    return StartPendingResult(StartPendingStatus(status), observed_raw=observed)
 SESSION_MAX_AGE_S = 24 * 60 * 60
 SESSION_START_MAX_AGE_S = 24 * 60 * 60
 
 SESSION_MAX_AGE = SESSION_MAX_AGE_S
 SESSION_START_MAX_AGE = SESSION_START_MAX_AGE_S
-DONE_STATE_VERSION = 1
 AGM_STAGES = tuple(float(value) for value in AGM_STAGE_VOLTAGES_V.default)
 MAX_STAGE_CURRENT = float(MAX_STAGE_CURRENT_A.default)
 MIX_DONE_TIMER = mix_finish_hold_seconds()
 ELAPSED_MAX_HOURS = float(STAGE_CLOCK_SANITY_MAX_HOURS.default)
+
+
+def read_canonical_session(path: str | Path) -> Mapping[str, Any] | None:
+    """Read one canonical session snapshot without modifying state or file."""
+    file = Path(path)
+    try:
+        if file.is_symlink() or not file.is_file():
+            return None
+        document = json.loads(file.read_text(encoding="utf-8"))
+        return document if type(document) is dict else None
+    except (OSError, UnicodeError, ValueError, TypeError):
+        return None
 
 
 def _set_done_outcome(
@@ -56,27 +292,77 @@ def _set_done_outcome(
     host._done_outcome_authoritative = bool(authoritative)
 
 
-def _explicit_storage_outcome(document: dict[str, Any]) -> bool:
-    return (
-        document.get("done_state_version") == DONE_STATE_VERSION
-        and document.get("completion_kind") == DONE_COMPLETION_STORAGE
-        and document.get("output_intent") == DONE_OUTPUT_ON
-    )
+def managed_storage_ownership_proven(
+    host: Any, *, document: dict[str, Any] | None = None,
+    session_file: str | None = None,
+) -> bool:
+    """Treat terminal Storage as owned only after exact durable session commit.
 
-
-def restore_allows_auto_enable(host: Any) -> bool:
-    """Allow auto-enable only for active sessions or explicit managed Storage."""
-    if host.current_stage == host.STAGE_DONE:
-        return bool(
-            getattr(host, "_done_outcome_authoritative", False)
-            and getattr(host, "_done_completion_kind", None)
-            == DONE_COMPLETION_STORAGE
-            and getattr(host, "_done_output_intent", DONE_OUTPUT_OFF)
-            == DONE_OUTPUT_ON
-        )
-    cooling_stage = getattr(host, "STAGE_COOLING", None)
-    if cooling_stage is not None and host.current_stage == cooling_stage:
+    RAM-only DONE or a prior SAFE_WAIT file is insufficient to keep an
+    energized Output under managed authority. This function is read-only and
+    never initiates or renews any physical command.
+    """
+    if not (
+        getattr(host, "current_stage", None) == getattr(host, "STAGE_DONE", None)
+        and bool(getattr(host, "_done_outcome_authoritative", False))
+        and getattr(host, "_done_completion_kind", None) == DONE_COMPLETION_STORAGE
+        and getattr(host, "_done_output_intent", None) == DONE_OUTPUT_ON
+    ):
         return False
+
+    if document is None:
+        path = Path(SESSION_FILE if session_file is None else session_file)
+        if path.is_symlink() or not path.is_file():
+            return False
+        try:
+            document = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            return False
+    if not isinstance(document, dict) or not _explicit_storage_outcome(document):
+        return False
+
+    sid = getattr(host, "_v2_trace_session_id", None)
+    bid = getattr(host, "_v2_battery_id", None)
+    if not (
+        sid and bid
+        and document.get("stage") == getattr(host, "STAGE_DONE", None)
+        and document.get("v2_trace_session_id") == sid
+        and document.get("v2_battery_id") == bid
+        and document.get("terminal_session_id") == sid
+        and isinstance(document.get("terminal_metadata"), dict)
+        and document["terminal_metadata"].get("completion_kind") == DONE_COMPLETION_STORAGE
+        and document["terminal_metadata"].get("output_intent") == DONE_OUTPUT_ON
+    ):
+        return False
+
+    try:
+        generation = float(getattr(host, "_v2_trace_started_at", None))
+        recorded = float(document.get("v2_trace_started_at"))
+    except (TypeError, ValueError, OverflowError):
+        return False
+    if not (math.isfinite(generation) and generation > 0
+            and math.isfinite(recorded) and abs(generation - recorded) <= 1e-6):
+        return False
+
+    guard = getattr(host, "_main_current_guard", None)
+    saved_guard = document.get("main_current_guard_v1")
+    if (guard is None) != (saved_guard is None):
+        return False
+    if guard is not None:
+        from runtime.charge.strategy.main_guard_session import read_guard
+        try:
+            restored, revision = read_guard(
+                document, session_id=sid, battery_id=bid, now_s=time.time(),
+            )
+        except (ValueError, TypeError, OverflowError):
+            return False
+        if (
+            saved_guard.get("snapshot") != guard.snapshot()
+            or restored.pending is not None
+            or restored.fault is not None
+            or revision != getattr(host, "_main_current_guard_revision", None)
+        ):
+            return False
     return True
 
 
@@ -130,18 +416,13 @@ def _normalize_terminal_done_document(
         terminal_metadata["output_intent"] = DONE_OUTPUT_OFF
         normalized["terminal_metadata"] = terminal_metadata
 
-    try:
-        from runtime.charge.session_atomic import complete_session_document
-        normalized = complete_session_document(
-            host, normalized, previous=document, now_s=time.time(),
-        )
-        atomic_session_write(session_file, normalized)
-        document.clear()
-        document.update(normalized)
-        return True
-    except OSError as ex:
-        logger.warning("Could not normalize terminal Done session: %s", ex)
-        return False
+    from runtime.charge.session_atomic import complete_session_document
+    normalized = complete_session_document(
+        host, normalized, previous=document, now_s=time.time(),
+    )
+    document.clear()
+    document.update(normalized)
+    return True
 
 
 def enrich_restored_session(host: Any, document: dict[str, Any], *,
@@ -176,12 +457,17 @@ def enrich_restored_session(host: Any, document: dict[str, Any], *,
 
 
 def clear_session_file(host: Any, *, session_file: str = SESSION_FILE) -> None:
-        """Удалить файл сессии."""
-        try:
-            if os.path.exists(session_file):
-                os.remove(session_file)
-        except OSError:
-            pass
+    """Delete the exact observed ordinary document under the shared writer lock."""
+    try:
+        raw = Path(session_file).read_bytes()
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        logger.error("Session clear could not inspect canonical file: %s", exc)
+        return
+    status = compare_delete_session(session_file, raw)
+    if status != "COMMITTED":
+        logger.error("Session clear blocked by canonical compare-delete: %s", status)
 
 
 def retire_controller_session(host: Any, *, session_id: str, battery_id: str | None,
@@ -194,6 +480,9 @@ def retire_controller_session(host: Any, *, session_id: str, battery_id: str | N
     app owner lock. The controller is made IDLE only after file+directory fsync.
     """
     path = Path(session_file)
+    _raw, pending, pending_error = read_start_pending(path)
+    if pending_error or pending is not None:
+        return False
     raw = path.read_bytes()
     if expected_document_sha256 is not None:
         import hashlib
@@ -242,198 +531,312 @@ def retire_controller_session(host: Any, *, session_id: str, battery_id: str | N
         host._clear_restored_targets()
     return True
 
+def project_session_document(
+    host: Any, voltage: float, current: float, ah: float, *,
+    session_file: str = SESSION_FILE,
+    terminal_request: TerminalPersistenceRequest | None = None,
+    now_s: float | None = None,
+) -> dict[str, Any] | None:
+    """Return the canonical candidate without changing file bytes.
+
+    Compatibility note: existing ``_done_*`` normalization is applied to the
+    host because terminal metadata consumes those fields. This is the only host
+    mutation. ``now_s`` supports deterministic projection; production callers
+    omit it.
+    """
+    if bool(getattr(host, "_recovery_session_retirement_pending", False)):
+        logger.error("Session save blocked while recovery retirement outcome is uncertain")
+        return
+    _raw, pending, pending_error = read_start_pending(session_file)
+    if pending_error or pending is not None:
+        logger.error("Session save blocked by START_PENDING fence: %s", pending_error or "pending")
+        return
+    if host.current_stage == host.STAGE_IDLE:
+        return
+
+    if host.current_stage == host.STAGE_DONE:
+        if terminal_request is not None:
+            _set_done_outcome(
+                host,
+                terminal_request.completion_kind,
+                terminal_request.output_intent,
+                authoritative=True,
+            )
+        elif not bool(getattr(host, "_done_outcome_authoritative", False)):
+            _set_done_outcome(
+                host,
+                DONE_COMPLETION_TERMINAL,
+                DONE_OUTPUT_OFF,
+                authoritative=True,
+            )
+    else:
+        _set_done_outcome(host, None, DONE_OUTPUT_OFF, authoritative=False)
+
+    done_storage = bool(
+        host.current_stage == host.STAGE_DONE
+        and getattr(host, "_done_outcome_authoritative", False)
+        and getattr(host, "_done_completion_kind", None) == DONE_COMPLETION_STORAGE
+        and getattr(host, "_done_output_intent", DONE_OUTPUT_OFF) == DONE_OUTPUT_ON
+    )
+    target_finish = host._get_target_finish_time()
+    if done_storage:
+        uv, ui = host._storage_target()
+        target_finish = None
+    elif host.current_stage == host.STAGE_SAFE_WAIT:
+        uv, ui = host._safe_wait_target_v, host._safe_wait_target_i
+    elif host.current_stage == host.STAGE_COOLING:
+        uv, ui = host._cooling_target_v, host._cooling_target_i
+    else:
+        uv, ui = host._get_target_v_i()
+    # Сохраняем фактические уставки прибора (до потери связи/перезапуска).
+    # Explicit Storage Done is the exception: the queued Storage target is
+    # authoritative even when the last physical readback is still the old HV program.
+    if (
+        not done_storage
+        and host._device_set_voltage is not None
+        and host._device_set_voltage > 0
+        and host._device_set_current is not None
+        and host._device_set_current > 0
+    ):
+        uv, ui = host._device_set_voltage, host._device_set_current
+    elif not done_storage:
+        # С прибора уставки не приходили — не перезаписывать дефолтами профиля; сохранить из файла, если есть
+        if os.path.exists(session_file):
+            try:
+                with open(session_file, "r", encoding="utf-8") as f:
+                    old = json.load(f)
+                tv, ti = float(old.get("target_voltage", 0) or 0), float(old.get("target_current", 0) or 0)
+                if tv > 0 and ti > 0:
+                    uv, ui = tv, ti
+            except (OSError, json.JSONDecodeError, TypeError, ValueError):
+                pass
+    previous_terminal_metadata = {}
+    previous_document = {}
+    if os.path.exists(session_file):
+        try:
+            with open(session_file, "r", encoding="utf-8") as f:
+                previous_document = json.load(f)
+            if isinstance(previous_document, dict) and isinstance(
+                previous_document.get("terminal_metadata"), dict
+            ):
+                previous_terminal_metadata = previous_document["terminal_metadata"]
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            pass
+
+    def terminal_measurement(name: str, value: Any) -> Tuple[Optional[float], bool]:
+        """Keep only evidenced positive measurements; never replace them with defaults."""
+        try:
+            candidate = float(value)
+        except (TypeError, ValueError, OverflowError):
+            candidate = 0.0
+        if math.isfinite(candidate) and candidate > 0.0:
+            return candidate, True
+        try:
+            previous = float(previous_terminal_metadata.get(name))
+        except (TypeError, ValueError, OverflowError):
+            previous = 0.0
+        if math.isfinite(previous) and previous > 0.0:
+            return previous, True
+        return None, False
+
+    saved_at = time.time() if now_s is None else float(now_s)
+    terminal = host.current_stage == host.STAGE_DONE
+    if terminal_request is not None and terminal:
+        voltage, current, ah = (
+            terminal_request.voltage_v,
+            terminal_request.current_a,
+            terminal_request.ah,
+        )
+    terminal_voltage, terminal_voltage_available = terminal_measurement("voltage", voltage)
+    terminal_current, terminal_current_available = terminal_measurement("current", current)
+    terminal_ah, terminal_ah_available = terminal_measurement("ah", ah)
+    data = {
+        "profile": host.battery_type,
+        "stage": host.current_stage,
+        "stage_start_time": host.stage_start_time,
+        "target_finish_time": target_finish,
+        "finish_timer_start": host.finish_timer_start,
+        "ah_limit": host.ah_capacity,
+        "start_ah": host._start_ah,
+        "stage_start_ah": host._stage_start_ah,
+        "stage_start_voltage": host._stage_start_voltage,
+        "stage_start_current": host._stage_start_current,
+        "stage_start_temp": host._stage_start_temp,
+        "current_retries": host.antisulfate_count,
+        "target_voltage": uv,
+        "target_current": ui,
+        "agm_stage_idx": host._agm_stage_idx,
+        "safe_wait_next_stage": host._safe_wait_next_stage,
+        "safe_wait_target_v": host._safe_wait_target_v,
+        "safe_wait_target_i": host._safe_wait_target_i,
+        "safe_wait_start": host._safe_wait_start,
+        "total_start_time": host.total_start_time,  # v2.6: сохраняем общий старт
+        "first_stage_hold_since": host._first_stage_hold_since,
+        "first_stage_hold_current": host._first_stage_hold_current,
+        "stuck_current_since": host._stuck_current_since,
+        "stuck_current_value": host._stuck_current_value,
+        "previous_stage": host.previous_stage,
+        "last_transition_reason": host._last_transition_reason,
+        "stage_history": list(host._stage_history),
+        "saved_at": saved_at,
+        "terminal_state_at": host.stage_start_time if terminal else None,
+        "terminal_session_id": getattr(host, "_v2_trace_session_id", None) if terminal else None,
+        "done_state_version": DONE_STATE_VERSION if terminal else None,
+        "completion_kind": (
+            getattr(host, "_done_completion_kind", DONE_COMPLETION_TERMINAL)
+            if terminal
+            else None
+        ),
+        "output_intent": (
+            getattr(host, "_done_output_intent", DONE_OUTPUT_OFF)
+            if terminal
+            else None
+        ),
+        "terminal_metadata": {
+            "stage": host.STAGE_DONE,
+            "reason": host._last_transition_reason,
+            "completion_kind": getattr(
+                host, "_done_completion_kind", DONE_COMPLETION_TERMINAL
+            ),
+            "output_intent": getattr(host, "_done_output_intent", DONE_OUTPUT_OFF),
+            "voltage": terminal_voltage,
+            "current": terminal_current,
+            "ah": terminal_ah,
+            "availability": {
+                "voltage": terminal_voltage_available,
+                "current": terminal_current_available,
+                "ah": terminal_ah_available,
+            },
+        } if terminal else None,
+    }
+    # The trace identity and optional MAIN Guard checkpoint must be in
+    # the *same atomic write*, never a later independent patch of this JSON.
+    # GuardJournalError is intentionally not swallowed: unsafe loss of a
+    # prior guarded checkpoint must reach the owner's fail-closed path.
+    from runtime.charge.session_atomic import (
+        complete_session_document,
+    )
+    data = complete_session_document(
+        host, data, previous=previous_document, now_s=saved_at,
+    )
+    return data
+
+
 def save_session(
     host: Any, voltage: float, current: float, ah: float, *,
     session_file: str = SESSION_FILE,
     terminal_request: TerminalPersistenceRequest | None = None,
-) -> None:
-        """Сохранить текущее состояние в charge_session.json. Уставки — с прибора, если известны."""
-        if bool(getattr(host, "_recovery_session_retirement_pending", False)):
-            logger.error("Session save blocked while recovery retirement outcome is uncertain")
-            return
-        if host.current_stage == host.STAGE_IDLE:
-            return
-
-        if host.current_stage == host.STAGE_DONE:
-            if terminal_request is not None:
-                _set_done_outcome(
-                    host,
-                    terminal_request.completion_kind,
-                    terminal_request.output_intent,
-                    authoritative=True,
-                )
-            elif not bool(getattr(host, "_done_outcome_authoritative", False)):
-                _set_done_outcome(
-                    host,
-                    DONE_COMPLETION_TERMINAL,
-                    DONE_OUTPUT_OFF,
-                    authoritative=True,
-                )
-        else:
-            _set_done_outcome(host, None, DONE_OUTPUT_OFF, authoritative=False)
-
-        done_storage = bool(
-            host.current_stage == host.STAGE_DONE
-            and getattr(host, "_done_outcome_authoritative", False)
-            and getattr(host, "_done_completion_kind", None) == DONE_COMPLETION_STORAGE
-            and getattr(host, "_done_output_intent", DONE_OUTPUT_OFF) == DONE_OUTPUT_ON
-        )
-        target_finish = host._get_target_finish_time()
-        if done_storage:
-            uv, ui = host._storage_target()
-            target_finish = None
-        elif host.current_stage == host.STAGE_SAFE_WAIT:
-            uv, ui = host._safe_wait_target_v, host._safe_wait_target_i
-        elif host.current_stage == host.STAGE_COOLING:
-            uv, ui = host._cooling_target_v, host._cooling_target_i
-        else:
-            uv, ui = host._get_target_v_i()
-        # Сохраняем фактические уставки прибора (до потери связи/перезапуска).
-        # Explicit Storage Done is the exception: the queued Storage target is
-        # authoritative even when the last physical readback is still the old HV program.
-        if (
-            not done_storage
-            and host._device_set_voltage is not None
-            and host._device_set_voltage > 0
-            and host._device_set_current is not None
-            and host._device_set_current > 0
-        ):
-            uv, ui = host._device_set_voltage, host._device_set_current
-        elif not done_storage:
-            # С прибора уставки не приходили — не перезаписывать дефолтами профиля; сохранить из файла, если есть
-            if os.path.exists(session_file):
-                try:
-                    with open(session_file, "r", encoding="utf-8") as f:
-                        old = json.load(f)
-                    tv, ti = float(old.get("target_voltage", 0) or 0), float(old.get("target_current", 0) or 0)
-                    if tv > 0 and ti > 0:
-                        uv, ui = tv, ti
-                except (OSError, json.JSONDecodeError, TypeError, ValueError):
-                    pass
-        previous_terminal_metadata = {}
-        previous_document = {}
-        if os.path.exists(session_file):
-            try:
-                with open(session_file, "r", encoding="utf-8") as f:
-                    previous_document = json.load(f)
-                if isinstance(previous_document, dict) and isinstance(
-                    previous_document.get("terminal_metadata"), dict
-                ):
-                    previous_terminal_metadata = previous_document["terminal_metadata"]
-            except (OSError, json.JSONDecodeError, TypeError, ValueError):
-                pass
-
-        def terminal_measurement(name: str, value: Any) -> Tuple[Optional[float], bool]:
-            """Keep only evidenced positive measurements; never replace them with defaults."""
-            try:
-                candidate = float(value)
-            except (TypeError, ValueError, OverflowError):
-                candidate = 0.0
-            if math.isfinite(candidate) and candidate > 0.0:
-                return candidate, True
-            try:
-                previous = float(previous_terminal_metadata.get(name))
-            except (TypeError, ValueError, OverflowError):
-                previous = 0.0
-            if math.isfinite(previous) and previous > 0.0:
-                return previous, True
-            return None, False
-
-        saved_at = time.time()
-        terminal = host.current_stage == host.STAGE_DONE
-        if terminal_request is not None and terminal:
-            voltage, current, ah = (
-                terminal_request.voltage_v,
-                terminal_request.current_a,
-                terminal_request.ah,
-            )
-        terminal_voltage, terminal_voltage_available = terminal_measurement("voltage", voltage)
-        terminal_current, terminal_current_available = terminal_measurement("current", current)
-        terminal_ah, terminal_ah_available = terminal_measurement("ah", ah)
-        data = {
-            "profile": host.battery_type,
-            "stage": host.current_stage,
-            "stage_start_time": host.stage_start_time,
-            "target_finish_time": target_finish,
-            "finish_timer_start": host.finish_timer_start,
-            "ah_limit": host.ah_capacity,
-            "start_ah": host._start_ah,
-            "stage_start_ah": host._stage_start_ah,
-            "stage_start_voltage": host._stage_start_voltage,
-            "stage_start_current": host._stage_start_current,
-            "stage_start_temp": host._stage_start_temp,
-            "current_retries": host.antisulfate_count,
-            "target_voltage": uv,
-            "target_current": ui,
-            "agm_stage_idx": host._agm_stage_idx,
-            "safe_wait_next_stage": host._safe_wait_next_stage,
-            "safe_wait_target_v": host._safe_wait_target_v,
-            "safe_wait_target_i": host._safe_wait_target_i,
-            "safe_wait_start": host._safe_wait_start,
-            "total_start_time": host.total_start_time,  # v2.6: сохраняем общий старт
-            "first_stage_hold_since": host._first_stage_hold_since,
-            "first_stage_hold_current": host._first_stage_hold_current,
-            "stuck_current_since": host._stuck_current_since,
-            "stuck_current_value": host._stuck_current_value,
-            "previous_stage": host.previous_stage,
-            "last_transition_reason": host._last_transition_reason,
-            "stage_history": list(host._stage_history),
-            "saved_at": saved_at,
-            "terminal_state_at": host.stage_start_time if terminal else None,
-            "terminal_session_id": getattr(host, "_v2_trace_session_id", None) if terminal else None,
-            "done_state_version": DONE_STATE_VERSION if terminal else None,
-            "completion_kind": (
-                getattr(host, "_done_completion_kind", DONE_COMPLETION_TERMINAL)
-                if terminal
-                else None
-            ),
-            "output_intent": (
-                getattr(host, "_done_output_intent", DONE_OUTPUT_OFF)
-                if terminal
-                else None
-            ),
-            "terminal_metadata": {
-                "stage": host.STAGE_DONE,
-                "reason": host._last_transition_reason,
-                "completion_kind": getattr(
-                    host, "_done_completion_kind", DONE_COMPLETION_TERMINAL
-                ),
-                "output_intent": getattr(host, "_done_output_intent", DONE_OUTPUT_OFF),
-                "voltage": terminal_voltage,
-                "current": terminal_current,
-                "ah": terminal_ah,
-                "availability": {
-                    "voltage": terminal_voltage_available,
-                    "current": terminal_current_available,
-                    "ah": terminal_ah_available,
-                },
-            } if terminal else None,
-        }
-        # The trace identity and optional MAIN Guard checkpoint must be in
-        # the *same atomic write*, never a later independent patch of this JSON.
-        # GuardJournalError is intentionally not swallowed: unsafe loss of a
-        # prior guarded checkpoint must reach the owner's fail-closed path.
-        from runtime.charge.session_atomic import (
-            atomic_session_write, complete_session_document,
-        )
-        data = complete_session_document(
-            host, data, previous=previous_document, now_s=saved_at,
-        )
+    restore_expected_bytes: bytes | None = None,
+) -> tuple[WriteStatus, bytes | None] | None:
+    """Сохранить текущее состояние в charge_session.json. Уставки — с прибора, если известны."""
+    data = project_session_document(
+        host, voltage, current, ah, session_file=session_file,
+        terminal_request=terminal_request,
+    )
+    if data is None:
+        if restore_expected_bytes is not None:
+            raise RuntimeError(f"restore canonical commit failed: {WriteStatus.NOT_COMMITTED.value}")
+        return
+    from runtime.charge.session_atomic import atomic_session_write, compare_replace_session
+    if restore_expected_bytes is not None:
+        # A terminal DONE snapshot records the measurements at completion.
+        # Live measurements supplied to startup restore are not a new terminal
+        # event, so retain that evidence while enriching the same CAS document.
         try:
-            atomic_session_write(
-                session_file, data,
-                allow_nan=getattr(host, "_main_current_guard", None) is None,
-            )
+            restore_document = json.loads(restore_expected_bytes.decode("utf-8"))
+        except (UnicodeError, json.JSONDecodeError):
+            restore_document = None
+        if isinstance(restore_document, dict):
+            # Keep legacy/extension fields that the current projection does not
+            # own; known current fields remain governed by the canonical projection.
+            for name, value in restore_document.items():
+                data.setdefault(name, value)
+            if (
+                restore_document.get("stage") == getattr(host, "STAGE_DONE", None)
+                and isinstance(restore_document.get("terminal_metadata"), dict)
+                and isinstance(data.get("terminal_metadata"), dict)
+            ):
+                prior_metadata = restore_document["terminal_metadata"]
+                terminal_metadata = data["terminal_metadata"]
+                for name in ("voltage", "current", "ah", "availability"):
+                    if name in prior_metadata:
+                        terminal_metadata[name] = prior_metadata[name]
+        status, observed = compare_replace_session(
+            session_file, restore_expected_bytes, data,
+            allow_nan=getattr(host, "_main_current_guard", None) is None,
+        )
+        if status is WriteStatus.COMMITTED:
             guard_record = data.get("main_current_guard_v1")
             if (getattr(host, "_main_current_guard", None) is not None
                     and isinstance(guard_record, dict)
                     and type(guard_record.get("revision")) is int):
-                # Keep the in-memory concurrency token aligned with this same
-                # atomic canonical replacement. MAIN Guard admission uses it
-                # to reject a stale owner if a newer ACK is already durable.
                 host._main_current_guard_revision = guard_record["revision"]
-        except OSError as ex:
-            logger.warning("Could not save session: %s", ex)
+        return status, observed
+    try:
+        atomic_session_write(
+            session_file, data,
+            allow_nan=getattr(host, "_main_current_guard", None) is None,
+        )
+        guard_record = data.get("main_current_guard_v1")
+        if (getattr(host, "_main_current_guard", None) is not None
+                and isinstance(guard_record, dict)
+                and type(guard_record.get("revision")) is int):
+            # Keep the in-memory concurrency token aligned with this same
+            # atomic canonical replacement. MAIN Guard admission uses it
+            # to reject a stale owner if a newer ACK is already durable.
+            host._main_current_guard_revision = guard_record["revision"]
+    except OSError as ex:
+        logger.warning("Could not save session: %s", ex)
+
+
+def mark_session_interrupted(
+    session_file: str,
+    *,
+    expected_document_sha256: str,
+    expected_identity: Mapping[str, Any],
+    recorded_at_utc: str,
+) -> bool:
+    """Atomically add an interruption marker without projecting mutable host state.
+
+    Caller serializes this operation with the existing execution owner lock.
+    """
+    path = Path(session_file)
+    try:
+        _raw, pending, pending_error = read_start_pending(path)
+        if pending_error or pending is not None:
+            return False
+        if path.is_symlink() or not path.is_file():
+            return False
+        raw = path.read_bytes()
+        if hashlib.sha256(raw).hexdigest() != expected_document_sha256:
+            return False
+        document = json.loads(raw.decode("utf-8"))
+        if not isinstance(document, dict):
+            return False
+        identity = session_identity(document)
+        if identity is None or identity != dict(expected_identity):
+            return False
+        classification = validate_interruption_marker(document)
+        if classification == "blocked":
+            return False
+        if classification == "interrupted":
+            return True
+        updated = dict(document)
+        updated["interruption_v1"] = {
+            "schema_version": 1,
+            "owner": INTERRUPTION_OWNER,
+            "state": "interrupted",
+            "reason": INTERRUPTION_REASON,
+            "rearmable": False,
+            "recorded_at_utc": recorded_at_utc,
+            "session_identity": dict(expected_identity),
+        }
+        if validate_interruption_marker(updated) != "interrupted":
+            return False
+        atomic_session_write(path, updated)
+        return True
+    except Exception:
+        return False
 
 def restore_session(
     host: Any,
@@ -451,15 +854,21 @@ def restore_session(
         if not os.path.exists(session_file):
             return False, None
         try:
-            with open(session_file, "r", encoding="utf-8") as f:
-                raw_document = f.read()
-            raw_bytes = raw_document.encode("utf-8")
+            raw_bytes = Path(session_file).read_bytes()
+            raw_document = raw_bytes.decode("utf-8")
             data = json.loads(raw_document)
         except (OSError, UnicodeError, json.JSONDecodeError):
             return False, None
 
         if not isinstance(data, dict):
             return False, None
+        if _pending_start_document(data):
+            return False, "A START transaction envelope requires reconciliation; automatic restore is disabled."
+        interruption = validate_interruption_marker(data)
+        if interruption == "interrupted":
+            return False, "This charge session was interrupted by process restart; automatic restore is disabled."
+        if interruption == "blocked":
+            return False, "Interruption marker is invalid; automatic restore is disabled."
         # Verify optional immutable native recipe selection *before* restoring
         # any controller fields. A corrupted or wrong-profile snapshot cannot
         # silently become a normal AUTO session.
@@ -520,20 +929,81 @@ def restore_session(
                     "MAIN Current Guard session is held for owner/readback "
                     "reconciliation; automatic resume is disabled."
                 )
-            # Reconstruct Guard only from the canonical journal and before
-            # session continuations or production extensions can run.
-            host._main_current_guard = restored_guard
-            host._main_current_guard_revision = revision
-
         saved_at = data.get("saved_at", 0)
         if time.time() - saved_at > SESSION_MAX_AGE:
             host._clear_session_file()
             return False, None
 
+        scalars = project_restore_scalars(
+            data, ah=ah, voltage=voltage, current=current,
+            agm_stage_count=len(AGM_STAGES), max_stage_current=MAX_STAGE_CURRENT,
+            clamp_voltage=clamp_pb_automatic_target_voltage,
+        )
+        now = time.time()
+        future_profile = data.get("profile", host.PROFILE_CA)
+        future_total_start_time = scalars.total_start_time or now
+        if (not future_total_start_time or future_total_start_time <= 0
+                or (now - future_total_start_time) > SESSION_START_MAX_AGE):
+            future_total_start_time = now
+        from runtime.charge.session import (
+            prepare_trace_identity_application,
+            project_trace_identity,
+        )
+        configuration = getattr(host, "host_configuration", None)
+        intent_default = getattr(
+            configuration, "restore_trace_default_intent",
+            getattr(host, "_v2_intent", "normal"),
+        )
+        condition_default = getattr(
+            configuration, "restore_trace_default_condition",
+            getattr(host, "_v2_condition_before", "unknown"),
+        )
+        preprojected_trace = project_trace_identity(
+            data,
+            total_start_time=future_total_start_time,
+            battery_type=future_profile,
+            ah_capacity=scalars.ah_limit,
+            battery_id=getattr(host, "_v2_battery_id", None),
+            intent_default=intent_default,
+            condition_default=condition_default,
+            now_s=now,
+        )
+        prepared_trace_values = prepare_trace_identity_application(
+            host, preprojected_trace,
+        )
+
+        # Timeline continuation is a pure projection over the accepted
+        # document and canonical host constants. Compute it before the first
+        # active-session mutation so projection failures remain pre-apply.
+        target_finish = scalars.target_finish_time
+        target_v_raw = scalars.target_voltage_raw
+        target_v = scalars.target_voltage
+        target_i = scalars.target_current
+        saved_stage_start = scalars.stage_start_time if scalars.stage_start_time is not None else now
+        if (not saved_stage_start or saved_stage_start <= 0
+                or (now - saved_stage_start) > SESSION_START_MAX_AGE):
+            saved_stage_start = now
+        timeline = project_restore_stage_timeline(
+            current_stage=data.get("stage", host.STAGE_MAIN),
+            main_stage=host.STAGE_MAIN,
+            mix_stage=host.STAGE_MIX,
+            desulfation_stage=host.STAGE_DESULFATION,
+            done_stage=host.STAGE_DONE,
+            now=now,
+            target_finish_time=target_finish,
+            saved_stage_start=saved_stage_start,
+            existing_finish_timer_start=data.get("finish_timer_start"),
+            mix_done_timer=MIX_DONE_TIMER,
+        )
+
+        if GUARD_KEY in data:
+            host._main_current_guard = restored_guard
+            host._main_current_guard_revision = revision
+
         host._native_recipe_session_selection = selected_native
         host._stage_tracking_enabled = False
         host.battery_type = data.get("profile", host.PROFILE_CA)
-        host.ah_capacity = int(data.get("ah_limit", 60))
+        host.ah_capacity = scalars.ah_limit
         host.current_stage = data.get("stage", host.STAGE_MAIN)
         normalize_done_document = False
         if host.current_stage == host.STAGE_DONE:
@@ -554,36 +1024,21 @@ def restore_session(
                 normalize_done_document = True
         else:
             _set_done_outcome(host, None, DONE_OUTPUT_OFF, authoritative=False)
-        host.antisulfate_count = int(data.get("current_retries", 0))
-        host._agm_stage_idx = int(data.get("agm_stage_idx", 0))
-        host._agm_stage_idx = max(0, min(host._agm_stage_idx, len(AGM_STAGES) - 1))
-        host._start_ah = float(data.get("start_ah", 0))
-        host._stage_start_ah = float(data.get("stage_start_ah", ah))  # при отсутствии — текущий ah
-        try:
-            host._stage_start_voltage = float(data.get("stage_start_voltage", voltage))
-        except (TypeError, ValueError):
-            host._stage_start_voltage = float(voltage)
-        try:
-            host._stage_start_current = float(data.get("stage_start_current", current))
-        except (TypeError, ValueError):
-            host._stage_start_current = float(current)
-        try:
-            host._stage_start_temp = float(data.get("stage_start_temp", 0.0))
-        except (TypeError, ValueError):
-            host._stage_start_temp = 0.0
+        host.antisulfate_count = scalars.current_retries
+        host._agm_stage_idx = scalars.agm_stage_idx
+        host._start_ah = scalars.start_ah
+        host._stage_start_ah = scalars.stage_start_ah
+        host._stage_start_voltage = scalars.stage_start_voltage
+        host._stage_start_current = scalars.stage_start_current
+        host._stage_start_temp = scalars.stage_start_temp
         host._safe_wait_next_stage = data.get("safe_wait_next_stage")
-        host._safe_wait_target_v = float(data.get("safe_wait_target_v", 0))
-        host._safe_wait_target_i = float(data.get("safe_wait_target_i", 0))
-        now = time.time()
+        host._safe_wait_target_v = scalars.safe_wait_target_v
+        host._safe_wait_target_i = scalars.safe_wait_target_i
         restore_stage_history(
             host, data.get("previous_stage"), data.get("last_transition_reason"),
             data.get("stage_history", []), now=now,
         )
-        raw_safe_wait_start = data.get("safe_wait_start")
-        try:
-            host._safe_wait_start = float(raw_safe_wait_start) if raw_safe_wait_start not in (None, 0) else now
-        except (TypeError, ValueError):
-            host._safe_wait_start = now
+        host._safe_wait_start = scalars.safe_wait_start if scalars.safe_wait_start is not None else now
         if host.current_stage == host.STAGE_SAFE_WAIT:
             allowed_safe_wait_next = {host.STAGE_MAIN, host.STAGE_DONE}
             if host._safe_wait_next_stage not in allowed_safe_wait_next:
@@ -595,57 +1050,29 @@ def restore_session(
                 host._safe_wait_next_stage = host.STAGE_MAIN
         else:
             host._safe_wait_next_stage = None
-        raw_hold_since = data.get("first_stage_hold_since")
-        try:
-            host._first_stage_hold_since = float(raw_hold_since) if raw_hold_since not in (None, 0) else None
-        except (TypeError, ValueError):
-            host._first_stage_hold_since = None
-        raw_hold_current = data.get("first_stage_hold_current")
-        try:
-            host._first_stage_hold_current = float(raw_hold_current) if raw_hold_current is not None else None
-        except (TypeError, ValueError):
-            host._first_stage_hold_current = None
-        raw_stuck_since = data.get("stuck_current_since")
-        try:
-            host._stuck_current_since = float(raw_stuck_since) if raw_stuck_since not in (None, 0) else None
-        except (TypeError, ValueError):
-            host._stuck_current_since = None
-        raw_stuck_value = data.get("stuck_current_value")
-        try:
-            host._stuck_current_value = float(raw_stuck_value) if raw_stuck_value is not None else None
-        except (TypeError, ValueError):
-            host._stuck_current_value = None
+        host._first_stage_hold_since = scalars.first_stage_hold_since
+        host._first_stage_hold_current = scalars.first_stage_hold_current
+        host._stuck_current_since = scalars.stuck_current_since
+        host._stuck_current_value = scalars.stuck_current_value
 
         # v2.6: восстанавливаем общий старт сессии
-        raw_total_start = data.get("total_start_time")
-        try:
-            host.total_start_time = float(raw_total_start) if raw_total_start not in (None, 0) else now
-        except (TypeError, ValueError):
-            host.total_start_time = now
+        host.total_start_time = scalars.total_start_time if scalars.total_start_time is not None else now
         # Валидация total_start_time
         if not host.total_start_time or host.total_start_time <= 0 or (now - host.total_start_time) > SESSION_START_MAX_AGE:
             host.total_start_time = now
             logger.info("Restore: total_start_time invalid or >24h, set to now()")
 
-        from runtime.charge.session import apply_trace_identity, restore_trace_identity
-        apply_trace_identity(host, restore_trace_identity(host, data))
+        from runtime.charge.session import apply_trace_identity
+        apply_trace_identity(
+            host, preprojected_trace, prepared=prepared_trace_values,
+        )
 
-        target_finish = data.get("target_finish_time")
         restored_terminal = False
-        target_v_raw = float(data.get("target_voltage", 14.7))
-        target_v = clamp_pb_automatic_target_voltage(target_v_raw)
         if abs(target_v - target_v_raw) >= 0.01:
             logger.warning("Restore: target voltage clamped %.2fV -> %.2fV", target_v_raw, target_v)
-        target_i = float(data.get("target_current", 1.0))
-        target_i = min(MAX_STAGE_CURRENT, max(0.1, target_i))
         host._restored_target_v = target_v
         host._restored_target_i = target_i
         host.finish_timer_start = data.get("finish_timer_start")
-        raw_stage_start = data.get("stage_start_time")
-        try:
-            saved_stage_start = float(raw_stage_start) if raw_stage_start not in (None, 0) else now
-        except (TypeError, ValueError):
-            saved_stage_start = now
         # Фикс "1970 года": если start_time отсутствует, 0 или старше 24 ч — принудительно now()
         if not saved_stage_start or saved_stage_start <= 0 or (now - saved_stage_start) > SESSION_START_MAX_AGE:
             saved_stage_start = now
@@ -653,20 +1080,20 @@ def restore_session(
 
         host._session_start_reason = "Auto-restore"
 
+        host.current_stage = timeline.stage
+        if timeline.clear_restored_targets:
+            host._clear_restored_targets()
+        if timeline.stage_start_time is not None:
+            host.stage_start_time = timeline.stage_start_time
+        if timeline.update_finish_timer_start:
+            host.finish_timer_start = timeline.finish_timer_start
+        restored_terminal = timeline.restored_terminal
+        normalize_done_document = bool(normalize_done_document or restored_terminal)
+        remaining_min = timeline.remaining_min
+
         if target_finish is not None:
             remaining_sec = target_finish - now
             if remaining_sec > 0:
-                if host.current_stage == host.STAGE_DESULFATION:
-                    phase_dur = 2 * 3600
-                    host.stage_start_time = now - (phase_dur - remaining_sec)
-                elif host.current_stage == host.STAGE_MIX and host.finish_timer_start is not None:
-                    host.finish_timer_start = target_finish - MIX_DONE_TIMER
-                else:
-                    if saved_stage_start and 0 < saved_stage_start <= now:
-                        host.stage_start_time = saved_stage_start
-                    else:
-                        host.stage_start_time = now
-                remaining_min = int(remaining_sec / 60)
                 msg = (
                     f"🔄 <b>Сессия восстановлена!</b>\n\n"
                     f"Продолжаю режим: <code>{host.current_stage}</code>.\n"
@@ -674,24 +1101,12 @@ def restore_session(
                     f"Цель: <code>{target_v:.1f}</code>В / <code>{target_i:.2f}</code>А"
                 )
             else:
-                if host.current_stage == host.STAGE_DESULFATION:
-                    host.current_stage = host.STAGE_MAIN
-                    host._clear_restored_targets()
-                    host.stage_start_time = now
-                elif host.current_stage == host.STAGE_MIX:
-                    host.current_stage = host.STAGE_DONE
-                    host._clear_restored_targets()
-                    host.stage_start_time = now
-                    restored_terminal = True
-                remaining_min = 0
                 msg = (
                     f"🔄 <b>Сессия восстановлена!</b>\n\n"
                     f"Переход к следующей фазе: <code>{host.current_stage}</code>.\n"
                     f"Цель: <code>{target_v:.1f}</code>В / <code>{target_i:.2f}</code>А"
                 )
         else:
-            remaining_min = 0
-            host.stage_start_time = saved_stage_start if saved_stage_start and saved_stage_start <= now else now
             msg = (
                 f"🔄 <b>Сессия восстановлена!</b>\n\n"
                 f"Продолжаю режим: <code>{host.current_stage}</code>.\n"
@@ -702,21 +1117,13 @@ def restore_session(
         host._temp_comp_last_update_time = 0.0
         host._temp_comp_last_temp = None
         if host.current_stage == host.STAGE_MAIN:
-            raw_stuck_since = data.get("stuck_current_since")
-            try:
-                host._stuck_current_since = float(raw_stuck_since) if raw_stuck_since not in (None, 0) else None
-            except (TypeError, ValueError):
-                host._stuck_current_since = None
-            raw_stuck_value = data.get("stuck_current_value")
-            try:
-                host._stuck_current_value = float(raw_stuck_value) if raw_stuck_value is not None else None
-            except (TypeError, ValueError):
-                host._stuck_current_value = None
+            host._stuck_current_since = scalars.stuck_current_since
+            host._stuck_current_value = scalars.stuck_current_value
         if host.current_stage != host.STAGE_MIX:
             host.finish_timer_start = None
 
         # Синхронизация таймеров с прибором: оцениваем время по накопленным А·ч и току
-        i_avg = max(float(current), 0.1)
+        i_avg = scalars.measured_average_current
         delta_ah_total = ah - host._start_ah
         delta_ah_stage = ah - host._stage_start_ah
         if delta_ah_total > 0.01 and i_avg > 0.05:
@@ -754,17 +1161,18 @@ def restore_session(
                 "remaining_min": remaining_min,
             },
         )
-        host._session_restore_enriched = False
-        if normalize_done_document:
-            host._session_restore_enriched = _normalize_terminal_done_document(
-                host, data, session_file=session_file,
-            )
-        from runtime.charge.session import RestoredSessionDocument
-        host._session_restore_snapshot = RestoredSessionDocument.capture(data)
-        if restored_terminal:
-            host._save_session(voltage, current, ah)
-            host._session_restore_enriched = True
-        host._stage_tracking_enabled = True
+        finalize_restored_session(
+            host,
+            data,
+            normalize_done_document=normalize_done_document,
+            normalize_terminal=_normalize_terminal_done_document,
+            session_file=session_file,
+            canonical_preimage=raw_bytes,
+            restored_terminal=restored_terminal,
+            voltage=voltage,
+            current=current,
+            ah=ah,
+        )
         return True, msg
 
 __all__ = [
@@ -777,9 +1185,11 @@ __all__ = [
     "SESSION_MAX_AGE_S",
     "SESSION_START_MAX_AGE_S",
     "clear_session_file",
+    "mark_session_interrupted",
     "enrich_restored_session",
     "paused_done_resume_is_authorized",
     "restore_allows_auto_enable",
     "restore_session",
+    "project_session_document",
     "save_session",
 ]

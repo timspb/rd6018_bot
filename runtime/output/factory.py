@@ -16,14 +16,6 @@ class OutputIntentFactory:
             if decision.shutdown_required:
                 return SafeOutputIntent(OutputAction.DISABLE, source="safety:diagnostic_hard_stop")
             raise ValueError("only an allowed SafetyDecision can be converted")
-        if decision.reset_protection is not None:
-            reset = decision.reset_protection
-            return SafeOutputIntent(
-                OutputAction.RESET_PROTECTION,
-                target_ovp=reset.target_ovp,
-                target_ocp=reset.target_ocp,
-                source=reset.source_phase,
-            )
         if decision.intent is None:
             raise ValueError("an allowed SafetyDecision requires an intent")
         intent = decision.intent

@@ -7,7 +7,10 @@ from typing import Optional
 
 from ..intent import ChargeIntent
 from ..measurements import Measurements
-from recovery_policy import RecoveryDecision
+from recovery_policy import (
+    RecoveryDecision,
+    is_unsafe_recovery_decision as _unsafe_policy_decision,
+)
 from runtime.charge.decisions import AuthorityAction, AuthorityDecision
 from runtime.charge.strategy.mix_variables import (
     AGM_MIX_VOLTAGE_V,
@@ -316,14 +319,6 @@ def select_mix_target(*, profile: str, capacity_ah: float,
     )
     current = min(current, float(MAX_STAGE_CURRENT_A.default))
     return MixTarget(voltage_v=voltage, current_a=current)
-
-
-def _unsafe_policy_decision(decision: RecoveryDecision) -> bool:
-    return decision in {
-        RecoveryDecision.HOLD_OUTPUT_OFF,
-        RecoveryDecision.PAUSE_THERMAL,
-        RecoveryDecision.REST_AND_DIAGNOSE,
-    }
 
 
 def decide_mix_transition(
