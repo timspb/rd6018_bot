@@ -157,7 +157,7 @@ See `.recipe-studio-local/REPORT_RD6018_P3P4_RECOVERY_BATCH07_20261119.md`. D123
 - [x] Никаких новых подписей, ключей, PKI, digest-based authorization или искусственных timeout gates.
 
 #### P9 — Cleanup, Documentation и поддерживаемость
-Статус: **НЕ ЗАВЕРШЁН; ДОПУСКАЕТСЯ ТОЛЬКО ПОСЛЕ КЛАССИФИКАЦИИ WIP И RELEASE CANDIDATE**.
+Статус: **SOURCE/GIT WORKFLOW ACCEPTED; ФИНАЛЬНЫЙ PRODUCTION RELEASE И MAIN MERGE ОСТАЮТСЯ HOLD ДО P3/P8**.
 - [x] Классифицировать все dirty/untracked файлы: принятый код, WIP, отчёты, legacy, generated, мусор.
 - [x] Не удалять и не перемещать файлы по одному лишь возрасту/имени/отсутствию import.
 - [x] Удалять только доказанные дубликаты и неиспользуемые совместимые façades после parity.
@@ -166,7 +166,7 @@ See `.recipe-studio-local/REPORT_RD6018_P3P4_RECOVERY_BATCH07_20261119.md`. D123
 - [x] Добавить CI проверки архитектурных направлений и новых скрытых IO только в существующий CI.
 - [x] Подготовить инструкции расширения профилей, рецептов, UI и adapters.
 - [x] Подготовить воспроизводимые install/update/rollback/DR и межчатовый handoff.
-- [ ] Очистку Git, commit и push выполнять отдельно после классификации и явной проверки назначения; не затрагивать чужие upstream.
+- [x] Очистку Git, commit и push выполнять отдельно после классификации и явной проверки назначения; не затрагивать чужие upstream. (B1021: классификация WIP уже принята; независимая проверка Draft PR #182, main-based fast-forward и отдельного push на принятую ветку, без merge/deploy; 2026-11-26.)
 
 
 ### 3. Обязательный чеклист каждого модульного изменения
@@ -1477,3 +1477,14 @@ The candidate `.git` directory is sandbox read-only. A non-shallow local clone o
 
 ## 2026-11-26 — B961 controller acceptance: final RC software gates
 Accepted independently on persistent E-drive RC at HEAD aabfef1c65d61c6c20418f38bb720796472f6941. B961 exact candidate-bound native Windows CPython 3.12.10 full isolated discovery: 4016 tests, 183 platform SKIP, 3833 successful, zero FAIL/ERROR, exit 0, 452.525 s. Matching B961_RUNTIME_BEFORE.csv and B961_RUNTIME_AFTER.csv inventories cover four existing root runtime-state files; paths, lengths, SHA256 and CSV bytes identical, RUNTIME_EQUAL=1. Historical B949 lacked an after-inventory; B961 does not reinterpret that older run. Full B961 report is reports/B961_ACCEPTANCE.md. B960 seven-module six-class offline cohort 104/104 PASS; B958 source assembly independently reproduced 1730 retained source/evidence files; B961 controller checked 545 production source files byte-equal B928 ↔ RC, zero differences. The Windows project regression was run with project-local embedded CPython rather than a conventional .venv; version and installed dependencies matched the accepted candidate test environment. Four P8 SOFTWARE checkboxes closed: native Windows regression; six-class testing; full-suite runtime-file isolation; unified verified RC. Canonical P0–P9 advances 93/103 → 97/103; P8 live physical/admission and node104 deployment remain HOLD. P9 Git commit/push remains OPEN pending exact destination review. No production/device actions, no Git commit/push.
+
+
+## 2026-11-26 — B1022 three-way parallel acceptance and P9 Git source gate closure
+
+B1019, B1020 and B1021 all finished via the existing own-chat Wake Bridge R7.3 completion hook; controller independently inspected their exact reports and checked GitHub. B1019 reproduced the immutable HEAD 775c856 source archive (1,754 tracked paths, SHA-256 393d6eb2e351167b9da1423ecee57cc88b220438f963c3288e414df9978d0f78) and five crash recovery simulations. The controller independently reran the real OFFLINE stage CLI on WSL /tmp: **STAGE EXIT 0**, schema-3 manifest, `STAGED_OK` schema-2 marker, exact archive identity, tree_verified=true and directory_fsync=true. Original /mnt/e stage failure was only the Windows-mount Unix mode emulation (0664 requested, 0777 reported); no source defect found or patch made.
+
+B1020 produced the executable but **NOT RUN / NOT AUTHORIZED** supervised P3/P8 physical acceptance matrix in docs/acceptance/B1020_P3_P8_PHYSICAL_ACCEPTANCE.md. Controller independently corrected obsolete historical B16 instructions: the current source performs same-value Vset/Iset writes only, NO OVP/OCP threshold programming, and no Output ON attempts on injected stale Vset; the old four-setter runbook is prominently marked historical. Also removed circular prerequisite (bench P3 requires explicit supervised test approval, not final P8 release acceptance before P3). Final P8 release acceptance must follow real P3 evidence; no node104/ESP/HA/Output/firmware/hardware action occurred.
+
+B1021 classified accepted Git source paths and identified no proven tracked generated artifacts/private credentials to delete; only source/history files retained. Controller verified GitHub main-based feature PR #182 exactly 21 commits ahead, 0 behind main, merge base 70074de154b4c6f44614f2b4cfddf6ac77c55fbb, and current source CI #2243 / ESPHome dummy-secrets build #162 both SUCCESS. Canonical P9 already marked earlier WIP classification and release candidate accepted; the separately reviewed, verified-destination fast-forward commits/pushes into only Draft PR #182 satisfy the last quoted P9 source Git workflow checkbox, now explicitly marked [x] in all five copies of the canonical first plan. **P0–P9 advances 97/103 to 98/103**, with exactly **three P3** and **two P8** conditions still open. P9 source/Git status ACCEPTED does NOT permit final main merge, deployment or release.
+
+Historical RELEASES.md text referring to old OVP/OCP offsets and forced Mix is retained with a prominent superseded warning; current behavior governed by canonical source, not 2026-03-07 historical draft. All three reports and B1022 reconciled evidence located in this isolated feature source: B1019_REPORT.md, B1020_REPORT.md, B1021_REPORT.md, docs/acceptance/B1020_P3_P8_PHYSICAL_ACCEPTANCE.md, docs/acceptance/B1022_OFFLINE_SOURCE_GATE_RECONCILIATION.md. No production/source logic, service, equipment, firmware, actuator, transport, lease or node was modified; P3/P8 remain HOLD and Draft PR #182 remains unmerged. Next only an explicitly supervised P3 bench acceptance then P8 final release decision and separate source-paired node104 deployment consideration. No more source splits without an evidenced owner defect.

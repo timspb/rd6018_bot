@@ -1,5 +1,16 @@
 # Релизы
 
+
+**Historical release notes — not the current source candidate.**
+The `Unreleased (2026-03-07)` section below is historical/draft text,
+not approved release instructions. Its OVP/OCP offset programming
+and unconditional Main-to-Mix claims are superseded by the accepted
+runtime/safety canon. No automatic OVP/OCP programming is permitted.
+The current V3 source candidate is reviewed in Draft PR #182;
+new release notes must be compiled from the actual accepted release
+candidate after P3/P8 physical acceptance. Preserve these older lines
+only as history.
+
 ## Unreleased (2026-03-07)
 
 ### Изменения логики и защит

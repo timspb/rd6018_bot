@@ -1,5 +1,16 @@
 # B16 — fresh programmed-readback physical validation
 
+
+**HISTORICAL — SUPERSEDED B16 INSTRUCTIONS; DO NOT RUN AS WRITTEN.**
+The 2026 B16 steps below describe an obsolete four-setter
+OVP/OCP/V/I transaction. Current accepted owner canon forbids software
+programming of OVP/OCP thresholds; the actual current
+`physical_test_control_programmed_readback.py` uses only same-value
+**Vset/Iset** writes. The historical steps remain as an audit record, NOT
+as current bench approval. For a future authorized V/I-only bench test,
+use `docs/acceptance/B1020_P3_P8_PHYSICAL_ACCEPTANCE.md` and independently
+confirm the exact installed B16 source before actuation.
+
 Status: **repo/software ready; physical validation pending**.
 
 This gate closes item B16 in `V2_VALIDATION_PLAN.md`: after a new OVP/OCP/V/I
