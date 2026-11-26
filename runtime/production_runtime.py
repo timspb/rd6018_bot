@@ -94,7 +94,7 @@ from database import add_record, cleanup_old_records, get_graph_data_with_temp, 
 from hass_api import HassClient
 from rd6018_telemetry import as_bool, telemetry_freshness, finite_float
 from runtime.charge.evidence.temperature_source_journal import TemperatureSourceJournalObserver
-from runtime.charge.evidence.mix_progress_journal import dispatch_mix_progress_journal
+from runtime.charge.evidence.charge_cycle_journal import record_charge_cycle_journal
 from time_utils import format_time_user_tz
 import html
 from runtime.ui.components.hmi_values import (
@@ -372,7 +372,6 @@ soft_watchdog_outage_reported: bool = False
 SOFT_WATCHDOG_TIMEOUT = 6 * 60
 MIN_START_TEMP = 10.0  # °C — заряд не начинаем, если внешний датчик ниже
 last_checkpoint_time: float = 0.0
-_event_log_last_at: Dict[str, float] = {}
 
 MANUAL_OFF_FILE = "manual_off_state.json"
 _operator_off_conditions = OperatorOffConditions()
@@ -527,23 +526,6 @@ def _log_temperature_source_if_changed(live, *, stage, voltage, current, tempera
         temperature=temperature, ah=ah, session_id=session_id,
         log_event=log_event,
     )
-
-
-def _should_skip_noisy_log_event(stage: str, event: str, now_ts: Optional[float] = None) -> bool:
-    """
-    Подавление шумных повторов в журнале.
-    Сейчас ограничиваем поток EMERGENCY_UNAVAILABLE: не чаще 1 раза в 10 минут.
-    """
-    ev = (event or "").strip()
-    if ev != "EMERGENCY_UNAVAILABLE":
-        return False
-    key = f"{stage}:{ev}"
-    now_val = now_ts if now_ts is not None else time.time()
-    last = _event_log_last_at.get(key, 0.0)
-    if now_val - last < 600:
-        return True
-    _event_log_last_at[key] = now_val
-    return False
 
 
 def _runtime_execution_port():
@@ -1221,68 +1203,28 @@ async def data_logger() -> None:
                     ) if _runtime_execution_port().session_recovery_guard.may_run_automatic_control() else {})
                     if actions.get("notify"):
                         _charge_notify(str(actions["notify"]))
-                    if prev_stage != charge_controller.current_stage:
-                        log_event(
-                            charge_controller.current_stage,
-                            battery_v,
-                            i,
-                            t,
-                            ah,
-                            f"STAGE_CHANGE | {prev_stage} -> {charge_controller.current_stage}",
-                        )
-
-                    end = actions.get("log_event_end")
-                    if end:
-                        log_stage_end(
-                            end["stage"],
-                            end["v"],
-                            end["i"],
-                            end["t"],
-                            end["ah"],
-                            end["time_sec"],
-                            end["ah_on_stage"],
-                            end["trigger"],
-                        )
-                    if actions.get("log_event_sub"):
-                        log_event(
-                            end["stage"] if end else charge_controller.current_stage,
-                            battery_v,
-                            i,
-                            t,
-                            ah,
-                            actions["log_event_sub"],
-                        )
-                    if actions.get("log_event"):
-                        event_name = str(actions["log_event"])
-                        if not _should_skip_noisy_log_event(charge_controller.current_stage, event_name, now_ts):
-                            log_event(
-                                charge_controller.current_stage,
-                                battery_v,
-                                i,
-                                t,
-                                ah,
-                                event_name,
-                            )
-
-                    if charge_controller.is_active and (now_ts - last_checkpoint_time >= 600):
-                        log_checkpoint(charge_controller.current_stage, battery_v, i, t, ah)
-                        if charge_controller.current_stage == charge_controller.STAGE_MIX:
-                            dispatch_mix_progress_journal(
-                                live,
-                                getattr(charge_controller, "_v2_session_signal_context", None),
-                                stage=charge_controller.STAGE_MIX,
-                                session_id=getattr(charge_controller, "_v2_trace_session_id", None),
-                                now_s=now_ts,
-                                max_age_s=float(WATCHDOG_TIMEOUT_S.default),
-                                hold_started_at=getattr(charge_controller, "finish_timer_start", None),
-                                voltage_v=battery_v,
-                                current_a=i,
-                                temperature_c=t,
-                                ah=ah,
-                                journal=log_event,
-                                warn=logger.warning,
-                            )
-                        last_checkpoint_time = now_ts
+                    last_checkpoint_time = record_charge_cycle_journal(
+                        previous_stage=prev_stage,
+                        current_stage=charge_controller.current_stage,
+                        actions=actions,
+                        charge_active=charge_controller.is_active,
+                        last_checkpoint_time=last_checkpoint_time,
+                        now_s=now_ts,
+                        voltage_v=battery_v,
+                        current_a=i,
+                        temperature_c=t,
+                        ah=ah,
+                        live=live,
+                        signal=getattr(charge_controller, "_v2_session_signal_context", None),
+                        session_id=getattr(charge_controller, "_v2_trace_session_id", None),
+                        hold_started_at=getattr(charge_controller, "finish_timer_start", None),
+                        mix_stage=charge_controller.STAGE_MIX,
+                        max_age_s=float(WATCHDOG_TIMEOUT_S.default),
+                        log_event=log_event,
+                        log_stage_end=log_stage_end,
+                        log_checkpoint=log_checkpoint,
+                        warn=logger.warning,
+                    )
                     
                     # Очистка БД и журнала событий каждые 24 часа (записи старше 30 дней)
                     if now_ts - last_cleanup_time >= 86400:  # 24 часа

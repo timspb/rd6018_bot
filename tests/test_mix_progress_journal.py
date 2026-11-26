@@ -108,13 +108,13 @@ class MixProgressJournalTests(unittest.TestCase):
 
     def test_runtime_keeps_checkpoint_dispatch_timestamp_order(self):
         from pathlib import Path
-        source = (Path(__file__).resolve().parents[1] / "runtime" / "production_runtime.py").read_text(encoding="utf-8")
-        start = source.index("if charge_controller.is_active and (now_ts - last_checkpoint_time >= 600):")
-        end = source.index("# Очистка БД", start)
-        block = source[start:end]
-        self.assertLess(block.index("log_checkpoint("), block.index("dispatch_mix_progress_journal("))
-        self.assertLess(block.index("dispatch_mix_progress_journal("), block.index("last_checkpoint_time = now_ts"))
-        self.assertIn(">= 600", block)
+        root = Path(__file__).resolve().parents[1]
+        runtime = (root / "runtime" / "production_runtime.py").read_text(encoding="utf-8")
+        owner = (root / "runtime" / "charge" / "evidence" / "charge_cycle_journal.py").read_text(encoding="utf-8")
+        self.assertIn("last_checkpoint_time = record_charge_cycle_journal(", runtime)
+        self.assertLess(owner.index("log_checkpoint("), owner.index("dispatch_mix_progress_journal("))
+        self.assertLess(owner.index("dispatch_mix_progress_journal("), owner.index("last_checkpoint_time = now_s"))
+        self.assertIn("now_s - last_checkpoint_time >= 600", owner)
 
 
 if __name__ == "__main__":
