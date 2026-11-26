@@ -7930,3 +7930,48 @@ runtime/entrypoint rerun; keep physical/release HOLD unchanged.
 
 ## 2026-11-26 — B1004 independent controller acceptance (R7.3)
 Wake R7.3 completion event e6aa06b4e8954c4cad7cbaba6398965a for run rd6018-b1004-20261126-r73-recovery-cycle received; current chat inspector returned server ACK attempt_count=1. Source base was exact de4eb385014911f725dfe6f5d80b36fe871fb9dc. Controller independently reviewed the production_runtime and session_recovery_service diffs and new route/cold-start/quarantine tests. Recovery selection/three-route orchestration moved into existing application SessionRecoveryService; the single runtime owner lock, unchanged ExecutionPort, lazy port lookup, SessionRecoveryGuard/quarantine, Output and Safe Wait route-specific execution, startup observation and checkpoint ownership remain. No second manager/loop/service/state store. Current HOME-PC WSL Python3.12 project venv, PYTHONPATH=.:tests:tools, inert fake TG_TOKEN: recovery policy, cold start, application service, architecture contract, new cycle and production entrypoint **55/55 PASS (exit0)**; the previously sandbox-interrupted genuine data_logger recovery/quarantine integration **4/4 PASS (exit0)** as its own module. Total independently checked 59/59. Scoped py_compile and git diff --check PASS. This is accepted source-only decomposition, NOT full suite, production hardware, node104, firmware, HA/ESP or release acceptance. P0-P9 remains 97/103; P3/P8/P9 HOLD. PR #182 remains draft and not modified. Next bounded decomposition should reduce remaining production_runtime responsibilities only where a single established owner exists, not add wrappers or artificial acceptance gates.
+## 2026-11-26 — B1005 data_logger telemetry observation ownership (source only)
+
+At exact base HEAD `7c9a53dc6d7300e187dc79e5d2cf4823e24e93fb` on
+`codex/rd6018-b1005-live-observation-20261126`, the current-cycle parsing and
+HMI fact-text construction were extracted from `data_logger()` into
+`runtime.telemetry.source.observe_data_logger_cycle()`. It returns a frozen,
+non-persisted `DataLoggerObservation`. Existing `normalize_live()` and
+`TelemetrySnapshot` are not suitable as the contract itself: the normalizer
+prefers `voltage` over `battery_voltage`, normalizes switch booleans and parses
+protection telemetry, all of which differ from or cross the data_logger
+boundary. The new projection therefore lives with the existing telemetry
+source owner, preserves the exact old key/value semantics, and carries no
+freshness or protection state.
+
+`data_logger()` still owns best-effort temperature-source journal dispatch,
+Output and setpoint mirror updates via `controller_state`, `_sync_total_start`
+with its unchanged `time.time()` source and `allow_init=False`, protection
+decision/effects, operator-OFF, DB record, pause, recovery, MAIN Guard and
+controller tick order. Temperature journal still receives raw `temp_ext`;
+switch `None`/unknown stays available for the original mirror guard; setpoint
+mirroring still requires both observed values >0. Raw protection is not
+projected. No safety, route, physical action or freshness behavior changed.
+
+Changed paths: `runtime/telemetry/source.py`,
+`runtime/production_runtime.py`, `tests/test_data_logger_observation.py`,
+`B1005_REPORT.md`, this runbook, `docs/assistant/RD6018_CURRENT_CHECKPOINT.md`,
+`docs/RD6018_MODULARIZATION_MASTER_PLAN_2026-11-12.md`, and
+`docs/RD6018_MODULARIZATION_HANDOFF_CANON.md`.
+
+Evidence: inert test-token HOME-PC Python 3.12 venv focused telemetry source,
+new observation parity and recovery/quarantine regression: **11/11 PASS**;
+scoped `py_compile` PASS; `git diff --check` PASS. Initial parity expectation
+for `as_bool("yes")` was corrected to match the existing helper; the final
+cohort passed. No full CI, network, remote PR, node104, ESP/HA, device,
+firmware, deployment, physical action, staging, commit or push. Local/origin
+gap and node104 state not queried. R7.3 worker owns wake/completion and was
+not invoked here. P0–P9 remains **97/103**; P3 physical, P8 hardware/release,
+and P9 final release HOLD. Next: independent controller review and its normal
+WSL focused regression; checklist remains unchanged. Details in
+`B1005_REPORT.md`.
+
+
+## 2026-11-26 — B1005 independent controller acceptance; PR #182 CI regression repair
+Run rd6018-b1005-20261126-r73-live-observation completed with Luna exit0. Current-chat R7.3 completion event a39c3a816df74c6dbb65fa2605b3cf55 received and ACK verified with attempt_count=1 via own-route inspector. Exact starting source HEAD 7c9a53dc6d7300e187dc79e5d2cf4823e24e93fb. Independent source diff review confirms one read-only DataLoggerObservation model in EXISTING runtime/telemetry/source.py; original raw battery_v/output_v/current/power/temp (including raw temp_ext), manual-mode label, Output switch, CC/CV, setpoint mirrors and context formatting semantics retained. No independent polling, mutable store or protection authority; runtime still orders source provenance journal, controller mirrors, uptime, safety, operator-OFF, recovery, MAIN Guard and tick. Normal HOME-PC WSL project venv tests (telemetry read model, telemetry source, real data_logger recovery quarantine, telemetry, production entrypoint, session recovery cycle and contract) **51/51 PASS**, py_compile PASS, git diff --check PASS.
+Independent current-head PR #182 GitHub CI run 45780574363 (#2229), Python 3.10/3.11/3.12, completed FAILED in all three jobs after 4046 tests, exactly 1 ERROR + 1 FAIL each; ESPHome firmware dummy-secrets build #148 run 45780574376 SUCCESS, no device flash. Root causes of B1004 refactor detected from three actual GitHub job logs: tests/test_restore_terminal_guard.py imports disappeared runtime _restore_allows_auto_enable, and D072 source-ownership test still expects inlined recovery in production_runtime instead of SessionRecoveryService.run_cycle. Independent call-graph review showed first issue is a **REAL STARTUP RUNTIME contract regression**, not just stale tests: production_lifecycle.py and startup_recovery.py still call app._restore_allows_auto_enable and app._apply_restore_time_corrections. Controller restored both historical compatibility delegates on runtime.production_runtime (canonical restore authority stays in runtime.charge.persistence; time correction in runtime.startup_recovery), with no duplicate recovery engine, no added authority and identical call signatures/clock. D072 AST test now checks recovery + MAIN Guard + tick under same existing outer _guard_owner_lock and verifies 2 try_restore_session branches and existing three SessionRecoveryService physical routes; other existing physical owner contract assertions unchanged. Normal WSL targeted set including restore terminal guard, exact D072, production lifecycle shutdown, production entrypoint, new telemetry projection and live data_logger quarantine: **40/40 PASS**; both formerly failing CI test cases now pass. This is bounded B1005 source-only acceptance plus required B1004 startup compatibility repair; fresh full GitHub CI for the follow-up commit is required before claiming current-head green. Canonical P0-P9 remains **97/103**; P3/P8 physical and P9 release HOLD. PR #182 remains DRAFT; do not merge/deploy or touch node104/ESP/HA/Output/firmware/services.

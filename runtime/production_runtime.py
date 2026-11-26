@@ -45,6 +45,7 @@ from runtime.charge.strategy.exit_variables import (
 from runtime.charge.persistence import (
     SESSION_FILE,
     paused_done_resume_is_authorized,
+    restore_allows_auto_enable,
 )
 from runtime.charge.controller_state import (
     mark_link_unavailable,
@@ -86,6 +87,7 @@ from hass_api import HassClient
 from rd6018_telemetry import as_bool
 from runtime.charge.evidence.temperature_source_journal import TemperatureSourceJournalObserver
 from runtime.charge.evidence.charge_cycle_journal import record_charge_cycle_journal
+from runtime.telemetry.source import observe_data_logger_cycle
 from time_utils import format_time_user_tz
 import html
 from runtime.ui.components.hmi_values import (
@@ -301,6 +303,11 @@ def initialize_runtime() -> None:
 
 
 hass.set_initializer(initialize_runtime)
+
+
+def _restore_allows_auto_enable(controller: Any) -> bool:
+    "Startup lifecycle compatibility; canonical policy stays in persistence."
+    return restore_allows_auto_enable(controller)
 
 
 def _is_chat_allowed(chat_id: int) -> bool:
@@ -571,6 +578,13 @@ def _sync_total_start_from_uptime(
     )
 
 
+def _apply_restore_time_corrections(charge_controller, live: Optional[Dict]) -> None:
+    "Startup lifecycle compatibility; time correction stays in startup recovery."
+    from runtime.startup_recovery import apply_restore_time_corrections
+
+    apply_restore_time_corrections(charge_controller, live, now_s=time.time())
+
+
 _last_restore_time: float = 0.0
 _script_start_time: float = time.time()
 
@@ -746,13 +760,24 @@ async def data_logger() -> None:
         link_lost_alert_sent = False
         soft_watchdog_outage_reported = False
         try:
-            battery_v = _safe_float(live.get("battery_voltage"))
-            output_v = _safe_float(live.get("voltage"))
-            i = _safe_float(live.get("current"))
-            p = _safe_float(live.get("power"))
-            temp_ext = live.get("temp_ext")
-            t = _safe_float(temp_ext)
-            ah = _safe_float(live.get("ah"))
+            manual_manager = globals().get("manual_session_manager")
+            manual_request = getattr(manual_manager, "request", None)
+            manual_active = bool(getattr(manual_manager, "is_active", False) and manual_request)
+            observation = observe_data_logger_cycle(
+                live,
+                manual_active=manual_active,
+                manual_mode_label=(
+                    getattr(manual_request, "operation_mode_label", "Ручной")
+                    if manual_active else None
+                ),
+            )
+            battery_v = observation.battery_voltage_v
+            output_v = observation.output_voltage_v
+            i = observation.current_a
+            p = observation.power_w
+            temp_ext = observation.external_temperature_raw
+            t = observation.external_temperature_c
+            ah = observation.amp_hours
             try:
                 _log_temperature_source_if_changed(
                     live, stage=charge_controller.current_stage,
@@ -763,25 +788,13 @@ async def data_logger() -> None:
                 # Observability is best-effort. It must not interrupt the
                 # established safety/charge control path.
                 logger.warning("TEMP_SOURCE journal unavailable: %s", type(exc).__name__)
-            is_cv = _canonical_bool(live, "is_cv")
-            is_cc = _canonical_bool(live, "is_cc")
-            output_switch = live.get("switch")
-            output_on = str(output_switch or "").lower() == "on"
-            battery_mode = str(live.get("battery_mode", "")).lower() == "on"
-            input_voltage = _safe_float(live.get("input_voltage"), 0.0)
-            temp_int = _safe_float(live.get("temp_int"), 0.0)
-            manual_manager = globals().get("manual_session_manager")
-            manual_request = getattr(manual_manager, "request", None)
-            manual_active = bool(getattr(manual_manager, "is_active", False) and manual_request)
-            mode = (
-                getattr(manual_request, "operation_mode_label", "Ручной")
-                if manual_active
-                else ("CV" if is_cv else ("CC" if is_cc else "режим не подтверждён"))
-            )
-            last_live_context = (
-                f"📊 Факт: V {battery_v:.2f}В | I {i:.2f}А | T {t:.1f}°C | "
-                f"режим {mode}"
-            )
+            is_cv = observation.is_cv
+            is_cc = observation.is_cc
+            output_switch = observation.output_switch
+            output_on = observation.output_on
+            input_voltage = observation.input_voltage_v
+            temp_int = observation.internal_temperature_c
+            last_live_context = observation.live_context
             
             # v2.5 Умный watchdog: обновляем последнее известное состояние выхода
             if output_switch is not None and str(output_switch).lower() not in ("unavailable", "unknown", ""):
@@ -790,8 +803,8 @@ async def data_logger() -> None:
                     output_switch is True or str(output_switch).lower() == "on",
                 )
             # Фактические уставки прибора — для сохранения в сессию (восстановление после перезапуска/потери связи)
-            set_v = _safe_float(live.get("set_voltage"))
-            set_i = _safe_float(live.get("set_current"))
+            set_v = observation.set_voltage_v
+            set_i = observation.set_current_a
             if set_v > 0 and set_i > 0:
                 set_observed_device_setpoints(
                     charge_controller,

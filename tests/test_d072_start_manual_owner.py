@@ -217,15 +217,12 @@ class D072OwnerTransactionTests(unittest.IsolatedAsyncioTestCase):
                 for stmt in node.body for child in ast.walk(stmt)
                 if isinstance(child, ast.Call)
             ]
-            recovery_effects = {
-                "recovery_execution.reenable_active",
-                "recovery_execution.restore_idle_link",
-                "recovery_execution.restore_output_on",
-            }
-            if ("run_charge_session_tick" in calls and
-                calls.count("charge_controller.try_restore_session") >= 2 and
-                recovery_effects <= set(calls)):
+            if ({"SessionRecoveryService.run_cycle",
+                 "run_main_guard_cycle",
+                 "run_charge_session_tick"} <= set(calls)):
                 candidates.append(node)
+        # Outer shared lock contains recovery, Guard and tick. The nested
+        # task-reentrant tick lock is not a competing recovery owner.
         self.assertEqual(len(candidates), 1)
         # D082 relocates execution, not the shared owner lock. Validate the
         # application use cases still dispatch only through the canonical port.
@@ -235,6 +232,20 @@ class D072OwnerTransactionTests(unittest.IsolatedAsyncioTestCase):
             n for n in service_tree.body
             if isinstance(n, ast.ClassDef) and n.name == "SessionRecoveryService"
         )
+        recovery_cycle = next(
+            n for n in service.body
+            if isinstance(n, ast.AsyncFunctionDef) and n.name == "run_cycle"
+        )
+        cycle_calls = [
+            ast.unparse(n.func) for n in ast.walk(recovery_cycle)
+            if isinstance(n, ast.Call)
+        ]
+        self.assertEqual(cycle_calls.count("controller.try_restore_session"), 2)
+        self.assertTrue({
+            "recovery_execution.reenable_active",
+            "recovery_execution.restore_idle_link",
+            "recovery_execution.restore_output_on",
+        } <= set(cycle_calls))
         expected = {
             "reenable_active": {"self._port.program_voltage",
                                 "self._port.program_current", "self._port.request_verified_on"},
