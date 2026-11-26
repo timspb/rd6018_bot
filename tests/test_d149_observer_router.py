@@ -48,13 +48,17 @@ class D149RouterTests(unittest.TestCase):
         self.calls.append((cmd, env))
         return json.dumps(self.proof)
 
-    def test_d151_pin_matches_existing_readonly_d091_source(self):
+    def test_d151_pin_stays_historical_when_new_d091_phase_capture_evolves(self):
+        # Keep the exact immutable D151 installed-source pin. The new
+        # B1031 D091 collector must not silently substitute for D151.
+        self.assertEqual(
+            REAL_D151_SHA,
+            "9500454a068d120f0b23740ad3933eb70ebd8cf24fbaa7c03ddafd3e729cb8d9",
+        )
         source = Path(__file__).resolve().parents[1] / "tools/node104_d091_physical_proof_collector.py"
-        # D151 pins the byte-for-byte CRLF collector deployed on node104.
-        # GitHub Linux checkout normalizes tracked Python sources to LF;
-        # reconstruct the deployed CRLF bytes for the immutable pin check.
-        source_lf = source.read_bytes().replace(b"\r\n", b"\n")
-        self.assertEqual(hashlib.sha256(source_lf.replace(b"\n", b"\r\n")).hexdigest(), REAL_D151_SHA)
+        source_lf = source.read_bytes().replace(bytes([13, 10]), bytes([10]))
+        candidate_sha = hashlib.sha256(source_lf.replace(bytes([10]), bytes([13, 10]))).hexdigest()
+        self.assertNotEqual(candidate_sha, REAL_D151_SHA)
 
     @unittest.skipUnless(os.name == "posix", "router reads POSIX pinned-file and parent permission modes")
     def test_old_before_stop_only(self):

@@ -150,14 +150,17 @@ def _native_callback_record(field: str, callback: tuple, inventory, now: float) 
         raise ro.ProofError("native measurement inventory identity mismatch: " + field)
     timestamp = ro._number(meta.get("subscription_timestamp_monotonic"))
     reported = _physical_value(field, value, ha=False)
-    return {"value": reported, "meta": {
+    record_meta = {
         "source": "esp_native_api", "object_id": field,
         "actual_object_id": object_id, "native_type": "SensorState",
         "entity_type": "SensorInfo", "native_key": key,
         "device_id": device_id, "status": "ok",
         "subscription_timestamp_monotonic": timestamp,
         "reported_at_epoch": now - age,
-    }}
+    }
+    if "connection_generation" in meta:
+        record_meta["connection_generation"] = meta["connection_generation"]
+    return {"value": reported, "meta": record_meta}
 
 
 def _validate_callback_cache_generation(field: str, callback: tuple, cached: dict) -> None:
