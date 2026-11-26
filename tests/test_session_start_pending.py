@@ -5,10 +5,20 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from runtime.charge import persistence, session_atomic
+from runtime.charge import persistence, session_atomic, start_pending
 
 
 class StartPendingPersistenceTests(unittest.TestCase):
+    def test_persistence_exports_the_canonical_start_pending_owner_objects(self):
+        names = (
+            "START_PENDING_KEY", "StartPendingAction", "StartPendingResult",
+            "StartPendingStatus", "_pending_start_document", "begin_start_pending",
+            "finish_start_pending", "read_start_pending",
+        )
+        for name in names:
+            with self.subTest(name=name):
+                self.assertIs(getattr(persistence, name), getattr(start_pending, name))
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.path = Path(self.tmp.name) / "charge_session.json"

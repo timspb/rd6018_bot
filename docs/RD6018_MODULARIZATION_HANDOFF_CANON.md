@@ -47,7 +47,7 @@
 | Safety | `runtime/safety/*` | Явный guard owner, приоритет OPP/unknown/OFF, тесты всех цепочек |
 | Physical | `application/execution_port.py`, `runtime/physical/*`, `hass_api.py` | Единственный production path, V/I before write, ON/OFF + Native receipts |
 | Telemetry/Evidence | telemetry readers, `runtime/charge/evidence/*` | Freshness, provenance, sample/decision split |
-| Session/Persistence | `runtime/charge/persistence.py`, `session_atomic.py`, Manual store | Schema, stale/retired, atomic writes, no partial host state on reject |
+| Session/Persistence | `runtime/charge/start_pending.py`, `runtime/charge/persistence.py`, `session_atomic.py`, Manual store | START_PENDING envelope lifecycle; canonical schema/restore; single atomic writer; no partial host state on reject |
 | Recovery/Ownership | startup/recovery, rd_control_mode, adopted MIX | HANDS_OFF/PB_MANAGED, restart and lost-link parity, no hidden rearm |
 | UI | Telegram/dashboard/HMI | Input/UX separate from owner/state/physical effects |
 | Integrations | HA/ESP/Wake/AI adapters | Pluggable interfaces, host/credentials swaps without domain edits |
@@ -4180,3 +4180,24 @@ changed. Exact evidence and limitations are in `B1014_REPORT.md` and
 ## 2026-11-26 — B1014 independent acceptance and owner-map correction
 R7.3 completed run rd6018-b1014-20261126-r73-signal-snapshot, event 769fe305c853403f8e4ee64bd0b2b4d9 received and own-route inspector verified server ACK attempt_count=1. Base exact 105c5ef31e6a3dc5e10d4b09f641ffee18f355b3. Independently reviewed source and confirmed two unchanged signal diagnostic read functions now owned by runtime/charge/evidence/signal_diagnostic_snapshot.py; diagnostics.py is direct object-identical compatibility re-export, ManagedChargeController delegates unaffected. Original function AST 2/2 parity and re-export identity 2/2 PASS. Existing read-only mode, Output, freshness, analyzer evidence, last sample rejection semantics all identical; no mutation/authority/IO, new scheduler, state or physical port. Corrected owner map documentation to state BOTH read projections live in the new single evidence owner; former docs sentence incorrectly claimed one remained owned by diagnostics.py.
 Independent HOME-PC WSL Python3.12 project venv (inert fake TG_TOKEN, PYTHONPATH=.:tests:tools), six relevant modules including signal snapshots, D123 P2 trace, D123 P4 ownership, HMI auto stage, operator HMI and production entrypoint: **96/96 PASS exit0**, 15.017s; selected py_compile and git diff --check PASS. GitHub on PREVIOUS HEAD 105c5ef CI #2238 run 45797883159 SUCCESS and ESPHome source/dummy-secrets #157 run 45797883417 SUCCESS, not device flash; B1014 new head CI pending publication. B1014 accepted as SOURCE ONLY. P0–P9 unchanged **97/103** (documentary count only); physical P3/P8 and release P9 HOLD. No node104/HA/ESP/RD6018 Output/firmware/service, production, original dirty WIP or main change.
+
+
+## 2026-11-26 — B1015 canonical START_PENDING envelope owner extraction
+
+Run `rd6018-b1015-20261126-r73-start-pending-owner`, branch
+`codex/rd6018-b1015-start-pending-owner-20261126`; exact base/code HEAD
+`75bb80a4333aeae174ae00ad20f360a88845a4f5`, uncommitted. The START_PENDING
+envelope types, decoder, begin, and finish implementations moved intact to
+`runtime/charge/start_pending.py`. `runtime/charge/persistence.py` directly
+re-exports identical function/type objects and keeps its existing callers.
+`session_atomic.py` remains the sole canonical session writer. Decoder/CAS/hash,
+rollback exact bytes or absence, readback, uncertain outcomes, writer fencing,
+and physical START transaction behavior are unchanged.
+
+Exact AST parity against base: 7/7; compatibility identity contract: 8/8.
+Focused Python 3.12 tests: 60/60 PASS, plus D061 OFF-pending recovery 3/3
+PASS. Scoped `py_compile` and `git diff --check` PASS. No full suite or CI.
+Node104/HANDS_OFF/deployment and local/origin gap were not queried. No
+network/GitHub, device/ESP/HA, firmware, physical, service, staging, commit, or
+push action. P0–P9 remains 97/103; P3/P8 physical and P9 release HOLD. Exact
+paths, commands, limitations and next owner slice are in `B1015_REPORT.md`.
