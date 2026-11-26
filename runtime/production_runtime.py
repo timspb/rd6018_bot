@@ -11,7 +11,7 @@ import os
 import re
 import sys
 import time
-from types import SimpleNamespace
+from types import MappingProxyType, SimpleNamespace
 
 import aiohttp
 from datetime import datetime, timedelta
@@ -103,6 +103,11 @@ from application.operator_snapshot_provider import (
 from pb_domain import BatteryCondition, ChargeIntent
 from manual_mode import ManualUIIntent
 from runtime.ui.components.off_condition_status import format_operator_off_conditions
+from runtime.ui.components.stage_progress import (
+    format_eta_compact as _format_eta_compact_impl,
+    format_seconds_compact as _format_seconds_compact_impl,
+    render_stage_progress_line,
+)
 from runtime.ui.telegram.text_input_parser import (
     parse_off_command as _parse_off_command_impl,
     parse_three_values as _parse_three_values_impl,
@@ -1491,137 +1496,75 @@ def _strip_html_tags(text: str) -> str:
 
 
 def _format_eta_compact(raw_eta: Any) -> str:
-    """Сделать ETA читабельным для мобильного дашборда."""
-    s = str(raw_eta or "").strip()
-    if not s or s == "—":
-        return "—"
-    if ":" in s:
-        parts = s.split(":")
-        if len(parts) == 2:
-            try:
-                h = int(parts[0])
-                m = int(parts[1])
-                if h > 0:
-                    return f"{h}ч {m:02d}м"
-                return f"{m}м"
-            except ValueError:
-                return s
-    return s
+    """Compatibility adapter for existing dashboard callers."""
+    return _format_eta_compact_impl(raw_eta)
 
 
 def _format_seconds_compact(seconds: Any) -> str:
-    """Short human-friendly duration."""
-    try:
-        total = int(float(seconds))
-    except (TypeError, ValueError):
-        return "—"
-    if total <= 0:
-        return "0м"
-    hours = total // 3600
-    mins = (total % 3600) // 60
-    if hours and mins:
-        return f"{hours}ч {mins:02d}м"
-    if hours:
-        return f"{hours}ч"
-    return f"{max(1, mins)}м"
+    """Compatibility adapter for existing dashboard callers."""
+    return _format_seconds_compact_impl(seconds)
 
 
 def _format_stage_progress_line(live: Dict[str, Any]) -> str:
-    """Compact stage target/fact/remaining line for dashboard cards."""
+    """Collect current read-only strategy inputs, then delegate presentation."""
     if not charge_controller.is_active:
         return ""
-
     current_v = _safe_float(live.get("battery_voltage"))
     current_i = _safe_float(live.get("current"))
     temp_ext = _safe_float(live.get("temp_ext"))
     snapshot = _safe_stage_snapshot(temp_ext)
-    timers = snapshot.get("timers") or {}
     hold = snapshot.get("hold") or {}
     is_cv = _canonical_bool(live, "is_cv")
     is_cc = _canonical_bool(live, "is_cc")
     stage = charge_controller.current_stage
-    remaining = _format_eta_compact(timers.get("remaining_time", "—"))
-
-    def _line(target: str, fact: str, rem: str, reached: bool, suffix: str = "") -> str:
-        mark = "✅" if reached else "⚪"
-        tail = f" {suffix}" if suffix else ""
-        return f"🎯 {target} | {mark} {fact} | ⏳ {rem}{tail}"
-
     kind = str(hold.get("kind") or "").lower()
-    if hold:
-        if "low-current hold" in kind:
-            threshold = _safe_float(hold.get("threshold_a"))
-            target = f"I≤{threshold:.2f}A"
-            fact = f"I {current_i:.2f}A"
-            reached = bool(hold.get("active")) or current_i <= threshold
-            if reached:
-                return _line(target, fact, html.escape(str(hold.get("remaining_text") or remaining)), True, "до Mix")
-            return _line(target, fact, _format_seconds_compact(hold.get("required_sec")), False, "hold")
-
-        if "desulf timer" in kind:
-            fact = html.escape(str(hold.get("elapsed_text") or timers.get("stage_time", "—")))
-            return _line("2ч", fact, html.escape(str(hold.get("remaining_text") or remaining)), False, "до SAFE_WAIT")
-
-        if "mix delta timer" in kind:
-            fact = html.escape(str(hold.get("elapsed_text") or timers.get("stage_time", "—")))
-            return _line("Δ подтверждена", f"таймер {fact}", html.escape(str(hold.get("remaining_text") or remaining)), True, "до SAFE_WAIT")
-
-        if "safe wait" in kind:
-            threshold_v = _safe_float(hold.get("threshold_v"))
-            target = f"V≤{threshold_v:.2f}V"
-            fact = f"V {current_v:.2f}V"
-            reached = current_v <= threshold_v
-            return _line(target, fact, html.escape(str(hold.get("remaining_text") or remaining)), reached, "до выхода")
-
+    # Strategy predicates remain runtime-owned and are called only on the same
+    # branches that previously rendered their result.
+    exit_cv_reached = False
+    exit_cc_reached = False
+    needs_cv = False
+    needs_cc = False
+    needs_mix_delta = False
+    if hold and not any(token in kind for token in ("low-current hold", "desulf timer", "mix delta timer", "safe wait")):
         if stage == charge_controller.STAGE_MIX:
-            policy = snapshot.get("mix_exit_policy") or {}
-            mix_delta = charge_controller._mix_current_delta_threshold()
+            needs_mix_delta = True
             if charge_controller.finish_timer_start is not None:
-                if is_cv and charge_controller.i_min_recorded is not None:
-                    delta_now = max(0.0, current_i - charge_controller.i_min_recorded)
-                    fact = f"ΔI {delta_now:.3f}A"
-                    reached = charge_controller._exit_cv_condition(current_i)
-                    return _line(f"ΔI≥{mix_delta:.2f}A", fact, remaining, reached, "до SAFE_WAIT")
-                if is_cc and charge_controller.v_max_recorded is not None:
-                    delta_now = max(0.0, charge_controller.v_max_recorded - current_v)
-                    fact = f"ΔV {delta_now:.3f}V"
-                    reached = charge_controller._exit_cc_condition(current_v)
-                    return _line(f"ΔV≥{DELTA_V_EXIT:.2f}V", fact, remaining, reached, "до SAFE_WAIT")
-            return _line("Δ подтверждена", "таймер 2ч", remaining, True, "до SAFE_WAIT")
-
-        if is_cv:
-            base_i = charge_controller.i_min_recorded if charge_controller.i_min_recorded is not None else current_i
-            delta_now = max(0.0, current_i - base_i)
-            mix_delta = charge_controller._mix_current_delta_threshold()
-            target = f"ΔI≥{mix_delta:.2f}A"
-            fact = f"ΔI {delta_now:.3f}A"
-            reached = charge_controller._exit_cv_condition(current_i)
-        elif is_cc:
-            base_v = charge_controller.v_max_recorded if charge_controller.v_max_recorded is not None else current_v
-            delta_now = max(0.0, base_v - current_v)
-            target = f"ΔV≥{DELTA_V_EXIT:.2f}V"
-            fact = f"ΔV {delta_now:.3f}V"
-            reached = charge_controller._exit_cc_condition(current_v)
+                needs_cv = is_cv and charge_controller.i_min_recorded is not None
+                needs_cc = is_cc and charge_controller.v_max_recorded is not None
         else:
-            mix_delta = charge_controller._mix_current_delta_threshold()
-            target = f"ΔV≥{DELTA_V_EXIT:.2f}V / ΔI≥{mix_delta:.2f}A"
-            fact = f"V {current_v:.2f}V, I {current_i:.2f}A"
-            reached = False
+            needs_cv, needs_cc = is_cv, not is_cv and is_cc
+            needs_mix_delta = is_cv or not is_cc
+    mix_delta = charge_controller._mix_current_delta_threshold() if needs_mix_delta else None
+    if needs_cv:
+        exit_cv_reached = charge_controller._exit_cv_condition(current_i)
+    if needs_cc:
+        exit_cc_reached = charge_controller._exit_cc_condition(current_v)
 
-        fallback_hours = policy.get("fallback_limit_hours")
-        if isinstance(fallback_hours, (int, float)):
-            fallback_text = f"{int(fallback_hours)}ч" if float(fallback_hours).is_integer() else f"{fallback_hours:.1f}ч"
-        else:
-            fallback_text = remaining
-        return _line(target, fact, fallback_text or remaining, reached, "лимит")
-
-    if stage == charge_controller.STAGE_COOLING:
-        return _line("T≤35°C", f"АКБ {temp_ext:.1f}°C", "возврат после остывания", temp_ext <= 35.0)
-
-    if stage == charge_controller.STAGE_DESULFATION:
-        return _line("2ч", html.escape(str(timers.get("stage_time", "—"))), html.escape(str(timers.get("remaining_time", "—"))), False, "до SAFE_WAIT")
-
-    return ""
+    render_snapshot = MappingProxyType({
+        "timers": MappingProxyType(dict(snapshot.get("timers") or {})),
+        "hold": MappingProxyType(dict(snapshot.get("hold") or {})),
+        "mix_exit_policy": MappingProxyType(dict(snapshot.get("mix_exit_policy") or {})),
+    })
+    return render_stage_progress_line(MappingProxyType({
+        "is_active": charge_controller.is_active,
+        "snapshot": render_snapshot,
+        "current_v": current_v,
+        "current_i": current_i,
+        "temp_ext": temp_ext,
+        "stage": stage,
+        "stage_mix": charge_controller.STAGE_MIX,
+        "stage_cooling": charge_controller.STAGE_COOLING,
+        "stage_desulfation": charge_controller.STAGE_DESULFATION,
+        "is_cv": is_cv,
+        "is_cc": is_cc,
+        "i_min_recorded": charge_controller.i_min_recorded,
+        "v_max_recorded": charge_controller.v_max_recorded,
+        "finish_timer_active": charge_controller.finish_timer_start is not None,
+        "mix_current_delta_threshold": mix_delta,
+        "delta_v_exit": DELTA_V_EXIT,
+        "exit_cv_reached": exit_cv_reached,
+        "exit_cc_reached": exit_cc_reached,
+    }))
 
 
 def _safe_stage_snapshot(temp_ext: Optional[float]) -> Dict[str, Any]:

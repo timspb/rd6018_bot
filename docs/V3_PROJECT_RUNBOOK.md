@@ -28,6 +28,37 @@ controller review.
 
 # RD6018 Bot V3 Project Runbook
 
+## 2026-11-26 B983 — operator stage-progress renderer owner
+
+At supplied code HEAD `7b125ecf8833032af81407a3f5a6b6e5749bbe16`
+(`codex/rd6018-remove-dead-journal-renderer-20261126`, tracked-origin gap
+0/0), moved compact stage-progress output formatting into
+`runtime/ui/components/stage_progress.py`. The runtime
+`_format_stage_progress_line` remains the compatibility adapter used by
+`production_bot_ui.install_ui_support`, `ui_polish.py`, and `operator_hmi.py`.
+The runtime retains active-state and telemetry reads, `_safe_stage_snapshot`,
+controller evidence, Mix threshold and CV/CC exit-predicate calls; the pure
+component receives the relevant read-only snapshot projection and resolved
+predicate booleans. ETA and seconds formatting have pure component owners with
+the existing runtime callable names retained as adapters. Telegram routing,
+charge authority, timer ownership, and physical execution did not change.
+
+With the requested Python 3.12 venv, inert `TG_TOKEN`, and `PYTHONPATH=tests`,
+`test_dashboard_resilience test_ui_polish test_operator_hmi test_stage_progress`
+passed **61 tests**. `py_compile` for the runtime, new component and test, and
+`git diff --check` pass. Fake-only exact-output cases include MAIN low-current
+hold, desulf, Mix delta/safe-wait, Mix CV/CC, cooling, inactive and missing
+snapshot. Full discovery and live Telegram were not run. The inspected
+13-commit chain is linear through supplied B982 HEAD; caller/import mapping
+remains runtime API -> pure UI component, with existing UI wrappers intact.
+Recorded P0–P9 remains **97/103**; integrated P8/P9 and release gates remain
+open and this task does not claim to close them. Exact evidence is in
+`B983_REPORT.md`. Local changes are uncommitted; no node104 hands_off or
+deployment status is claimed. No node, ESP/HA, physical Output, network,
+production, deployment, install/update, commit or push action occurred. The
+R7.3 shared launcher was not invoked from this native CLI-only task. Next:
+independent controller review.
+
 ## 2026-11-26 B981 — legacy AI context read-model owner
 
 At supplied code HEAD `0ad42776d1007ad32ca7171c0a0afe4ace1e9a9d`, moved the

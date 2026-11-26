@@ -1,3 +1,35 @@
+## 2026-11-26 B983 — operator stage-progress renderer owner
+
+At supplied code HEAD `7b125ecf8833032af81407a3f5a6b6e5749bbe16`
+(`codex/rd6018-remove-dead-journal-renderer-20261126`; tracked-origin gap
+0/0), moved stage-progress text formatting from
+`runtime/production_runtime.py::_format_stage_progress_line` into the pure
+`runtime/ui/components/stage_progress.py`. The existing runtime API remains
+the compatibility call adapter for `production_bot_ui.install_ui_support`,
+`ui_polish.py`, and `operator_hmi.py`. Runtime continues to own live/state
+reads and strategy predicates; the component receives a read-only relevant
+snapshot projection and the predicate results. Existing ETA/seconds helper
+names are preserved as adapters. No UI routing, timer, charge, physical,
+deployment, or state-transition ownership changed.
+
+Focused fake-only invocation with inert syntactically valid `TG_TOKEN`,
+`PYTHONPATH=tests`, and `/home/home-pc/.venvs/pcp-test/bin/python`:
+`test_dashboard_resilience test_ui_polish test_operator_hmi test_stage_progress`
+— **61 PASS**. Exact-output coverage includes MAIN low-current hold, desulf,
+Mix delta and safe-wait, Mix CV/CC, COOLING, inactive and absent snapshot.
+Changed Python files pass `py_compile`; `git diff --check` passes. Full suite,
+live Telegram, node104, ESP/HA, deployment and physical state were not
+examined. HANDS_OFF/deployment status is not claimed. The source/docs changes
+remain uncommitted and code HEAD remains the supplied SHA; local/upstream
+commit gap is 0/0. Inspected `git log -13` is the linear B970–B982 source chain
+ending at B982 `7b125ec`; caller imports keep the runtime adapter and UI
+component boundary intact. P0–P9 remains **97/103**; integrated P8/P9 and
+release gates remain open, and this work does not promote the count. No node,
+Native ESP/HA, physical Output, network, production, deployment, install/update,
+commit, or push operation occurred. The existing R7.3 shared launcher was not
+invoked from this native CLI-only task. Evidence: `B983_REPORT.md`. Next:
+independent controller review.
+
 ## 2026-11-26 B982 — remove unreachable runtime journal renderer
 
 At isolated supplied code HEAD `7513c787447d30fa082c198378cd7329855989f0`
