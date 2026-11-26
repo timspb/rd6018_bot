@@ -8724,3 +8724,45 @@ remains separately authorized.
 ## 2026-11-26 — B1011 independently accepted after R7.3 completion
 B1011 Luna completed run rd6018-b1011-20261126-r73-native-catalog-browser exit0 from source base 419e3ceaf227c553144a43c2af7aac65ebde9e03. Current-chat R7.3 completion event ec89090333624f7b8c981bf0bd97c36d verified ACK attempt_count=1. Independent review confirms all three actual read-only native builtin Telegram catalog callback decorators/bodies transferred unchanged from recipe_buttons.py to new native_recipe_catalog_buttons.py, call installed at the same point in original app.router, one sole _recipe_buttons_installed guard, exact native draft 6 -> builtin 3 -> user browser 9 -> step editor 7 registration order. Pure native_recipe_markup implementation moved intact to EXISTING recipe_menu_view and re-exported from recipe_buttons as same concrete function object. No other catalog, persistence, Telegram, START, charge/safety or physical owner created. Exact AST callback 3/3 parity PASS, markup AST parity PASS and public re-export identity PASS; source size recipe_buttons 270 -> 165 LOC, new owner 96 LOC.
 Independent normal HOME-PC WSL Python3.12 venv with inert test TG_TOKEN: nine relevant modules including native catalog owner, catalog UI, native draft route, native selection, callback chain and production entrypoint — **65/65 PASS exit0** (1.246s). Scoped py_compile and git diff --check PASS. Prior GitHub head 419e3ce source CI #2235 run 45792798562 SUCCESS, ESPHome dummy-secrets firmware compile #154 run 45792798675 SUCCESS; do not attribute these checks to B1011 until new head CI succeeds. B1011 source-only ACCEPT. Canonical P0–P9 = 97/103; P3/P8 physical and P9 final release HOLD. No device/node104/ESP/HA/Output, firmware flash, service/release or original dirty WIP action. Next: local source commit with correct stage and safe fast-forward ONLY to Draft PR #182, then inspect whether remaining START selection/UI composition is a real owner split; no new framework or artificial authorization.
+
+## 2026-11-26 — B1012 START recipe selection callback owner extraction
+
+Source-only run `rd6018-b1012-20261126-r73-start-recipe-selection`, branch
+`codex/rd6018-b1012-start-recipe-select-20261126`, exact base/code HEAD
+`ca18ae290f17b2867ae56828193584a47b88bdcf`, working tree uncommitted. Exact
+changed paths: `runtime/ui/telegram/start_recipe_selection_buttons.py` (new),
+`runtime/ui/telegram/recipe_buttons.py`,
+`tests/test_b863_recipe_selection_ingress.py`,
+`docs/V3_PROJECT_RUNBOOK.md`, this checkpoint,
+`docs/RD6018_MODULARIZATION_MASTER_PLAN_2026-11-12.md`,
+`docs/RD6018_MODULARIZATION_HANDOFF_CANON.md`, and `B1012_REPORT.md`.
+START preview keyboard construction and both decorated recipe-selection
+callbacks now have one cohesive Telegram owner. Existing `recipe_buttons.py`
+re-exports the exact same three function objects; its original four installer
+calls, order and single `_recipe_buttons_installed` guard are AST-identical to
+base. `production_bot_ui.py` direct import and injected route composition were
+not changed. The only pending START object remains injected `_pending_start`;
+there is no new state, persistence, router, dispatcher, scheduler, START
+authorization or physical path. Native supported-execution validation stays
+in the existing `select_native_recipe_version` owner; user recipe structure
+checks stay with `inspect_recipe`.
+
+Exact base-source AST parity: both preview functions, selection installer and
+the two callback decorators/bodies PASS; outer registrar parity PASS; public
+compatibility function identity 3/3 PASS. Project venv Python 3.12 with inert
+TG_TOKEN and `PYTHONPATH=.:tests:tools`: requested eight modules PASS **58/58**.
+Scoped py_compile and `git diff --check` PASS. A preliminary AST command using
+unavailable bare `python` did not execute; its full check was rerun with the
+specified venv and passed. No full suite. Task context's PR #182 is DRAFT and
+current-head CI #2236 pending, neither queried. No node104/HANDS_OFF or
+local/origin query, network/GitHub, device, ESP/HA, firmware, Output, service,
+production, staging, commit or push. R7.3 completion remains with launcher;
+no manual hook/event/ACK claimed. P0–P9 remains **97/103**; P3 physical, P8
+hardware/release and P9 integration/release HOLD. Next: independent review of
+this uncommitted source diff; do not infer PR/CI acceptance from local tests.
+Exact report: `B1012_REPORT.md`.
+
+
+## 2026-11-26 — B1012 independently accepted via R7.3 current-chat completion
+R7.3 LOCAL_EXECUTOR_COMPLETED run rd6018-b1012-20261126-r73-start-recipe-selection event 59efd1fdaf664fd39899fb5a70edbd1c was acknowledged exactly once (own chat inspector attempt_count=1). Base exact ca18ae290f17b2867ae56828193584a47b88bdcf. Controller independent source diff review confirms actual two Telegram recipe-selection handler definitions and two START preview functions transferred intact from runtime/ui/telegram/recipe_buttons.py into new runtime/ui/telegram/start_recipe_selection_buttons.py; composer remains the one existing app.router installation guard and four ordered UI installer invocations. Existing production_bot_ui direct imports remain object-identical re-exports (3/3), pending_start injected sole state, original native/user recipe selectors, version pinning, ACL, callback names/messages and START execution boundary untouched. AST parity for all three owner functions including both decorated callback bodies PASS; composer AST identical PASS. recipe_buttons.py 165 → 37 LOC; new owner 145 LOC. No duplicate controller/router/START authority/hardware ExecutionPort.
+Independent normal HOME-PC WSL Python3.12 venv, PYTHONPATH=.:tests:tools, inert fake TG_TOKEN: 8 selected modules including native recipe pick, B863 ingress, empty preview, real callback chain, UI dependency injection, recipe menu, native buttons, production entrypoint **58/58 PASS exit0** (1.241s); scoped py_compile PASS, git diff --check PASS. Source-only B1012 ACCEPT, not hardware/release or current-head full CI. Prior GitHub source HEAD ca18ae2 CI #2236 run 45794478731 SUCCESS, ESPHome dummy-secrets source build #155 run 45794478726 SUCCESS; no firmware flashing. P0–P9 remains 97/103 documentary checkboxes, P3/P8 physical and P9 final release HOLD; no RD6018/node104/HA/ESP/Telegram service/device action. Next: stage/commit scoped B1012, fast-forward only existing PR #182 Draft branch, evaluate high-value architecture owner slice beyond UI rather than endless cosmetic extraction.

@@ -91,7 +91,7 @@ class RecipeSelectionIngressTests(unittest.IsolatedAsyncioTestCase):
             from_user=SimpleNamespace(id=7),
         )
         with patch(
-            "runtime.ui.telegram.recipe_buttons.inspect_recipe",
+            "runtime.ui.telegram.start_recipe_selection_buttons.inspect_recipe",
             return_value=SimpleNamespace(admissible_structure=True, problems=()),
         ):
             await router.handlers["pick_recipe_handler"](call)
