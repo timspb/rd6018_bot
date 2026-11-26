@@ -254,47 +254,22 @@ async def start_profile_transactional_result(app: Any, event: Any, pending: Any)
         return outcome(False)
 
     # The existing profile START energizes Output before the recipe runner
-    # receives its first step. OFF/WAIT-first drafts must never take that path.
-    selected_recipe = None
-    if getattr(pending, "recipe_id", None) is not None:
-        try:
-            catalog = app._user_recipe_catalog
-            from application.start_recipe_selection import select_user_recipe_for_start
-            selected_recipe = select_user_recipe_for_start(
-                catalog=catalog, recipe_id=str(pending.recipe_id),
-                version=int(pending.recipe_version),
-            )
-        except (AttributeError, TypeError, ValueError, OSError) as exc:
-            await message.answer(
-                "❌ Рецепт не готов к START: " + html.escape(str(exc)),
-                parse_mode=app.ParseMode.HTML,
-            )
-            return outcome(False)
-
-    # Resolve the exact native copy before any physical START. The original
-    # dynamic algorithm remains the owner; only its accepted settings differ.
-    selected_native = None
-    native_name = getattr(pending, "native_recipe_name", None)
-    if native_name is not None:
-        try:
-            if selected_recipe is not None:
-                raise ValueError("native and user step recipes are mutually exclusive")
-            from runtime.charge.programs.native_recipe_draft_library import NativeRecipeDraftLibrary
-            from runtime.charge.programs.native_recipe_session import select_native_recipe_version
-            catalog = app._user_recipe_catalog
-            library = NativeRecipeDraftLibrary(
-                catalog.library.root.parent / "native_recipe_drafts")
-            selected_native = select_native_recipe_version(
-                library, str(native_name),
-                int(getattr(pending, "native_recipe_version")),
-                profile=pending.profile, intent=pending.intent,
-            )
-        except (AttributeError, TypeError, ValueError, KeyError, OSError) as exc:
-            await message.answer(
-                "❌ Копия штатного рецепта не готова к START: "
-                + html.escape(str(exc)), parse_mode=app.ParseMode.HTML,
-            )
-            return outcome(False)
+    # receives its first step. Resolve both pinned variants in one application
+    # owner before preparing a detached candidate or beginning physical START.
+    from application.start_recipe_selection import (
+        StartRecipeSelectionFailure, resolve_start_recipe_selections,
+    )
+    selection = resolve_start_recipe_selections(app=app, pending=pending)
+    if isinstance(selection, StartRecipeSelectionFailure):
+        if selection.kind == "user":
+            text = "❌ Рецепт не готов к START: " + html.escape(str(selection.error))
+        else:
+            text = ("❌ Копия штатного рецепта не готова к START: "
+                    + html.escape(str(selection.error)))
+        await message.answer(text, parse_mode=app.ParseMode.HTML)
+        return outcome(False)
+    selected_recipe = selection.selected_recipe
+    selected_native = selection.selected_native
 
     battery_v = snapshot.battery_voltage_v
     current = snapshot.current_a

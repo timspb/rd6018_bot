@@ -42,4 +42,7 @@ class StartOffFirstGuardTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(app.hass.enable_kwargs)
             self.assertEqual(app.execution_port.off_calls, 0)
             self.assertIn("SET", msg.answers[-1][0])
+            self.assertTrue(msg.answers[-1][0].startswith(
+                "❌ Рецепт не готов к START:"))
+            self.assertEqual(msg.answers[-1][1].get("parse_mode"), ParseMode.HTML)
             self.assertEqual(catalog.library.versions("draft_test"), (1,))

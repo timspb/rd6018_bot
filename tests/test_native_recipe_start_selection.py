@@ -83,6 +83,9 @@ class NativeSelectionStartTests(unittest.IsolatedAsyncioTestCase):
                     app, message, pending))
                 self.assertFalse(app.charge_controller.started)
                 self.assertIsNone(app.hass.enable_kwargs)
+                self.assertTrue(message.answers[-1][0].startswith(
+                    "❌ Копия штатного рецепта не готова к START:"))
+                self.assertEqual(message.answers[-1][1].get("parse_mode"), "HTML")
             app.charge_controller.started = False
             message = FakeMessage()
             pending = types.SimpleNamespace(

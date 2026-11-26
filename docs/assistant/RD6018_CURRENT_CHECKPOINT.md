@@ -8766,3 +8766,32 @@ Exact report: `B1012_REPORT.md`.
 ## 2026-11-26 — B1012 independently accepted via R7.3 current-chat completion
 R7.3 LOCAL_EXECUTOR_COMPLETED run rd6018-b1012-20261126-r73-start-recipe-selection event 59efd1fdaf664fd39899fb5a70edbd1c was acknowledged exactly once (own chat inspector attempt_count=1). Base exact ca18ae290f17b2867ae56828193584a47b88bdcf. Controller independent source diff review confirms actual two Telegram recipe-selection handler definitions and two START preview functions transferred intact from runtime/ui/telegram/recipe_buttons.py into new runtime/ui/telegram/start_recipe_selection_buttons.py; composer remains the one existing app.router installation guard and four ordered UI installer invocations. Existing production_bot_ui direct imports remain object-identical re-exports (3/3), pending_start injected sole state, original native/user recipe selectors, version pinning, ACL, callback names/messages and START execution boundary untouched. AST parity for all three owner functions including both decorated callback bodies PASS; composer AST identical PASS. recipe_buttons.py 165 → 37 LOC; new owner 145 LOC. No duplicate controller/router/START authority/hardware ExecutionPort.
 Independent normal HOME-PC WSL Python3.12 venv, PYTHONPATH=.:tests:tools, inert fake TG_TOKEN: 8 selected modules including native recipe pick, B863 ingress, empty preview, real callback chain, UI dependency injection, recipe menu, native buttons, production entrypoint **58/58 PASS exit0** (1.241s); scoped py_compile PASS, git diff --check PASS. Source-only B1012 ACCEPT, not hardware/release or current-head full CI. Prior GitHub source HEAD ca18ae2 CI #2236 run 45794478731 SUCCESS, ESPHome dummy-secrets source build #155 run 45794478726 SUCCESS; no firmware flashing. P0–P9 remains 97/103 documentary checkboxes, P3/P8 physical and P9 final release HOLD; no RD6018/node104/HA/ESP/Telegram service/device action. Next: stage/commit scoped B1012, fast-forward only existing PR #182 Draft branch, evaluate high-value architecture owner slice beyond UI rather than endless cosmetic extraction.
+## 2026-11-26 — B1013 START pinned recipe-selection application owner
+
+Run `rd6018-b1013-20261126-r73-start-recipe-preflight`; exact base and
+code HEAD `1a029cd25333125cdf7857e514945f492a390000` on
+`codex/rd6018-b1013-start-recipe-preflight-20261126`, uncommitted. The
+existing `application/start_recipe_selection.py` now resolves user and native
+pinned selections through one call, delegating validation to the original
+selectors. START transaction response variants, user-first order, exclusivity,
+HTML escaping, exact admission point and all post-admission physical/transaction
+steps remain in their existing owners. Pending selection is read-only; no
+pending-start state change, new store, or physical capability was added.
+
+Validation with `/home/home-pc/.venvs/pcp-test/bin/python` (Python 3.12),
+`PYTHONPATH=.:tests:tools`, inert test token: selection/START/UI cohort
+**23/23 PASS**; targeted transaction success, durable pending-before-enable
+and runner-save rollback tests **3/3 PASS**; START recipe-selection ingress
+and pending-state tests **2/2 PASS**. Scoped `py_compile` and
+`git diff --check` PASS. A broader initial async cohort was interrupted when
+it stalled; no PASS claimed. No full suite/current-head CI. PR #182, CI #2237
+and ESPHome source #156 were supplied as context and not queried. No node104/
+HANDS_OFF or local/origin comparison, device/ESP/HA/hardware/firmware/Output,
+service/production, GitHub/network, stage/commit/push, or original dirty
+worktree action. No separate R7.3 hook/ACK. P0–P9 stays **97/103**; P3/P8
+physical and release and P9 final release HOLD. See `B1013_REPORT.md`.
+
+
+## 2026-11-26 — B1013 independent controller acceptance after R7.3 completion
+R7.3 run rd6018-b1013-20261126-r73-start-recipe-preflight finished exit0 and its exact current-chat wake completion event 9c403d06179649279d5208a094a04154 was server-ACKed (own-chat inspector attempt_count=1). Source base 1a029cd25333125cdf7857e514945f492a390000. Independent diff review confirms existing application/start_recipe_selection.py now solely coordinates pinned user and native immutable choice resolution, delegating unchanged user select_user_recipe_for_start and native select_native_recipe_version; branch-specific allowed exceptions and response variants unchanged. application/start_transaction_service.py keeps one resolver call, its same Russian HTML response and all downstream detached-candidate, START_PENDING, canonical readback, port.enable and OFF/rollback branches unchanged. No stateful manager/new start authority/physical execution port, no new gate or permit. SOURCE-ONLY B1013 ACCEPT.
+Normal HOME-PC WSL Python3.12 venv with inert fake TG_TOKEN, PYTHONPATH=.:tests:tools: 9 focused modules covering direct user/native selection, first-step SET, OFF-first refusal, native Telegram selection, B863 ingress, START validation/adapter/execution contract **37/37 PASS, exit0** (0.570s), plus Codex's additional 3 selected transactional lifecycle tests PASS. Targeted py_compile and git diff --check PASS. Earlier broad D109 async inherited-stall invocation not counted. GitHub actions on prior HEAD 1a029cd: CI #2237 run 45796043079 SUCCESS; ESPHome dummy-secrets source build #156 run 45796043125 SUCCESS, not firmware flash. Do not attribute this success to new B1013 until current-head CI runs. Checklist P0–P9 still 97/103, P3/P8 physical and P9 final integration/release HOLD. No node104, charger, ESP/HA, service, firmware, physical Output, main merge or original dirty WIP touched. Next commit exactly accepted source/docs, safely fast-forward ONLY existing Draft PR #182, then one real architecture owner slice rather than additional cosmetic UI or test churn.

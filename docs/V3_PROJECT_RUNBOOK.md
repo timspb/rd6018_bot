@@ -8227,3 +8227,42 @@ physical, P8 hardware/release and P9 integration/release remain HOLD. See
 ## 2026-11-26 — B1012 independently accepted via R7.3 current-chat completion
 R7.3 LOCAL_EXECUTOR_COMPLETED run rd6018-b1012-20261126-r73-start-recipe-selection event 59efd1fdaf664fd39899fb5a70edbd1c was acknowledged exactly once (own chat inspector attempt_count=1). Base exact ca18ae290f17b2867ae56828193584a47b88bdcf. Controller independent source diff review confirms actual two Telegram recipe-selection handler definitions and two START preview functions transferred intact from runtime/ui/telegram/recipe_buttons.py into new runtime/ui/telegram/start_recipe_selection_buttons.py; composer remains the one existing app.router installation guard and four ordered UI installer invocations. Existing production_bot_ui direct imports remain object-identical re-exports (3/3), pending_start injected sole state, original native/user recipe selectors, version pinning, ACL, callback names/messages and START execution boundary untouched. AST parity for all three owner functions including both decorated callback bodies PASS; composer AST identical PASS. recipe_buttons.py 165 → 37 LOC; new owner 145 LOC. No duplicate controller/router/START authority/hardware ExecutionPort.
 Independent normal HOME-PC WSL Python3.12 venv, PYTHONPATH=.:tests:tools, inert fake TG_TOKEN: 8 selected modules including native recipe pick, B863 ingress, empty preview, real callback chain, UI dependency injection, recipe menu, native buttons, production entrypoint **58/58 PASS exit0** (1.241s); scoped py_compile PASS, git diff --check PASS. Source-only B1012 ACCEPT, not hardware/release or current-head full CI. Prior GitHub source HEAD ca18ae2 CI #2236 run 45794478731 SUCCESS, ESPHome dummy-secrets source build #155 run 45794478726 SUCCESS; no firmware flashing. P0–P9 remains 97/103 documentary checkboxes, P3/P8 physical and P9 final release HOLD; no RD6018/node104/HA/ESP/Telegram service/device action. Next: stage/commit scoped B1012, fast-forward only existing PR #182 Draft branch, evaluate high-value architecture owner slice beyond UI rather than endless cosmetic extraction.
+## 2026-11-26 — B1013 START pinned recipe-selection application owner
+
+Source-only run `rd6018-b1013-20261126-r73-start-recipe-preflight`; branch
+`codex/rd6018-b1013-start-recipe-preflight-20261126`; exact base/code HEAD
+`1a029cd25333125cdf7857e514945f492a390000`, unstaged/uncommitted. Existing
+`application/start_recipe_selection.py` now owns resolution of both pinned
+START recipe variants through one `resolve_start_recipe_selections` call.
+It delegates user structural/first-SET validation and native supported-version
+admission to their existing selectors. It preserves user-first ordering,
+native/user mutual exclusion, branch-specific expected exception types,
+error text and HTML response. Unexpected errors still propagate. The START
+transaction keeps its physical preflight, detached candidate creation,
+START_PENDING lifecycle, single ExecutionPort enable, rollback and readback.
+No selection mutation or pending-start persistence was added.
+
+Changed paths: `application/start_recipe_selection.py`,
+`application/start_transaction_service.py`, three focused recipe-selection/
+START tests, this runbook, `docs/assistant/RD6018_CURRENT_CHECKPOINT.md`,
+`docs/RD6018_MODULARIZATION_MASTER_PLAN_2026-11-12.md`,
+`docs/RD6018_MODULARIZATION_HANDOFF_CANON.md`, and `B1013_REPORT.md`.
+Project venv Python 3.12 with inert `TG_TOKEN` and `PYTHONPATH=.:tests:tools`:
+focused selection/START/UI set **23/23 PASS**; targeted transaction success,
+pending-commit parity and runner-save rollback tests **3/3 PASS**; existing
+pending-start ingress tests **2/2 PASS**. Scoped
+`py_compile` and `git diff --check` PASS. An initial combined broad async test
+command was interrupted due to the known D109 hang risk; no result is claimed
+for that run. No full suite or CI. Task-supplied PR #182 / CI #2237 / ESPHome
+source #156 statuses were not queried and do not include this uncommitted
+source. No node104, ESP/HA, hardware, firmware, Output, production, service,
+network/GitHub, staging, commit, or push action. R7.3 completion remains with
+the launcher; no independent hook/ACK claim. P0–P9 remains **97/103**; P3/P8
+physical/release and P9 final integration/release HOLD. Next: independent
+source review, then separately authorized local integration and current-head
+CI verification.
+
+
+## 2026-11-26 — B1013 independent controller acceptance after R7.3 completion
+R7.3 run rd6018-b1013-20261126-r73-start-recipe-preflight finished exit0 and its exact current-chat wake completion event 9c403d06179649279d5208a094a04154 was server-ACKed (own-chat inspector attempt_count=1). Source base 1a029cd25333125cdf7857e514945f492a390000. Independent diff review confirms existing application/start_recipe_selection.py now solely coordinates pinned user and native immutable choice resolution, delegating unchanged user select_user_recipe_for_start and native select_native_recipe_version; branch-specific allowed exceptions and response variants unchanged. application/start_transaction_service.py keeps one resolver call, its same Russian HTML response and all downstream detached-candidate, START_PENDING, canonical readback, port.enable and OFF/rollback branches unchanged. No stateful manager/new start authority/physical execution port, no new gate or permit. SOURCE-ONLY B1013 ACCEPT.
+Normal HOME-PC WSL Python3.12 venv with inert fake TG_TOKEN, PYTHONPATH=.:tests:tools: 9 focused modules covering direct user/native selection, first-step SET, OFF-first refusal, native Telegram selection, B863 ingress, START validation/adapter/execution contract **37/37 PASS, exit0** (0.570s), plus Codex's additional 3 selected transactional lifecycle tests PASS. Targeted py_compile and git diff --check PASS. Earlier broad D109 async inherited-stall invocation not counted. GitHub actions on prior HEAD 1a029cd: CI #2237 run 45796043079 SUCCESS; ESPHome dummy-secrets source build #156 run 45796043125 SUCCESS, not firmware flash. Do not attribute this success to new B1013 until current-head CI runs. Checklist P0–P9 still 97/103, P3/P8 physical and P9 final integration/release HOLD. No node104, charger, ESP/HA, service, firmware, physical Output, main merge or original dirty WIP touched. Next commit exactly accepted source/docs, safely fast-forward ONLY existing Draft PR #182, then one real architecture owner slice rather than additional cosmetic UI or test churn.

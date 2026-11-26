@@ -2,7 +2,10 @@ import tempfile
 import unittest
 from unittest.mock import Mock
 
-from application.start_recipe_selection import select_user_recipe_for_start
+from application.start_recipe_selection import (
+    StartRecipeSelectionFailure, resolve_start_recipe_selections,
+    select_user_recipe_for_start,
+)
 from runtime.charge.programs.recipe_catalog import RecipeCatalog
 from runtime.charge.programs.recipe_library import RecipeLibrary
 
@@ -61,6 +64,76 @@ class StartRecipeSelectionTests(unittest.TestCase):
             select_user_recipe_for_start(
                 catalog=self.catalog, recipe_id="bad-flow", version=1,
             )
+
+    def test_application_owner_resolves_native_pin(self):
+        native = object()
+        pending = Mock(recipe_id=None, recipe_version=None,
+                       native_recipe_name="n", native_recipe_version=7,
+                       profile="EFB", intent="normal")
+        pending_before = vars(pending).copy()
+        app = Mock(_user_recipe_catalog=self.catalog)
+        with unittest.mock.patch(
+            "application.start_recipe_selection.select_user_recipe_for_start",
+        ) as select_user, unittest.mock.patch(
+            "runtime.charge.programs.native_recipe_session.select_native_recipe_version",
+            return_value=native,
+        ) as select_native:
+            selection = resolve_start_recipe_selections(app=app, pending=pending)
+
+        self.assertIsNone(selection.selected_recipe)
+        self.assertEqual(selection.selected_native, native)
+        select_user.assert_not_called()
+        select_native.assert_called_once()
+        self.assertEqual(select_native.call_args.args[1:], ("n", 7))
+        self.assertEqual(select_native.call_args.kwargs,
+                         {"profile": "EFB", "intent": "normal"})
+        self.assertEqual(app._user_recipe_catalog, self.catalog)
+        self.assertEqual(vars(pending), pending_before)
+
+    def test_mutually_selected_variants_reject_as_native_without_calling_native_selector(self):
+        pending = Mock(recipe_id="u", recipe_version=1,
+                       native_recipe_name="n", native_recipe_version=1,
+                       profile="EFB", intent="normal")
+        app = Mock(_user_recipe_catalog=self.catalog)
+        with unittest.mock.patch(
+            "application.start_recipe_selection.select_user_recipe_for_start",
+            return_value=object(),
+        ) as select_user, unittest.mock.patch(
+            "runtime.charge.programs.native_recipe_session.select_native_recipe_version",
+        ) as select_native:
+            failure = resolve_start_recipe_selections(app=app, pending=pending)
+
+        self.assertIsInstance(failure, StartRecipeSelectionFailure)
+        self.assertEqual(failure.kind, "native")
+        self.assertEqual(str(failure.error),
+                         "native and user step recipes are mutually exclusive")
+        select_user.assert_called_once()
+        select_native.assert_not_called()
+
+    def test_user_failure_keeps_user_variant_and_skips_native_lookup(self):
+        pending = Mock(recipe_id="stale", recipe_version=3,
+                       native_recipe_name="n", native_recipe_version=1)
+        app = Mock(_user_recipe_catalog=self.catalog)
+        with unittest.mock.patch(
+            "application.start_recipe_selection.select_user_recipe_for_start",
+            side_effect=ValueError("stale recipe"),
+        ), unittest.mock.patch(
+            "runtime.charge.programs.native_recipe_session.select_native_recipe_version",
+        ) as select_native:
+            failure = resolve_start_recipe_selections(app=app, pending=pending)
+
+        self.assertEqual((failure.kind, type(failure.error), str(failure.error)),
+                         ("user", ValueError, "stale recipe"))
+        select_native.assert_not_called()
+
+    def test_unexpected_selector_exception_is_not_swallowed(self):
+        pending = Mock(recipe_id="u", recipe_version=1, native_recipe_name=None)
+        app = Mock(_user_recipe_catalog=self.catalog)
+        with unittest.mock.patch(
+            "application.start_recipe_selection.select_user_recipe_for_start",
+            side_effect=RuntimeError("unexpected"),
+        ), self.assertRaisesRegex(RuntimeError, "unexpected"):
+            resolve_start_recipe_selections(app=app, pending=pending)
 
 
 if __name__ == "__main__":
