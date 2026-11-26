@@ -8407,3 +8407,35 @@ then separately authorized source commit and current-head CI/integration.
 ## 2026-11-26 — B1017 independent controller acceptance following R7.3 completion
 R7.3 exact B1017 run rd6018-b1017-20261126-r73-session-restore-owner exit0 and completion event 2a7b2e61b1f9434b85fa9e95122cbc92 received. Current-chat server inspector verified ACK attempt_count=1. Exact base 2579fadd027589f34145882692d6339b49059371. Independent review of full source diff: the REAL persisted-session restore_session and terminal DONE normalization function bodies moved unchanged from mixed persistence.py into runtime/charge/session_restore.py (AST 2/2 identical), with direct reexports from persistence and identical exact function objects (2/2), charge_controller.restore_session production import identity and default charge_session.json verified. No reimport cycle, no new session file/writer/ExecutionPort, no altered protected readback/admission/permit/trace/SAFE_WAIT/terminal/age/clock/CAS ordering, and no new crypto or safety authority. New session_restore owner 411 LOC; persistence.py 419 LOC versus 801 before B1017 and 1195 before B1015.
 Independent HOME-PC WSL Python3.12 venv, inert TG_TOKEN, PYTHONPATH=.:tests:tools: thirteen focused modules spanning guarded restore, archived/history trace, timeline, continuation failure cuts, late-failure quarantine, save/finalization, native recipe parity and production entrypoint **94/94 PASS exit0** (1.175s), scoped py_compile and git diff --check PASS. Executor's 81/81 overlapping focused cases additionally PASS. Prior GitHub CI #2241 on 2579fad run 45803425397 SUCCESS and ESPHome dummy-secrets source compile #160 run 45803425373 SUCCESS, NO firmware flashing. These prior checks do NOT imply B1017 full current-head CI acceptance before new PR update. SOURCE-ONLY B1017 ACCEPT. Canonical P0-P9 documentary checklist remains **97/103**, P3/P8 physical and P9 release/integration HOLD. No node104/HA/ESP/RD device, live Output/setpoints, firmware, service, deployment, production or original dirty WIP changed. Next: scope commit and safe feature-branch fast-forward to existing Draft PR #182, then prioritize identifying remaining actual owner/architecture gaps and blockers rather than splitting already cohesive modules for counts alone.
+# 2026-11-26 — B1018 finite source-architecture closure assessment
+
+B1018 inspected the current production owner graph at exact base/current code
+HEAD `383d1613488062596d710cf97ad2c4778eea08dd`, branch
+`codex/rd6018-b1018-architecture-closure-20261126`. Decision: stop the source
+refactor treadmill; this bounded review found zero material source architecture
+gaps warranting another split or source fix. The shared app-scoped
+ExecutionPort/owner lock, single atomic START transaction, session writer/CAS
+owner, recovery and restore boundaries, read-only diagnostics, and focused UI
+route owners were reviewed. No second physical writer, duplicate persistence
+owner, or cross-layer UI physical action was established. Exact file/function
+evidence and limits are in `B1018_REPORT.md`.
+
+The first canonical P0–P9 status block remains exactly **97/103** with six
+unchecked criteria: P3 Native programming/readback/evidence, P3 authorized
+R18/OPP/lease hardware gate, P3 no-node/equipment action before separate
+authorization/release gate; P8 separate physical acceptance, P8 deployment only
+after release acceptance; and P9 separately reviewed Git cleanup/commit/push.
+No checkbox changed. P3/P8 remain physical/release HOLD; P9 remains separately
+authorized Git HOLD. No source changes, tests, full CI, remote/GitHub queries,
+physical/device actions, secret access, staging, commit, or push. Task context
+reports draft PR #182 contains B1002–B1017, with CI #2242 and dummy ESPHome
+source build #161 running; neither was queried or treated as acceptance. The
+worktree was clean at review start. Next: wait for those controller-owned
+results, then pursue only separately authorized P3/P8 evidence and P9 Git
+review; no further source refactor absent a newly demonstrated ownership defect.
+
+
+## 2026-11-26 — B1018 independent controller acceptance and GitHub CI #2242 follow-up
+R7.3 completion for run rd6018-b1018-20261126-r73-architecture-closure (event d6d7ab501ad44a3cb49081e3299d6b95) was received and server own-chat inspector ACK attempt_count=1. Source-only audit reviewed current production/owner graph and first canonical P0-P9 checklist: exactly six unchecked items remain (P3 three, P8 two, P9 one); no material additional production source ownership defect was demonstrated. Source normalization at the intended owner separation is sufficiently complete for this bounded review; STOP further cosmetic file splitting. Do NOT claim physical/release acceptance: P0-P9 stays 97/103, P3/P8/P9 HOLD.
+Current feature HEAD 383d161 GitHub CI #2242 (run 45805720942) actually completed FAILURE in Python 3.10/3.11/3.12: 4067 tests each, exactly 5 FAIL and 2 ERROR per job, with the SAME seven stale D123 architecture test source-location assumptions after B1017 moved the real restore_session into runtime/charge/session_restore.py. No production source error or safety-policy failure was established by these results. ESPHome dummy-secrets source build #161 run 45805720846 SUCCESS, no flash.
+Controller inspected all three GitHub job logs and fixed precisely seven stale tests across six files: tests/test_d123_sprint55b_architecture.py, test_d123_sprint55c_architecture.py, test_d123_p2c_stage_history.py, test_d123_p4_recipe_target_policy.py, test_d123_sprint58_guarded_activation_architecture.py, test_d123_sprint60_source_release.py. The updated contracts check the ORIGINAL safety invariants on the actual restore owner: Guard check before first host mutation, exact one restore_session definition, persistence direct reexport with identical object identity, restore_stage_history path, single canonical writer, absence of physical output methods, and startup/continuation order. No tests were removed or weakened and NO production source was changed. Independent normal HOME-PC WSL Python3.12 project venv, inert process-local TG_TOKEN and PYTHONPATH=.:tests:tools: ten-module cohort including all seven previously failing contracts, D123 Sprint30, guarded restore, restore finalization and production entrypoint **69/69 PASS exit0 (4.794s)**, scoped py_compile and git diff --check PASS. This is source/test correction, not current-head full CI acceptance. The test/docs-only correction is to be committed and fast-forward pushed ONLY to existing Draft PR #182, then its own GitHub CI checked before marking code green. This is NOT permission to deploy, flash, operate RD6018, or close physical gates.

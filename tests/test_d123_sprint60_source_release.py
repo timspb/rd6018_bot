@@ -50,7 +50,10 @@ class Sprint60SourceReleaseTests(unittest.TestCase):
         writers = [n for n in ast.walk(atomic) if isinstance(n, ast.FunctionDef)
                    and n.name == "atomic_session_write"]
         self.assertEqual(len(writers), 1)
-        self.assertEqual(read("runtime/charge/persistence.py").count("def restore_session("), 1)
+        self.assertEqual(read("runtime/charge/session_restore.py").count("def restore_session("), 1)
+        self.assertNotIn("def restore_session(", read("runtime/charge/persistence.py"))
+        from runtime.charge import persistence as persistence_api, session_restore
+        self.assertIs(persistence_api.restore_session, session_restore.restore_session)
 
     def test_guarded_restore_stays_off_and_production_resume_endpoint_uninstalled(self):
         port = read("application/execution_port.py")

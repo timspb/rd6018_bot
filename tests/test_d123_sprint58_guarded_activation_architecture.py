@@ -15,9 +15,19 @@ def source(path):
 class Sprint58GuardedActivationArchitectureTests(unittest.TestCase):
     def test_single_canonical_restore_and_guard_parser_implementations(self):
         persistence = ast.parse(source("runtime/charge/persistence.py"))
+        restore_owner = ast.parse(source("runtime/charge/session_restore.py"))
         guard_session = ast.parse(source("runtime/charge/strategy/main_guard_session.py"))
         self.assertEqual(sum(isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
-                             and n.name == "restore_session" for n in ast.walk(persistence)), 1)
+                             and n.name == "restore_session" for n in ast.walk(restore_owner)), 1)
+        self.assertEqual(sum(isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+                             and n.name == "restore_session" for n in ast.walk(persistence)), 0)
+        from runtime.charge import persistence as persistence_api, session_restore
+        self.assertTrue(any(
+            isinstance(n, ast.ImportFrom) and n.module == "runtime.charge.session_restore"
+            and any(alias.name == "restore_session" for alias in n.names)
+            for n in persistence.body
+        ))
+        self.assertIs(persistence_api.restore_session, session_restore.restore_session)
         self.assertEqual(sum(isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
                              and n.name == "read_guard" for n in ast.walk(guard_session)), 1)
 
@@ -71,7 +81,10 @@ class Sprint58GuardedActivationArchitectureTests(unittest.TestCase):
         self.assertIn("GuardedRestoreActivationPermit", names)
         self.assertNotIn("GuardedRestoreManager", names)
         self.assertNotIn("GuardedRestoreJournal", names)
-        self.assertEqual(source("runtime/charge/persistence.py").count("def restore_session("), 1)
+        self.assertEqual(source("runtime/charge/session_restore.py").count("def restore_session("), 1)
+        self.assertNotIn("def restore_session(", source("runtime/charge/persistence.py"))
+        from runtime.charge import persistence as persistence_api, session_restore
+        self.assertIs(persistence_api.restore_session, session_restore.restore_session)
 
     def test_sprint59_has_one_receipt_gated_latch_clear_and_no_startup_writer(self):
         port_text = source("application/execution_port.py")
