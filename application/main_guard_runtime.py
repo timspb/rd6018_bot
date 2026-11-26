@@ -12,10 +12,15 @@ from typing import Any, Callable
 
 from application.main_guard_transaction import MainGuardAuthority, MainGuardExecutionResult
 from runtime.charge.controller_state import set_observed_device_current
-from runtime.charge.strategy.main_guard_admission import MainGuardAdmission
+from runtime.charge.strategy.main_guard_admission import (
+    MainGuardAdmission, admit_main_guard_shadow,
+)
 from application.main_guard_checkpoint import CanonicalMainGuardCheckpoint
 from runtime.charge.strategy.main_current_guard import PendingProposal
 from runtime.charge.strategy.main_guard_shadow import MainGuardShadow
+from runtime.charge.persistence import read_canonical_session
+from runtime.charge.strategy.main_guard_session import read_guard
+from rd6018_telemetry import finite_float, telemetry_freshness
 
 
 def _quarantine_reason(result: MainGuardExecutionResult) -> str:
@@ -127,4 +132,100 @@ async def execute_due_main_guard(
     return result
 
 
-__all__ = ["execute_due_main_guard"]
+async def run_main_guard_cycle(
+    *, app: Any, port: Any, controller: Any, shadow: MainGuardShadow,
+    live: dict[str, Any], session_path: str, now_epoch_s: float,
+    manual_active: bool, manual_off_condition: bool,
+) -> MainGuardExecutionResult | None:
+    """Observe and reconcile MAIN Guard during the existing locked session cycle.
+
+    The caller retains the existing GuardExecutionOwnerLock for this whole
+    operation; this function owns no task, lock, state, or physical adapter.
+    """
+    native_guard_fresh = (
+        isinstance(live.get("_meta"), dict)
+        and telemetry_freshness(
+            live, ("output_state_code_v2", "current"),
+            max_age_s=10.0, max_skew_s=10.0,
+        ).valid
+    )
+    native_output_code = finite_float(live.get("output_state_code_v2"))
+    native_current = finite_float(live.get("current"))
+    native_on = (
+        (native_output_code == 1)
+        if native_guard_fresh and native_output_code in (0, 1)
+        else None
+    )
+    canonical_main_session = read_canonical_session(session_path)
+    admission = admit_main_guard_shadow(
+        controller=controller,
+        session_document=canonical_main_session,
+        live=live,
+        now_epoch_s=now_epoch_s,
+    )
+    if admission is None:
+        shadow.invalidate_evidence(now_s=time.monotonic())
+        if (controller.current_stage == controller.STAGE_MAIN
+                and str(controller.battery_type).strip().upper() in ("EFB", "CA/CA")):
+            persisted_revision = None
+            if (isinstance(canonical_main_session, dict)
+                    and "main_current_guard_v1" in canonical_main_session):
+                try:
+                    _, persisted_revision = read_guard(
+                        canonical_main_session,
+                        session_id=str(getattr(controller, "_v2_trace_session_id", "")),
+                        battery_id=str(getattr(controller, "_v2_battery_id", "")),
+                        now_s=time.monotonic(),
+                    )
+                except (ValueError, TypeError):
+                    persisted_revision = None
+            shadow.reconcile_checkpoint(
+                controller,
+                session_id=getattr(controller, "_v2_trace_session_id", None),
+                battery_id=getattr(controller, "_v2_battery_id", None),
+                persisted_revision=persisted_revision,
+            )
+        return None
+
+    shadow.bind_new_canonical_session(
+        session_id=admission.session_id,
+        battery_id=admission.battery_id,
+        unguarded_document_proven=(
+            getattr(controller, "_main_current_guard", None) is None
+        ),
+    )
+    shadow.seed_from_controller(
+        controller, session_id=admission.session_id,
+        battery_id=admission.battery_id,
+    )
+    proposal = shadow.observe(
+        now_s=time.monotonic(),
+        session_id=admission.session_id,
+        battery_id=admission.battery_id,
+        chemistry=str(controller.battery_type),
+        capacity_ah=admission.capacity_ah,
+        recipe_current_a=admission.recipe_initial_current_a,
+        stage="MAIN",
+        output_on=native_on,
+        output_current_a=native_current if native_guard_fresh else None,
+        fresh=bool(
+            native_guard_fresh and native_on is not None
+            and native_current is not None
+        ),
+    )
+    if proposal is None:
+        shadow.reconcile_checkpoint(
+            controller,
+            session_id=admission.session_id,
+            battery_id=admission.battery_id,
+            persisted_revision=admission.guard_revision,
+        )
+    if proposal is None or manual_active or manual_off_condition:
+        return None
+    return await execute_due_main_guard(
+        app=app, port=port, admission=admission, shadow=shadow,
+        proposal=proposal, session_path=session_path,
+    )
+
+
+__all__ = ["execute_due_main_guard", "run_main_guard_cycle"]

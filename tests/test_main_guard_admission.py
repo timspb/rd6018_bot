@@ -167,10 +167,13 @@ class MainGuardAdmissionTests(unittest.TestCase):
         self.assertEqual(holder.guard.hardware_limit_a,7.0)
 
     def test_runtime_binding_calls_only_shadow_inside_owner(self):
-        source=(Path(__file__).resolve().parents[1]/"runtime/production_runtime.py").read_text(encoding="utf-8")
-        self.assertIn("admit_main_guard_shadow(",source)
-        self.assertIn("read_canonical_session(SESSION_FILE)",source)
-        self.assertNotIn("execute_main_current_guard_reduction(",source)
+        root = Path(__file__).resolve().parents[1]
+        runtime = (root/"runtime/production_runtime.py").read_text(encoding="utf-8")
+        owner = (root/"application/main_guard_runtime.py").read_text(encoding="utf-8")
+        self.assertIn("run_main_guard_cycle(",runtime)
+        self.assertIn("admit_main_guard_shadow(",owner)
+        self.assertIn("read_canonical_session(session_path)",owner)
+        self.assertNotIn("execute_main_current_guard_reduction(",runtime)
 
     def test_canonical_session_reader_has_one_persistence_owner(self):
         root = Path(__file__).resolve().parents[1]

@@ -45,7 +45,6 @@ from runtime.charge.strategy.exit_variables import (
 from runtime.charge.persistence import (
     SESSION_FILE,
     paused_done_resume_is_authorized,
-    read_canonical_session,
     restore_allows_auto_enable,
 )
 from runtime.charge.controller_state import (
@@ -63,9 +62,8 @@ from runtime.charge.link_session_recovery import (
     choose_recovery_route,
 )
 from runtime.charge.strategy.main_guard_shadow import MainGuardShadow
-from application.main_guard_runtime import execute_due_main_guard
+from application.main_guard_runtime import run_main_guard_cycle
 from application.charge_session_tick import run_charge_session_tick
-from runtime.charge.strategy.main_guard_admission import admit_main_guard_shadow
 from runtime.safety.variables import (
     HIGH_V_FAST_TIMEOUT_S,
     HIGH_V_THRESHOLD_V,
@@ -92,7 +90,7 @@ from application.operator_pause_use_case import toggle_operator_pause
 from runtime.safety.voltage_variables import PB_AUTOMATIC_TARGET_CEILING_V
 from database import add_record, cleanup_old_records, get_graph_data_with_temp, get_logs_data, get_raw_history, init_db
 from hass_api import HassClient
-from rd6018_telemetry import as_bool, telemetry_freshness, finite_float
+from rd6018_telemetry import as_bool
 from runtime.charge.evidence.temperature_source_journal import TemperatureSourceJournalObserver
 from runtime.charge.evidence.charge_cycle_journal import record_charge_cycle_journal
 from time_utils import format_time_user_tz
@@ -1082,118 +1080,29 @@ async def data_logger() -> None:
                 # physical action. Emergency verified OFF remains independent.
                 async with _runtime_execution_port()._guard_owner_lock:
                     prev_stage = charge_controller.current_stage
-                    # Observation-only D073 hook. Session identity is supplied
-                    # only by an explicit accepted-session owner; absent that
-                    # proof this is a no-op and never creates a journal.
-                    # The UI/legacy switch is not authoritative Guard
-                    # evidence. Require real native Output register 18 and
-                    # measured current with independent fresh source metadata.
-                    native_guard_fresh = (
-                        isinstance(live.get("_meta"), dict)
-                        and telemetry_freshness(
-                            live, ("output_state_code_v2", "current"),
-                            max_age_s=10.0, max_skew_s=10.0,
-                        ).valid
-                    )
-                    native_output_code = finite_float(live.get("output_state_code_v2"))
-                    native_current = finite_float(live.get("current"))
-                    native_on = (
-                        (native_output_code == 1)
-                        if native_guard_fresh and native_output_code in (0, 1)
-                        else None
-                    )
-                    # Accepted MAIN identity is not a runtime-private hint:
-                    # compare the canonical durable session, its recipe and
-                    # fresh physical Iset readback while holding the common owner.
-                    canonical_main_session = read_canonical_session(SESSION_FILE)
-                    admission = admit_main_guard_shadow(
+                    outcome = await run_main_guard_cycle(
+                        app=sys.modules[__name__],
+                        port=_runtime_execution_port(),
                         controller=charge_controller,
-                        session_document=canonical_main_session,
-                        live=live, now_epoch_s=now_ts,
+                        shadow=_main_guard_shadow,
+                        live=live,
+                        session_path=SESSION_FILE,
+                        now_epoch_s=now_ts,
+                        manual_active=manual_active,
+                        manual_off_condition=_has_manual_off_condition(),
                     )
-                    if admission is None:
-                        _main_guard_shadow.invalidate_evidence(now_s=time.monotonic())
-                        # Persist only a conservative continuity break when
-                        # this is still the exact guarded MAIN epoch. The
-                        # reconciliation rejects pending/faulted or mismatched
-                        # guard state, so missing/foreign telemetry cannot
-                        # reset the session or broaden its Iset ceiling.
-                        if (charge_controller.current_stage == charge_controller.STAGE_MAIN
-                                and str(charge_controller.battery_type).strip().upper()
-                                in ("EFB", "CA/CA")):
-                            persisted_revision = None
-                            if (isinstance(canonical_main_session, dict)
-                                    and "main_current_guard_v1" in canonical_main_session):
-                                try:
-                                    from runtime.charge.strategy.main_guard_session import read_guard
-                                    _, persisted_revision = read_guard(
-                                        canonical_main_session,
-                                        session_id=str(getattr(charge_controller, "_v2_trace_session_id", "")),
-                                        battery_id=str(getattr(charge_controller, "_v2_battery_id", "")),
-                                        now_s=time.monotonic(),
-                                    )
-                                except (ValueError, TypeError):
-                                    persisted_revision = None
-                            _main_guard_shadow.reconcile_checkpoint(
-                                charge_controller,
-                                session_id=getattr(charge_controller, "_v2_trace_session_id", None),
-                                battery_id=getattr(charge_controller, "_v2_battery_id", None),
-                                persisted_revision=persisted_revision,
+                    if outcome is not None:
+                        if outcome.verified:
+                            logger.info(
+                                "MAIN Guard Iset reduced and journaled: %.2f A",
+                                outcome.guard.hardware_limit_a,
                             )
-                    else:
-                        _main_guard_shadow.bind_new_canonical_session(
-                            session_id=admission.session_id,
-                            battery_id=admission.battery_id,
-                            unguarded_document_proven=(
-                                getattr(charge_controller, "_main_current_guard", None) is None
-                            ),
-                        )
-                        _main_guard_shadow.seed_from_controller(
-                            charge_controller,
-                            session_id=admission.session_id,
-                            battery_id=admission.battery_id,
-                        )
-                        main_proposal = _main_guard_shadow.observe(
-                            now_s=time.monotonic(),
-                            session_id=admission.session_id,
-                            battery_id=admission.battery_id,
-                            chemistry=str(charge_controller.battery_type),
-                            capacity_ah=admission.capacity_ah,
-                            recipe_current_a=admission.recipe_initial_current_a,
-                            stage="MAIN",
-                            output_on=native_on,
-                            output_current_a=native_current if native_guard_fresh else None,
-                            fresh=bool(native_guard_fresh and native_on is not None and native_current is not None),
-                        )
-                        if main_proposal is None:
-                            _main_guard_shadow.reconcile_checkpoint(
-                                charge_controller,
-                                session_id=admission.session_id,
-                                battery_id=admission.battery_id,
-                                persisted_revision=admission.guard_revision,
+                        else:
+                            logger.warning(
+                                "MAIN Guard reduction not verified: %s; OFF=%s; diagnostic=%s",
+                                outcome.reason, outcome.off_confirmed,
+                                outcome.diagnostic,
                             )
-                        if (main_proposal is not None and not manual_active
-                                and not _has_manual_off_condition()):
-                            outcome = await execute_due_main_guard(
-                                app=sys.modules[__name__],
-                                port=_runtime_execution_port(),
-                                admission=admission,
-                                shadow=_main_guard_shadow,
-                                proposal=main_proposal,
-                                session_path=SESSION_FILE,
-                            )
-                            if outcome is not None:
-                                if outcome.verified:
-                                    logger.info(
-                                        "MAIN Guard Iset reduced and journaled: %.2f A",
-                                        outcome.guard.hardware_limit_a,
-                                    )
-                                else:
-                                    logger.warning(
-                                        "MAIN Guard reduction not verified: %s; OFF=%s; diagnostic=%s",
-                                        outcome.reason, outcome.off_confirmed,
-                                        outcome.diagnostic,
-                                    )
                     actions = (await run_charge_session_tick(
                         charge_controller,
                         battery_v, i, temp_ext, is_cv, ah, output_switch,

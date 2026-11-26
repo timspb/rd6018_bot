@@ -7841,3 +7841,48 @@ Source only: no physical/device, node104, ESP/HA, Telegram, firmware, service, d
 
 ## 2026-11-26 — B1002 independent controller acceptance after R7.3 completion
 B1002 native Luna executor completed exit=0; the existing current-chat R7.3 completion event was received and its exact event_id was independently acknowledged by server inspector (attempt 1), without replay. Controller reviewed entire runtime source diff, single new 94-line evidence owner and test contract, verified no duplicate _event_log_last_at/noisy-event helper remained, and verified event ordering plus the preexisting shared checkpoint timestamp. Official HOME-PC WSL Python3.12 venv in this isolated B1002 checkout with inert fake TG_TOKEN and PYTHONPATH=.:tests:tools ran seven focused modules: test_charge_cycle_journal, test_mix_progress_journal, test_runtime_app_namespace_contract, test_session_recovery_service, test_charging_log, test_production_entrypoint, test_v3_modular_architecture_contract — **64/64 PASS, exit0, 19.957 s**. Earlier attempts failed before this full cohort only from absent fake TG_TOKEN and missing test PYTHONPATH; neither is a source defect. git diff --check PASS. Controller ACCEPTS bounded B1002 source-only extraction. It is not a complete production/full-suite acceptance; Python/ESPHome CI success reported earlier belongs to upstream 5c91f46, not this new diff. P0–P9 97/103 unchanged, P3/P8 physical and P9 release HOLD. Next real work: extract an application-owned, coherent recovery-cycle orchestration seam from the remaining ~600-line data_logger while retaining the one owner lock/ExecutionPort and existing recovery service, without new timers/guards. No node104/ESP/HA/Output/firmware or upstream main action.
+# 2026-11-26 — B1003 MAIN Guard cycle orchestration owner extraction (source-only)
+
+Run `rd6018-b1003-20261126-r73-main-guard-cycle-owner` in the isolated checkout
+at exact base HEAD `84a064d308012ae624e2745de51837a2e24a22f4`, branch
+`codex/rd6018-b1003-main-guard-owner-20261126`. `application.main_guard_runtime`
+now owns `run_main_guard_cycle()`, called from `data_logger()` inside the same
+existing `_guard_owner_lock` scope and normal session cycle. It uses the existing
+canonical session reader, admission function, single `_main_guard_shadow`
+instance, existing ExecutionPort, and unchanged `execute_due_main_guard()`.
+The production caller retains previous-stage capture, outcome log strings,
+normal charge tick, journal order, and emergency OFF path.
+
+The extracted cycle preserves direct Native metadata and 10 s max-age/skew
+checks, unknown Output as fail-closed observation, measured current, durable
+v2 identity and guard revision, monotonic shadow clock, pending checkpoint
+reconciliation, EFB/Ca/Ca admission, and Manual/operator-OFF execution
+suppression. No physical policy, lease, OVP/OCP, R16, V/I, temperature,
+ExecutionPort, or actuator behavior changed. No new state, task, lock, module,
+service, controller, registration, or physical setter was introduced.
+
+Changed paths: `application/main_guard_runtime.py`,
+`runtime/production_runtime.py`, `tests/test_main_guard_cycle_owner.py`,
+`tests/test_main_guard_shadow.py`, this runbook,
+`tests/test_main_guard_admission.py`,
+`docs/assistant/RD6018_CURRENT_CHECKPOINT.md`, and `B1003_REPORT.md`.
+Verification: scoped `py_compile` PASS; `git diff --check` PASS; new fake-only
+cycle cases plus existing shadow/lock and admission tests **27/27 PASS** using
+the existing HOME-PC Python 3.12 venv. A broader D109/runtime cohort was
+attempted but stalled in the known Codex sandbox asyncio wakeup path during an
+existing D109 async integration test and was interrupted; no broader PASS is
+claimed. The system
+Python attempt could not import `python-dotenv`; its resulting import errors are
+environment-only. The normal HOME-PC WSL focused observer/admission/runtime
+rerun remains pending.
+
+No network, node104, ESP/HA, hardware, deployment, service, firmware, production,
+or original `E:/CODEX/rd6018_bot` worktree action. No staging, commit, push, or
+R7.3 completion hook was triggered in Codex. Node104/HANDS_OFF and local/origin
+gap were not queried. P0–P9 remains **97/103**, P3/P8 hardware and release
+acceptance HOLD, P9 integration/release HOLD. Next: controller's normal HOME-PC
+WSL focused suite and independent review of the unstaged diff.
+
+
+## 2026-11-26 — B1003 controller acceptance after R7.3 completion
+The R7.3 existing own-chat route 6a2f8ff5b67f4acb8ae637bac7035b21 delivered exact completion event e762f2c243e3416ea7354a3e82b94242 for rd6018-b1003-20261126-r73-main-guard-cycle-owner; independent inspector verified server ACK attempt 1. B1003 Luna exited 0 at parent HEAD 84a064d308012ae624e2745de51837a2e24a22f4. Independent source review inspected application/main_guard_runtime.py, runtime/production_runtime.py, updated contract tests and new test_main_guard_cycle_owner.py. MAIN Guard native evidence, admission, shadow reconciliation and conditional existing executor invocation transferred into the ALREADY EXISTING application owner. Existing runtime _guard_owner_lock remains held, existing runtime shadow and ExecutionPort remain singletons, lease and physical setter unchanged. _has_manual_off_condition is a read-only operator conditions query; early evaluation compared to prior conditional query has no owner/state mutation. No duplicate service, manager, store, event source, lock, or protection authority. Normal HOME-PC WSL Python3.12 project venv ran 84/84 PASS (exit0, 1.068s) with PYTHONPATH=.:tests:tools and inert fake TG_TOKEN: test_main_guard_cycle_owner, test_main_guard_admission, test_main_guard_shadow, test_main_guard_transaction, test_main_guard_session, test_production_entrypoint, D109QuarantineDiagnosticTests. Scoped py_compile and git diff --check PASS. Explicit broad D109 inherited async integration test hangs even outside sandbox; two attempts interrupted/timeout, no PASS claimed for that module; core affected contracts pass independently. This is bounded SOURCE-ONLY B1003 ACCEPT, not D109 broad/full suite or release/physical acceptance. P0–P9 stays 97/103 (3 P3, 2 P8, 1 P9 open), hardware/release HOLD. No device, node104, ESP/HA, hardware, firmware, deployment or remote main operations. Next: bounded extraction of the existing startup/link-session recovery cycle from remaining production_runtime.data_logger into existing application session recovery owner, without moving physical transaction ownership; first inspect call graph and identify a sufficiently cohesive noninvasive seam.
