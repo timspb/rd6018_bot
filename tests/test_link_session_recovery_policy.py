@@ -154,16 +154,17 @@ class LinkSessionRecoveryPolicyTests(unittest.TestCase):
         ]
         imports += [alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names]
         self.assertFalse(imports, "policy must not import clients, logger, or production code")
-        source = Path("runtime/production_runtime.py").read_text(encoding="utf-8")
+        source = Path("application/session_recovery_service.py").read_text(encoding="utf-8")
         self.assertEqual(source.count("choose_recovery_route(RecoveryRouteInput("), 1)
-        self.assertIn("recovery_route is RecoveryRoute.ACTIVE_LINK", source)
-        self.assertIn("recovery_route is RecoveryRoute.IDLE_LINK", source)
-        self.assertIn("recovery_route is RecoveryRoute.IDLE_OUTPUT_ON", source)
+        self.assertIn("route is RecoveryRoute.ACTIVE_LINK", source)
+        self.assertIn("route is RecoveryRoute.IDLE_LINK", source)
+        self.assertIn("route is RecoveryRoute.IDLE_OUTPUT_ON", source)
         self.assertIn("try_restore_session(", source)
         self.assertIn("restore_allows_auto_enable", source)
-        self.assertLess(source.index("if _operator_pause_active():", source.index("# Explicit operator pause")),
-                        source.index("recovery_route = choose_recovery_route"))
-        self.assertIn('output_on = str(output_switch or "").lower() == "on"', source)
+        runtime = Path("runtime/production_runtime.py").read_text(encoding="utf-8")
+        self.assertLess(runtime.index("if _operator_pause_active():", runtime.index("# Explicit operator pause")),
+                        runtime.index("await SessionRecoveryService.run_cycle("))
+        self.assertIn('output_on = str(output_switch or "").lower() == "on"', runtime)
         self.assertNotIn("request_verified_on", policy_path.read_text(encoding="utf-8"))
 
 

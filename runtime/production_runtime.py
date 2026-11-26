@@ -45,21 +45,11 @@ from runtime.charge.strategy.exit_variables import (
 from runtime.charge.persistence import (
     SESSION_FILE,
     paused_done_resume_is_authorized,
-    restore_allows_auto_enable,
 )
 from runtime.charge.controller_state import (
     mark_link_unavailable,
-    mark_startup_observation_seen,
     set_last_known_output_on,
     set_observed_device_setpoints,
-)
-from runtime.charge.link_session_recovery import (
-    RecoveryAction,
-    RecoveryAuthorizationInput,
-    RecoveryRoute,
-    RecoveryRouteInput,
-    authorize_recovery_action,
-    choose_recovery_route,
 )
 from runtime.charge.strategy.main_guard_shadow import MainGuardShadow
 from application.main_guard_runtime import run_main_guard_cycle
@@ -85,7 +75,10 @@ from config import (
 )
 from application.execution_port import get_or_create_execution_port
 from application.controller_action_execution import execute_controller_action_batch
-from application.session_recovery_service import SessionRecoveryService
+from application.session_recovery_service import (
+    SessionRecoveryObservation,
+    SessionRecoveryService,
+)
 from application.operator_pause_use_case import toggle_operator_pause
 from runtime.safety.voltage_variables import PB_AUTOMATIC_TARGET_CEILING_V
 from database import add_record, cleanup_old_records, get_graph_data_with_temp, get_logs_data, get_raw_history, init_db
@@ -308,11 +301,6 @@ def initialize_runtime() -> None:
 
 
 hass.set_initializer(initialize_runtime)
-
-
-def _restore_allows_auto_enable(controller: Any) -> bool:
-    """Apply canonical persisted Done/Storage auto-enable authority."""
-    return restore_allows_auto_enable(controller)
 
 
 def _is_chat_allowed(chat_id: int) -> bool:
@@ -581,12 +569,6 @@ def _sync_total_start_from_uptime(
         allow_init=allow_init,
         now_s=time.time(),
     )
-
-
-def _apply_restore_time_corrections(charge_controller, live: Optional[Dict]) -> None:
-    from runtime.startup_recovery import apply_restore_time_corrections
-
-    apply_restore_time_corrections(charge_controller, live, now_s=time.time())
 
 
 _last_restore_time: float = 0.0
@@ -885,194 +867,52 @@ async def data_logger() -> None:
             # All normal restore/state changes and subsequent tick/action
             # share the same app owner. Verified emergency OFF remains outside.
             async with _runtime_execution_port()._guard_owner_lock:
-                # Восстановление требует штатного V/I и input-voltage gate.
-                # (battery_mode не требуем — после потери связи мы сами выключили
-                # выход).  An active in-memory session is resumed in place; only an
-                # IDLE session goes through persisted-session reconstruction.
-                # First fresh observation after process start cannot authorize a
-                # persisted-session Output ON. Actual later link recovery is distinct.
-                cold_start = not getattr(charge_controller, "_d125_startup_observation_seen", False)
-                mark_startup_observation_seen(charge_controller)
-                recovery_route = choose_recovery_route(RecoveryRouteInput(
-                    was_unavailable=charge_controller._was_unavailable,
-                    stage=charge_controller.current_stage,
-                    idle_stage=charge_controller.STAGE_IDLE,
-                    done_stage=charge_controller.STAGE_DONE,
-                    cooling_stage=getattr(charge_controller, "STAGE_COOLING", "__no_cooling__"),
-                    output_on=output_on,
-                    current_a=i,
-                    temperature_available=(
-                        temp_ext is not None and temp_ext not in ("unavailable", "unknown", "")
+                recovery_cycle = await SessionRecoveryService.run_cycle(
+                    observation=SessionRecoveryObservation(
+                        output_on=output_on,
+                        current_a=i,
+                        temperature_available=(
+                            temp_ext is not None
+                            and temp_ext not in ("unavailable", "unknown", "")
+                        ),
+                        battery_voltage_v=battery_v,
+                        temperature_c=t,
+                        amp_hours=ah,
+                        is_cv=is_cv,
+                        is_cc=is_cc,
+                        input_voltage_v=input_voltage,
                     ),
-                ))
-                # Resolve the current app-scoped port only for a recovery action
-                # and inside the same lock as the controller/session transition.
-                # Do not cache it across a later physical owner rebind.
-                if recovery_route is not RecoveryRoute.NONE:
-                    recovery_execution = SessionRecoveryService(
-                        _runtime_execution_port(), _cap_current
-                    )
-                recovery_guard = _runtime_execution_port().session_recovery_guard
-                if recovery_guard.quarantined:
-                    logger.warning(
-                        "D084 session recovery quarantine remains active (%s); "
-                        "automatic restore and controller tick are suppressed",
-                        recovery_guard.state.reason,
-                    )
-                elif recovery_route is RecoveryRoute.ACTIVE_LINK and authorize_recovery_action(
-                    RecoveryAuthorizationInput(
-                        route=recovery_route,
-                        restored=True,
-                        auto_enable_authorized=True,
-                        cold_start=cold_start,
-                        safe_wait=False,
-                        input_voltage_ok=input_voltage >= MIN_INPUT_VOLTAGE,
-                    )
-                ) is RecoveryAction.REENABLE_ACTIVE:
-                    uv, ui = charge_controller._get_target_v_i(t)
-                    enabled = await recovery_execution.reenable_active(uv, ui)
-                    if enabled:
-                        output_on = True
-                        set_last_known_output_on(charge_controller, True)
-                        _apply_restore_time_corrections(charge_controller, live)
-                        last_checkpoint_time = time.time()
-                        log_event(charge_controller.current_stage, battery_v, i, t, ah, "RESTORE")
-                        _charge_notify(
-                            "✅ Связь восстановлена, заряд продолжен с текущего этапа.",
-                            critical=False,
+                    controller=charge_controller,
+                    live=live,
+                    session_path=SESSION_FILE,
+                    minimum_input_voltage_v=MIN_INPUT_VOLTAGE,
+                    execution_port_getter=_runtime_execution_port,
+                    cap_current=_cap_current,
+                )
+                output_on = recovery_cycle.output_on
+                if recovery_cycle.last_checkpoint_time is not None:
+                    last_checkpoint_time = recovery_cycle.last_checkpoint_time
+                for effect in recovery_cycle.effects:
+                    if effect.kind == "event":
+                        log_event(
+                            effect.event_stage,
+                            effect.event_voltage_v,
+                            effect.event_current_a,
+                            effect.event_temperature_c,
+                            effect.event_ah,
+                            effect.message,
                         )
-                        logger.info(
-                            "Active session resumed after link recovery: %s",
-                            charge_controller.current_stage,
-                        )
-                    else:
-                        reason = recovery_guard.state.reason or "verified_on"
-                        logger.warning(
-                            "D084 quarantined active session restore (%s); physical Output state is unknown",
-                            reason,
-                        )
-                        _charge_notify(
-                            "⚠️ Восстановление не подтверждено; автоматическое управление "
-                            "приостановлено, состояние Output неизвестно. Проверьте оборудование."
-                        )
-                elif not recovery_guard.quarantined and recovery_route is RecoveryRoute.IDLE_LINK:
-                    ok, msg = charge_controller.try_restore_session(
-                        battery_v, i, ah, output_is_on=output_on,
-                        is_cv=is_cv, is_cc=is_cc,
-                    )
-                    if ok and msg:
-                        _apply_restore_time_corrections(charge_controller, live)
-                        action = authorize_recovery_action(RecoveryAuthorizationInput(
-                            route=recovery_route,
-                            restored=True,
-                            auto_enable_authorized=_restore_allows_auto_enable(charge_controller),
-                            cold_start=cold_start,
-                            safe_wait=charge_controller.current_stage == charge_controller.STAGE_SAFE_WAIT,
-                            input_voltage_ok=input_voltage >= MIN_INPUT_VOLTAGE,
-                        ))
-                        if action is not RecoveryAction.SKIP:
-                            if action is RecoveryAction.SAFE_WAIT_OFF:
-                                uv, ui = charge_controller._safe_wait_target_v, charge_controller._safe_wait_target_i
-                            else:
-                                uv, ui = charge_controller._get_target_v_i(t)
-                            result = await recovery_execution.restore_idle_link(
-                                uv, ui, safe_wait=action is RecoveryAction.SAFE_WAIT_OFF
-                            )
-                            if not result.confirmed:
-                                logger.warning(
-                                    "Session restore execution was not confirmed (%s); "
-                                    "physical Output state is unknown",
-                                    result.failed_step,
-                                )
-                                _charge_notify(
-                                    "⚠️ Действие восстановления не подтверждено "
-                                    f"({result.failed_step}); состояние Output неизвестно. "
-                                    "Проверьте состояние оборудования."
-                                )
-                            else:
-                                last_checkpoint_time = time.time()
-                                log_event(
-                                    charge_controller.current_stage,
-                                    battery_v,
-                                    i,
-                                    t,
-                                    ah,
-                                    "RESTORE",
-                                )
-                                _charge_notify("✅ Связь восстановлена, действие подтверждено.\r\n" + (msg or ""), critical=False)
-                                logger.info("Session restored after link recovery: %s", charge_controller.current_stage)
+                    elif effect.kind == "notify":
+                        if effect.critical is None:
+                            _charge_notify(effect.message)
                         else:
-                            if input_voltage < MIN_INPUT_VOLTAGE:
-                                _charge_notify(
-                                    f"⚠️ Низкое входное напряжение ({input_voltage:.0f} В < {MIN_INPUT_VOLTAGE:.0f} В). "
-                                    "Включите заряд вручную после проверки питания."
-                                )
-                            logger.info("Restore skipped: input_voltage")
+                            _charge_notify(effect.message, critical=effect.critical)
                     else:
-                        # Нет файла сессии или старше 24 ч — выход может быть всё ещё вкл
-                        if output_on and i > 0.05:
-                            _charge_notify(
-                                "⚠️ Связь восстановлена, но сессии нет (или старше 24 ч). "
-                                f"Выход включён ({i:.2f} А). Нажмите Остановить или запустите заряд заново."
-                            )
-                            logger.warning("Link restored but no session; output still on I=%.2fA", i)
-
-                # Выход уже включён, но бот в IDLE (перезапуск бота или ручное включение) — подхватываем сессию без turn_on
-                if (not recovery_guard.quarantined and recovery_route is RecoveryRoute.IDLE_OUTPUT_ON
-                        and os.path.isfile(SESSION_FILE)):
-                    ok, msg = charge_controller.try_restore_session(
-                        battery_v, i, ah, output_is_on=output_on,
-                        is_cv=is_cv, is_cc=is_cc,
-                    )
-                    if ok and msg:
-                        _apply_restore_time_corrections(charge_controller, live)
-                        action = authorize_recovery_action(RecoveryAuthorizationInput(
-                            route=recovery_route,
-                            restored=True,
-                            auto_enable_authorized=_restore_allows_auto_enable(charge_controller),
-                            cold_start=cold_start,
-                            safe_wait=charge_controller.current_stage == charge_controller.STAGE_SAFE_WAIT,
-                            input_voltage_ok=input_voltage >= MIN_INPUT_VOLTAGE,
-                        ))
-                        if action is not RecoveryAction.SKIP:
-                            if action is RecoveryAction.SAFE_WAIT_OFF:
-                                uv, ui = charge_controller._safe_wait_target_v, charge_controller._safe_wait_target_i
-                            else:
-                                uv, ui = charge_controller._get_target_v_i(t)
-                            result = await recovery_execution.restore_output_on(
-                                uv, ui, safe_wait=action is RecoveryAction.SAFE_WAIT_OFF
-                            )
-                            if not result.confirmed:
-                                logger.warning(
-                                    "Already-on session restore was not confirmed (%s); "
-                                    "physical Output state is unknown",
-                                    result.failed_step,
-                                )
-                                _charge_notify(
-                                    "⚠️ Действие восстановления не подтверждено "
-                                    f"({result.failed_step}); состояние Output неизвестно. "
-                                    "Проверьте состояние оборудования."
-                                )
-                            else:
-                                last_checkpoint_time = time.time()
-                                log_event(
-                                    charge_controller.current_stage,
-                                    battery_v,
-                                    i,
-                                    t,
-                                    ah,
-                                    "RESTORE",
-                                )
-                                _charge_notify(
-                                    "✅ Сессия восстановлена; параметры применены. "
-                                    "Output ON отдельно не подтверждался.",
-                                    critical=False,
-                                )
-                                logger.info("Session restore parameters applied (Output was not re-confirmed): %s", charge_controller.current_stage)
+                        log_method = getattr(logger, effect.kind)
+                        if not effect.log_arguments:
+                            log_method(effect.message)
                         else:
-                            logger.debug("Restore (output on, idle) skipped: allow=%s input_v=%.0f", action is not RecoveryAction.SKIP, input_voltage)
-                    else:
-                        logger.debug("Restore (output on, idle): try_restore_session returned ok=%s (нет файла или сессия старше 24 ч)", ok)
+                            log_method(effect.message, *effect.log_arguments)
 
                 now_ts = time.time()
                 # Hold the same app-wide normal execution owner from the

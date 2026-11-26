@@ -191,43 +191,31 @@ class SessionRecoveryServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.port.calls, [])
 
     def test_runtime_delegates_all_recovery_execution_sequences(self):
-        source = Path("runtime/production_runtime.py").read_text(encoding="utf-8")
-        start = source.index("recovery_route = choose_recovery_route(")
-        end = source.index("now_ts = time.time()", start)
-        recovery = source[start:end]
-        self.assertIn("if recovery_route is not RecoveryRoute.NONE:", recovery)
-        self.assertIn("recovery_execution = SessionRecoveryService(", recovery)
-        self.assertLess(recovery.index("recovery_execution = SessionRecoveryService("),
+        application = Path("application/session_recovery_service.py").read_text(encoding="utf-8")
+        runtime = Path("runtime/production_runtime.py").read_text(encoding="utf-8")
+        start = application.index("    async def run_cycle(")
+        end = application.index("    async def reenable_active(", start)
+        recovery = application[start:end]
+        self.assertIn("if route is not RecoveryRoute.NONE", recovery)
+        self.assertIn("SessionRecoveryService(execution_port_getter(), cap_current)", recovery)
+        self.assertLess(recovery.index("SessionRecoveryService(execution_port_getter(), cap_current)"),
                         recovery.index("recovery_execution.reenable_active("))
-        # The service is not bound at data_logger startup: port identity can
-        # change after HA/physical-owner recovery, but authority lock stays app-wide.
-        self.assertNotIn("recovery_execution = SessionRecoveryService(",
-                         source[source.index("async def data_logger("):start])
         self.assertIn("recovery_execution.reenable_active(", recovery)
         self.assertIn("recovery_execution.restore_idle_link(", recovery)
         self.assertIn("recovery_execution.restore_output_on(", recovery)
         self.assertIn("if not result.confirmed:", recovery)
-        self.assertNotIn("charge_controller.stop(", recovery)
-        self.assertNotIn("charge_controller._was_unavailable =", recovery)
+        self.assertNotIn("controller.stop(", recovery)
+        self.assertNotIn("controller._was_unavailable =", recovery)
         self.assertNotIn("clear_session=False", recovery)
         self.assertNotIn("except Exception", recovery)
-        denied_b = recovery[recovery.index("if not result.confirmed:"):recovery.index("else:", recovery.index("if not result.confirmed:"))]
-        self.assertNotIn('"RESTORE"', denied_b)
-        self.assertNotIn("last_checkpoint_time =", denied_b)
-        self.assertIn("состояние Output неизвестно", denied_b)
-        self.assertNotIn("Заряд остановлен", denied_b)
-        denied_c_start = recovery.index("if not result.confirmed:", recovery.index("restore_output_on("))
-        denied_c = recovery[denied_c_start:recovery.index("else:", denied_c_start)]
-        self.assertNotIn('"RESTORE"', denied_c)
-        self.assertNotIn("last_checkpoint_time =", denied_c)
-        self.assertIn("состояние Output неизвестно", denied_c)
-        self.assertNotIn("Заряд остановлен", denied_c)
         self.assertIn("Output ON отдельно не подтверждался.", recovery)
-        self.assertNotIn("await _apply_phase_protection(uv, ui)", recovery)
         self.assertNotIn("program_voltage(uv)", recovery)
         self.assertNotIn("program_current(_cap_current(ui))", recovery)
         self.assertIn("recovery_guard.quarantined", recovery)
-        self.assertIn("may_run_automatic_control()", source)
+        self.assertIn("may_run_automatic_control()", application)
+        self.assertIn("await SessionRecoveryService.run_cycle(", runtime)
+        self.assertIn('if effect.kind == "event":', runtime)
+        self.assertIn('now_ts = time.time()', runtime)
 
     async def test_explicit_rearm_requires_positive_output_off_evidence(self):
         self.port.reject = {"on"}

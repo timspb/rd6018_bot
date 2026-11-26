@@ -5,6 +5,8 @@ not import the production runtime, bot, HA, ESP, or any device adapter.
 """
 
 import unittest
+import ast
+from pathlib import Path
 
 from application.session_recovery_guard import SessionRecoveryGuard
 from application.session_recovery_service import (
@@ -172,6 +174,51 @@ class SessionRecoveryContractTests(unittest.IsolatedAsyncioTestCase):
             await self.service.restore_idle_link(14.4, 2.0, safe_wait=False)
         self.assertTrue(self.guard.quarantined)
         self.assertEqual(self.guard.state.reason, "execution_exception")
+
+    def test_recovery_cycle_is_extracted_and_keeps_locked_cycle_order(self):
+        root = Path(__file__).resolve().parents[1]
+        runtime_path = root / "runtime/production_runtime.py"
+        source = runtime_path.read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        data_logger = next(
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "data_logger"
+        )
+        self.assertEqual(sum(
+            isinstance(node, ast.Call)
+            and ast.unparse(node.func) == "SessionRecoveryService.run_cycle"
+            for node in ast.walk(data_logger)
+        ), 1)
+        self.assertFalse(any(
+            isinstance(node, ast.Call)
+            and ast.unparse(node.func) in {
+                "choose_recovery_route", "controller.try_restore_session"
+            }
+            for node in ast.walk(data_logger)
+        ))
+
+        owner_lock = next(
+            node for node in ast.walk(data_logger)
+            if isinstance(node, ast.AsyncWith)
+            and any(
+                "_guard_owner_lock" in ast.unparse(item.context_expr)
+                for item in node.items
+            )
+            and any(
+                isinstance(child, ast.Call)
+                and ast.unparse(child.func) == "SessionRecoveryService.run_cycle"
+                for child in ast.walk(node)
+            )
+        )
+        statement_source = ast.unparse(owner_lock)
+        self.assertLess(statement_source.index("SessionRecoveryService.run_cycle"),
+                        statement_source.index("run_main_guard_cycle"))
+        self.assertLess(statement_source.index("run_main_guard_cycle"),
+                        statement_source.index("run_charge_session_tick"))
+        self.assertLess(statement_source.index("SessionRecoveryService.run_cycle"),
+                        statement_source.index("now_ts = time.time()"))
+        self.assertLess(statement_source.index("now_ts = time.time()"),
+                        statement_source.index("run_main_guard_cycle"))
 
 
 if __name__ == "__main__":

@@ -7886,3 +7886,47 @@ WSL focused suite and independent review of the unstaged diff.
 
 ## 2026-11-26 — B1003 controller acceptance after R7.3 completion
 The R7.3 existing own-chat route 6a2f8ff5b67f4acb8ae637bac7035b21 delivered exact completion event e762f2c243e3416ea7354a3e82b94242 for rd6018-b1003-20261126-r73-main-guard-cycle-owner; independent inspector verified server ACK attempt 1. B1003 Luna exited 0 at parent HEAD 84a064d308012ae624e2745de51837a2e24a22f4. Independent source review inspected application/main_guard_runtime.py, runtime/production_runtime.py, updated contract tests and new test_main_guard_cycle_owner.py. MAIN Guard native evidence, admission, shadow reconciliation and conditional existing executor invocation transferred into the ALREADY EXISTING application owner. Existing runtime _guard_owner_lock remains held, existing runtime shadow and ExecutionPort remain singletons, lease and physical setter unchanged. _has_manual_off_condition is a read-only operator conditions query; early evaluation compared to prior conditional query has no owner/state mutation. No duplicate service, manager, store, event source, lock, or protection authority. Normal HOME-PC WSL Python3.12 project venv ran 84/84 PASS (exit0, 1.068s) with PYTHONPATH=.:tests:tools and inert fake TG_TOKEN: test_main_guard_cycle_owner, test_main_guard_admission, test_main_guard_shadow, test_main_guard_transaction, test_main_guard_session, test_production_entrypoint, D109QuarantineDiagnosticTests. Scoped py_compile and git diff --check PASS. Explicit broad D109 inherited async integration test hangs even outside sandbox; two attempts interrupted/timeout, no PASS claimed for that module; core affected contracts pass independently. This is bounded SOURCE-ONLY B1003 ACCEPT, not D109 broad/full suite or release/physical acceptance. P0–P9 stays 97/103 (3 P3, 2 P8, 1 P9 open), hardware/release HOLD. No device, node104, ESP/HA, hardware, firmware, deployment or remote main operations. Next: bounded extraction of the existing startup/link-session recovery cycle from remaining production_runtime.data_logger into existing application session recovery owner, without moving physical transaction ownership; first inspect call graph and identify a sufficiently cohesive noninvasive seam.
+
+
+## 2026-11-26 — B1004 recovery-cycle orchestration extraction (source only)
+
+Run `rd6018-b1004-20261126-r73-recovery-cycle`, starting code HEAD
+`de4eb385014911f725dfe6f5d80b36fe871fb9dc`, branch
+`codex/rd6018-b1004-recovery-cycle-20261126`. Moved the cold-start marker,
+route selection, ACTIVE_LINK / IDLE_LINK / IDLE_OUTPUT_ON session restore
+orchestration, restore authorization, and ordered runtime-effect production
+from `runtime/production_runtime.py::data_logger()` into the existing
+`application/session_recovery_service.py` owner. The Application owner still
+uses the existing three SessionRecoveryService ExecutionPort methods and
+quarantine; it adds no manager, port, lock, store, task, or timer. Its frozen
+observation/result/effect records are per-cycle memory only. Runtime retains
+the loop, existing `_guard_owner_lock`, telemetry, live execution-port lookup,
+event/notification/logger sinks and shared `last_checkpoint_time`. The call
+remains before `now_ts`, MAIN Guard, and tick in the same lock. ACTIVE_LINK is
+the only branch that marks Output ON, and only after verified ON. Existing
+route-specific Safe Wait OFF ordering, session-file gate, restore helpers and
+messages are retained; MIN_INPUT_VOLTAGE remains the existing `-inf` value and
+is not an added authority gate. Exact paths and details: `B1004_REPORT.md`.
+
+Validation on available system Python 3.12: selected `py_compile` PASS;
+`git diff --check` PASS; focused policy, cold-start, service, modularization
+contract, and new cycle behavior tests **36/36 PASS**. New behavior coverage
+includes three routes, quarantine, active-route ON confirmation, cold-start
+and route-NONE startup marking, and distinct Safe Wait OFF order. The bounded
+combined attempt at `test_data_logger_recovery_quarantine` and
+`test_production_entrypoint` did not complete and was interrupted; an isolated
+entrypoint import then failed because this interpreter lacks `aiogram`.
+Therefore those runtime integration tests are NOT claimed PASS. No dependency
+install or broad suite was attempted.
+
+P0–P9 remains **97/103**; P3 physical, P8 hardware/release and P9 final
+integration/release remain HOLD. Node104/HANDS_OFF/deployment and local/origin
+gap were not queried. No Native ESP, HA, device, service, firmware, physical,
+network, GitHub, stage, commit, push, or original dirty worktree action. The
+existing R7.3 launcher owns any completion hook; this source session did not
+invoke one. Next: independent source/diff review and normal HOME-PC focused
+runtime/entrypoint rerun; keep physical/release HOLD unchanged.
+
+
+## 2026-11-26 — B1004 independent controller acceptance (R7.3)
+Wake R7.3 completion event e6aa06b4e8954c4cad7cbaba6398965a for run rd6018-b1004-20261126-r73-recovery-cycle received; current chat inspector returned server ACK attempt_count=1. Source base was exact de4eb385014911f725dfe6f5d80b36fe871fb9dc. Controller independently reviewed the production_runtime and session_recovery_service diffs and new route/cold-start/quarantine tests. Recovery selection/three-route orchestration moved into existing application SessionRecoveryService; the single runtime owner lock, unchanged ExecutionPort, lazy port lookup, SessionRecoveryGuard/quarantine, Output and Safe Wait route-specific execution, startup observation and checkpoint ownership remain. No second manager/loop/service/state store. Current HOME-PC WSL Python3.12 project venv, PYTHONPATH=.:tests:tools, inert fake TG_TOKEN: recovery policy, cold start, application service, architecture contract, new cycle and production entrypoint **55/55 PASS (exit0)**; the previously sandbox-interrupted genuine data_logger recovery/quarantine integration **4/4 PASS (exit0)** as its own module. Total independently checked 59/59. Scoped py_compile and git diff --check PASS. This is accepted source-only decomposition, NOT full suite, production hardware, node104, firmware, HA/ESP or release acceptance. P0-P9 remains 97/103; P3/P8/P9 HOLD. PR #182 remains draft and not modified. Next bounded decomposition should reduce remaining production_runtime responsibilities only where a single established owner exists, not add wrappers or artificial acceptance gates.
