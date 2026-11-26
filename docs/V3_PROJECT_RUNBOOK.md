@@ -1,3 +1,34 @@
+## 2026-11-26 B984 — assembled B973–B983 integration/release gate
+
+At candidate HEAD `30608f8afc830dfa06965956604149b3f92e7ce2`, the selected
+cross-module START/recipe/stage/UI/AI/parser/journal/entrypoint cohort passed
+57 tests, and the production namespace/runtime-import/panel-lifecycle cohort
+passed 14 tests. Python 3.12 `compileall` and `git diff --check` passed. The
+first bounded full Linux discovery exited 124 at its 600-second deadline,
+stalled at test 82 in `test_battery_catalog` after an asyncio executor-join
+warning at 300 seconds. One isolated 45-second reproduction stalled awaiting
+`aiosqlite.connect`; the same test and stack reproduced against read-only
+`git archive` of main baseline `70074de154b4c6f44614f2b4cfddf6ac77c55fbb`.
+The test and database/catalog implementation files are unchanged from that
+baseline, so this is not attributed to B973–B983. No source fix was made.
+
+Source review found the single production START/ExecutionPort graph intact,
+stage and recipe delegation routed to existing owners, lazy Telegram dialog
+presentation, parser and journal owners, and no duplicate physical/panel
+owner in the reviewed graph. B967’s accepted optional AI engine/config
+boundary is not present at this candidate: root `ai_engine.py` imports
+`aiohttp` and `config` eagerly, while the B979 lazy `integrations.ai`
+boundary only owns Telegram dialog delivery. Treat this as an unreconciled
+release source delta for controller review; no RC code was copied. B972
+report, modularization handoff canon, `origin/main`, and RC `d52c723` were not
+available in this checkout. Exact commands, raw ignored test log, evidence
+limits and next action: `B984_REPORT.md`.
+
+No Windows run, node104 inspection, ESP/HA, physical, deployment, service,
+network, commit or push action occurred. Current HANDS_OFF/deployment state
+is not claimed. P0–P9 remains **97/103**; source/CI is not P8 hardware or P9
+release acceptance.
+
 ## 2026-11-26 B982 — remove unreachable runtime journal renderer
 
 At isolated supplied code HEAD `7513c787447d30fa082c198378cd7329855989f0`

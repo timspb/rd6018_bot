@@ -1,3 +1,44 @@
+## 2026-11-26 B984 — assembled B973–B983 integration/release gate
+
+At exact candidate HEAD `30608f8afc830dfa06965956604149b3f92e7ce2`, the
+focused combined cross-module cohort passed **57 tests**; production module,
+application runtime guardrails and panel lifecycle passed **14 tests**.
+`compileall` and `git diff --check` passed under
+`/home/home-pc/.venvs/pcp-test/bin/python` (Python 3.12), with inert fake
+Telegram configuration only. The first full Linux discovery was bounded to
+600 seconds and exited **124** with no summary, stopping at test 82
+(`test_battery_catalog...test_catalog_is_most_recent_first_and_limited`).
+After 300 seconds it emitted an asyncio executor-join warning. One isolated
+45-second/faulthandler run stalled at `aiosqlite.connect` in test setup. The
+same test and stack reproduced against a read-only extraction of checkpointed
+main SHA `70074de154b4c6f44614f2b4cfddf6ac77c55fbb`; the test and relevant
+database/catalog files are unchanged from that SHA. This is a reproduced
+baseline/environment hang, not an identified B973–B983 regression. RC
+`d52c723` was unavailable for comparison.
+
+The reviewed graph retains `ProductionComposition` -> bootstrap -> one
+`ProductionStartExecutionPort`/shared `ExecutionPort`, START -> recipe and
+stage owners, AI context and lazy Telegram-dialog presentation, parser and
+journal owners. No duplicate physical or panel lifecycle owner was found in
+the reviewed paths. B967’s accepted optional `integrations/ai/engine.py`
+missing-config/no-eager-aiohttp behavior is not present in this candidate:
+root `ai_engine.py` still imports `config` and `aiohttp` eagerly, and current
+`integrations.ai` laziness applies only to Telegram dialog presentation. This
+is an open release reconciliation item for controller review, not a blind
+cherry-pick or claim that configured runtime startup is broken. The B967
+report was read; the B972 report and
+`docs/RD6018_MODULARIZATION_HANDOFF_CANON.md` were unavailable in the clone.
+No `origin/main` ref exists; the candidate tracking branch is 0/0 and HEAD is
+13 commits after checkpointed main baseline. The runbook and `B984_REPORT.md`
+hold command/result detail.
+
+No source change, node104/HANDS_OFF/deployment inspection, Native ESP, HA,
+hardware, service, network, commit or push action occurred. Current physical
+and node ownership state is not claimed. P0–P9 remains **97/103**; source
+evidence does not close P8 hardware or P9 push/deploy gates. Next: controller
+review of B984 and decide the narrow B967 engine/config reconciliation; then
+rerun only necessary release checks with an accepted main/RC provenance.
+
 ## 2026-11-26 B983 — operator stage-progress renderer owner
 
 At supplied code HEAD `7b125ecf8833032af81407a3f5a6b6e5749bbe16`
