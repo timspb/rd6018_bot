@@ -8688,3 +8688,39 @@ P0–P9 remains **97/103**; P3 physical, P8 hardware/release and P9 integration/
 ## 2026-11-26 — B1010 independent controller acceptance and exact source ownership
 Wake Bridge R7.3 completion for run rd6018-b1010-20261126-r73-user-recipe-browser event d724aa440ffc48728c5b858439a43fe0 was received, and own-route inspector confirmed single server ACK attempt_count=1. Exact starting HEAD 710dc07867ce4c4ad5a35356c1d22c33c5f22344. Independent source review confirmed nine ACTUAL decorated user-library callbacks transferred unchanged from runtime/ui/telegram/recipe_buttons.py into the one new runtime/ui/telegram/user_recipe_browser_buttons.py. The three original pure markup implementations moved to EXISTING runtime/ui/telegram/recipe_menu_view.py; recipe_buttons.py exports the identical function objects for old callers. No second app.router/dispatcher/publisher, task, catalog or storage owner. Browser callback AST parity **9/9 PASS**, markup AST parity **3/3 PASS**, public re-export identity **3/3 PASS**, and exact unchanged registrar ordering (native drafts, native builtin, user browser, step editor) independently checked. Existing one _recipe_buttons_installed guard remains with outer installer.
 Independent normal HOME-PC WSL Python3.12 project venv with inert fake TG_TOKEN, PYTHONPATH=.:tests:tools: nine relevant modules including test_unified_recipe_catalog_ui, test_user_recipe_catalog_pagination, test_recipe_telegram_history_buttons, test_recipe_menu_ux, test_recipe_real_callback_chain, test_recipe_telegram_native_buttons, test_production_entrypoint, test_user_recipe_editor_pagination, test_native_recipe_telegram_pick — **63/63 PASS exit0** (1.892 s). Scoped py_compile PASS, git diff --check PASS. B1010 is accepted as SOURCE ONLY. Prior GitHub PR-head 710dc07: CI #2234 run 45790545844 SUCCESS; ESPHome dummy-secrets source compile #153 run 45790545880 SUCCESS. Do not attribute that CI PASS to B1010 until its new head is pushed/tested. Canonical P0-P9 remains 97/103, physical P3/P8 and release P9 HOLD. No node104, HA/ESP, RD hardware, Output, firmware, production, service, original dirty WIP or main changes. Next local commit and safe fast-forward to existing Draft PR #182, followed by next genuinely useful owner extraction; no new security/approval bureaucracy.
+
+## 2026-11-26 — B1011 native built-in recipe catalog Telegram owner (source-only)
+
+RUN_ID `rd6018-b1011-20261126-r73-native-catalog-browser`; branch
+`codex/rd6018-b1011-native-catalog-browser-20261126`; exact base and code HEAD
+`419e3ceaf227c553144a43c2af7aac65ebde9e03`, source uncommitted. Three
+built-in native recipe callback bodies moved to
+`runtime/ui/telegram/native_recipe_catalog_buttons.py`; its installer is
+called at the prior exact position between native draft and user browser
+installers. Existing single router, outer idempotence guard, route order,
+read-only native catalog owner, and all callback semantics remain. The one
+`native_recipe_markup` implementation now belongs to `recipe_menu_view.py`;
+`recipe_buttons.py` retains an identical-object compatibility reexport and the
+new callback owner imports the presenter directly. START selection and
+preview helpers were not changed. `recipe_buttons.py`: 270 → 165 LOC; new
+callback owner: 96 LOC.
+
+HOME-PC Python 3.12 project venv, inert process-only `TG_TOKEN`,
+`PYTHONPATH=.:tests:tools`: nine requested modules plus new owner-boundary
+test **65/65 PASS**, exit 0. Added assertions cover registration order,
+same-router idempotence, ACL-before-catalog-read, and presenter export
+identity. All three moved callback ASTs and presenter AST match the exact base;
+scoped `py_compile` and `git diff --check` PASS. No full suite/remote CI.
+Node104 status and local/origin gap not queried. Task context's PR #182 DRAFT
+and CI #2235 / ESPHome #154 RUNNING were not queried and do not include this
+uncommitted change. No GitHub/network, node, device, HA/ESP, physical,
+firmware, service, production, staging, commit, or push action. R7.3 launcher
+owns completion; no direct wake/ACK hook. P0–P9 remains **97/103**; P3
+physical, P8 hardware/release, and P9 final integration/release HOLD. See
+`B1011_REPORT.md`. Next: independent source review; any integration step
+remains separately authorized.
+
+
+## 2026-11-26 — B1011 independently accepted after R7.3 completion
+B1011 Luna completed run rd6018-b1011-20261126-r73-native-catalog-browser exit0 from source base 419e3ceaf227c553144a43c2af7aac65ebde9e03. Current-chat R7.3 completion event ec89090333624f7b8c981bf0bd97c36d verified ACK attempt_count=1. Independent review confirms all three actual read-only native builtin Telegram catalog callback decorators/bodies transferred unchanged from recipe_buttons.py to new native_recipe_catalog_buttons.py, call installed at the same point in original app.router, one sole _recipe_buttons_installed guard, exact native draft 6 -> builtin 3 -> user browser 9 -> step editor 7 registration order. Pure native_recipe_markup implementation moved intact to EXISTING recipe_menu_view and re-exported from recipe_buttons as same concrete function object. No other catalog, persistence, Telegram, START, charge/safety or physical owner created. Exact AST callback 3/3 parity PASS, markup AST parity PASS and public re-export identity PASS; source size recipe_buttons 270 -> 165 LOC, new owner 96 LOC.
+Independent normal HOME-PC WSL Python3.12 venv with inert test TG_TOKEN: nine relevant modules including native catalog owner, catalog UI, native draft route, native selection, callback chain and production entrypoint — **65/65 PASS exit0** (1.246s). Scoped py_compile and git diff --check PASS. Prior GitHub head 419e3ce source CI #2235 run 45792798562 SUCCESS, ESPHome dummy-secrets firmware compile #154 run 45792798675 SUCCESS; do not attribute these checks to B1011 until new head CI succeeds. B1011 source-only ACCEPT. Canonical P0–P9 = 97/103; P3/P8 physical and P9 final release HOLD. No device/node104/ESP/HA/Output, firmware flash, service/release or original dirty WIP action. Next: local source commit with correct stage and safe fast-forward ONLY to Draft PR #182, then inspect whether remaining START selection/UI composition is a real owner split; no new framework or artificial authorization.

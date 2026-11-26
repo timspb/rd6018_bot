@@ -11,9 +11,28 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from runtime.charge.programs.recipe_catalog import RecipeCatalog
 from runtime.charge.programs.native_recipe_parameters import native_recipe_parameters
+from runtime.charge.programs.native_recipe_catalog import native_recipes
 
 
 STEP_VIEW_PAGE_SIZE = 8
+
+
+def native_recipe_markup() -> InlineKeyboardMarkup:
+    """Browse native variants without mutation, START or custom-recipe actions."""
+    rows = [
+        [InlineKeyboardButton(
+            text=f"{entry.profile} · {entry.intent}",
+            callback_data=f"recipes:native:view:{entry.recipe_id}",
+        )]
+        for entry in native_recipes()
+    ]
+    rows.append([InlineKeyboardButton(
+        text="Мои копии штатных программ", callback_data="recipes:nd:list",
+    )])
+    rows.append([InlineKeyboardButton(
+        text="⬅️ Мои рецепты", callback_data="recipes:list",
+    )])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def step_summary(recipe, *, archived: bool, latest: int,
