@@ -1,7 +1,6 @@
 """Parity and ownership checks for extracted Manual phase evidence."""
 
 import ast
-import subprocess
 import unittest
 from pathlib import Path
 
@@ -40,14 +39,10 @@ def _without_session_alias(function: ast.FunctionDef) -> list[ast.stmt]:
 class ManualPhaseEvidenceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.head_source = subprocess.run(
-            ["git", "show", "3c692554074b27805419a9b0767133a1c8d78150:manual_mode.py"],
-            cwd=ROOT,
-            check=True,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-        ).stdout
+        cls.head_source = (
+            ROOT / "tests/fixtures/architecture/"
+            "manual_mode_3c692554074b27805419a9b0767133a1c8d78150.py"
+        ).read_text(encoding="utf-8")
         cls.current_source = (ROOT / "manual_mode.py").read_text(encoding="utf-8")
         cls.evidence_source = (ROOT / "application/manual_phase_evidence.py").read_text(encoding="utf-8")
 

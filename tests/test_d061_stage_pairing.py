@@ -41,10 +41,10 @@ class D061StagePairingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as pinned_temp:
             pinned_root = Path(pinned_temp)
             for name in runner.TAKEOVER_OVERLAY:
-                raw = subprocess.check_output(
-                    ["git", "show", "3c692554074b27805419a9b0767133a1c8d78150:tools/acceptance_guard/" + name],
-                    cwd=ROOT,
-                )
+                raw = (
+                    ROOT / "tests/fixtures/architecture/"
+                    "d061_overlay_3c692554074b27805419a9b0767133a1c8d78150" / name
+                ).read_bytes()
                 (pinned_root / name).write_bytes(raw)
             with patch.object(staging, "OVERLAY", pinned_root):
                 cls.overlay_tar = runner.make_takeover_overlay(cls.manifest)
