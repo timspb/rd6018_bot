@@ -552,6 +552,9 @@ class ESPHomeTransport(ReadOnlyTransport):
 
     async def command_output(self, enabled: bool) -> dict[str, Any]:
         receipt = await self.command_output_with_receipt(enabled)
+        if enabled:
+            from runtime.output.command_receipt_observation import observe_applied_on
+            observe_applied_on(receipt)
         return json.loads(receipt.raw_terminal_identity)
 
     async def command_output_with_receipt(self, enabled: bool) -> OutputCommandReceipt:

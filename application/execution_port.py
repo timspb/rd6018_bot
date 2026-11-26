@@ -13,7 +13,7 @@ from functools import wraps
 from dataclasses import dataclass
 from time import time
 import time as _time
-from typing import Any, Mapping, Optional
+from typing import Any, Callable, Mapping, Optional
 
 from rd6018_telemetry import canonical_programmed_readback, finite_float
 from runtime.safety.output_policy import OutputRequest, SafetySupervisor, snapshot_from_live
@@ -284,11 +284,16 @@ class ExecutionPort:
         *,
         identity: Any,
         recipe_voltage_ceiling_v: float,
+        on_receipt_observed: Optional[Callable[[OutputCommandReceipt], Any]] = None,
     ) -> ExecutionPortResult:
         if self._recovery_quarantined() or self.guarded_restore_activated_off:
             reason = ("guarded_restore_resume_gate_pending" if self.guarded_restore_activated_off
                       else "session_recovery_quarantined")
             return self._result(intent, identity, "enable", False, False, reason)
+        from runtime.output.command_receipt_observation import (
+            begin_observation, reset_observation,
+        )
+        observation, token = begin_observation()
         try:
             self._assert_output_on_authority()
             if callable(getattr(self._execution_owner, "safe_enable_output", None)):
@@ -307,6 +312,13 @@ class ExecutionPort:
                     recipe_voltage_ceiling_v=float(recipe_voltage_ceiling_v),
                 ))
             accepted = bool(getattr(result, "enabled", False))
+            if accepted and on_receipt_observed is not None and observation.receipt is not None:
+                try:
+                    on_receipt_observed(observation.receipt)
+                except Exception:
+                    # Observation is ancillary; it cannot alter an accepted
+                    # physical transaction or trigger another actuator call.
+                    pass
             return self._result(
                 intent, identity, "enable", accepted, accepted,
                 str(getattr(result, "detail", "safe_enable_verified" if accepted else "safe_enable_rejected")),
@@ -315,6 +327,8 @@ class ExecutionPort:
             # The owning manual manager retains its existing containment policy
             # for enable exceptions; do not hide the exception here.
             raise
+        finally:
+            reset_observation(token)
 
     @_serialized_normal_execution
     async def apply_intent(self, intent: ExecutionIntent, *, identity: Any) -> ExecutionPortResult:
