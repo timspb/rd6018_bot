@@ -460,7 +460,7 @@ class SinkTests(unittest.IsolatedAsyncioTestCase):
                        return_value='ActiveState=inactive\nMainPID=0\n'), \
                  patch('tools.acceptance_guard.pairing.Path.iterdir',return_value=[]), \
                  patch('tools.acceptance_guard.pairing.Path.cwd',return_value=state), \
-                 patch('tools.acceptance_guard.pairing.fcntl.flock',side_effect=BlockingIOError()), \
+                 patch('fcntl.flock',side_effect=BlockingIOError()), \
                  patch('tools.acceptance_guard.pairing.assemble') as assemble:
                 with self.assertRaisesRegex(RuntimeError,'poller lock'):
                     await run_prepared(root/'source',root/'manifest',physical_ready=True,sole_poller_ready=True)
