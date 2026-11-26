@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 class OrdinaryRestoreSnapshotOwnershipTests(unittest.TestCase):
     def test_canonical_restore_snapshot_is_typed_and_consumed_by_session_owner(self):
         persistence = (ROOT / "runtime/charge/persistence.py").read_text()
+        restore_owner = (ROOT / "runtime/charge/session_restore.py").read_text()
         base = (ROOT / "charge_controller.py").read_text()
         production = (ROOT / "production_controller.py").read_text()
         continuation = (ROOT / "runtime/charge/session_continuation_restore.py").read_text()
@@ -21,13 +22,21 @@ class OrdinaryRestoreSnapshotOwnershipTests(unittest.TestCase):
         self.assertIn("persist_restore=restore_session", base)
         self.assertIn("finish_session_restore(", continuation)
         self.assertIn("snapshot.document", continuation)
-        self.assertIn("if GUARD_KEY in data:", persistence)
+        self.assertIn("if GUARD_KEY in data:", restore_owner)
         self.assertNotIn("main_guard_restore_boundary", continuation)
         self.assertNotIn("def try_restore_session", production)
 
     def test_guard_journal_is_rejected_once_by_persistence_before_host_mutation(self):
         persistence = (ROOT / "runtime/charge/persistence.py").read_text()
-        restore = persistence.split("def restore_session(", 1)[1].split("__all__", 1)[0]
+        restore_owner = (ROOT / "runtime/charge/session_restore.py").read_text()
+        restore = restore_owner.split("def restore_session(", 1)[1]
+        self.assertIn("from runtime.charge.session_restore import (", persistence)
+        self.assertNotIn("def restore_session(", persistence)
+        from runtime.charge import persistence as persistence_module
+        from runtime.charge import session_restore
+        import charge_controller
+        self.assertIs(persistence_module.restore_session, session_restore.restore_session)
+        self.assertIs(charge_controller.restore_session, persistence_module.restore_session)
         guard = restore.index("if GUARD_KEY in data:")
         first_mutation = restore.index("host._stage_tracking_enabled = False", guard)
         second_guard = restore.index("if GUARD_KEY in data:", guard + 1)

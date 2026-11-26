@@ -102,3 +102,18 @@ Evidence/report: `.recipe-studio-local/REPORT_RD6018_P7_MANAGED_MIX_ADOPTION_BAT
 - No source extraction justified: the existing graph is coherent. Pure MAIN policy is `runtime/charge/strategy/main_authority.py`; MAIN/MIX typed stage effects and their application remain under `runtime/charge/runtime/`; `ExecutionPort` owns physical V/I/Output dispatch. D061 `rd_managed_adoption.py` owns Manual-only live adoption; D062 `rd_managed_mix.py` owns adopted-MIX state/authority and delegates chemistry/budget/sample/hold to existing evidence/strategy owners; `rd_managed_mix_adoption.py` owns Telegram workflow composition. One `ProductionComposition`, one ChargeEngine, no duplicate eligibility predicate or transport patch.
 - Independent Windows project `.venv` exact 10-module cohort **121 PASS + 19 subtests PASS**. Linux Python 3.12.3 `py_compile` and `git diff --check` PASS; Linux collection 21 tests PASS but 10 collection errors due missing `aiogram`, `aiosqlite`, and `python-dotenv`. The integrated single-chain strategy→typed effect→ExecutionPort plus app-specific HMI test remains outstanding and is explicitly not claimed complete.
 - Bounded MIX/adoption ownership audit accepted; original P7 remains PARTIAL, P8 HOLD; AD083/AD148 whole-file ownership HOLD. No node104/live HA/ESP, Output/V/I, battery/charge, lease, firmware, service/deploy, remote push or BW600 physical action.
+
+## B1017 — persisted-session restore owner
+
+`runtime/charge/session_restore.py::restore_session` owns the complete persisted
+snapshot restore use case, including decode/admission, guarded MAIN hold,
+pre-mutation projection, ordered host application, session header and the call
+into the existing finalizer. `runtime/charge/persistence.py` directly
+re-exports that exact function object to preserve production and recovery
+callers. The terminal Done normalizer has one implementation in the restore
+owner and a persistence compatibility export. `restore_admission.py`,
+`restore_projection.py`, `restore_finalization.py`,
+`session_document_projection.py`, and `session_atomic.py` retain their existing
+separate responsibilities; the latter remains the only canonical writer.
+`charge_session.json` remains the sole session document. B1017 is source-only;
+P0–P9 remains 97/103 with P3/P8/P9 HOLD. See `B1017_REPORT.md`.

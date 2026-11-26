@@ -12,6 +12,7 @@ from application.session_recovery_guard import SessionRecoveryGuard
 import charge_controller
 from production_controller import create_production_charge_host
 from runtime.charge import persistence
+from runtime.charge import session_restore as restore_owner
 from runtime.production_lifecycle import ProductionRuntimeLifecycle
 from tests.test_modularization_auto_restore_atomic_admission import _valid_document
 
@@ -121,7 +122,7 @@ class RestoreLifecycleContainmentAD155(unittest.IsolatedAsyncioTestCase):
             if cancel_after_restore:
                 execution_port.program_voltage = AsyncMock(side_effect=asyncio.CancelledError())
             real_restore = charge_controller.restore_session
-            real_finalizer = persistence.finalize_restored_session
+            real_finalizer = restore_owner.finalize_restored_session
             real_save = charge_controller.save_session
             injections = {"normalization": 0, "save": 0}
             finalizer_arguments = []
@@ -146,10 +147,10 @@ class RestoreLifecycleContainmentAD155(unittest.IsolatedAsyncioTestCase):
                  patch("charge_controller.restore_session", wraps=real_restore) as restore_call, \
                  patch("runtime.production_lifecycle.start_background_tasks", side_effect=start_tasks), \
                  patch("runtime.charge.persistence.time.time", return_value=50_000.0), \
-                 patch.object(persistence, "finalize_restored_session", side_effect=finalizer) as finalizer_call, \
+                 patch.object(restore_owner, "finalize_restored_session", side_effect=finalizer) as finalizer_call, \
                  patch("charge_controller.save_session", side_effect=save) as save_call, \
-                 patch.object(persistence, "log_session_header", side_effect=(
-                     RuntimeError(failure) if failure == "header_logging" else persistence.log_session_header
+                 patch.object(restore_owner, "log_session_header", side_effect=(
+                     RuntimeError(failure) if failure == "header_logging" else restore_owner.log_session_header
                  )) as header_call:
                 if cancel_after_restore:
                     with self.assertRaises(asyncio.CancelledError):

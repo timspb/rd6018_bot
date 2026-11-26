@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from runtime.charge import persistence
+from runtime.charge import session_restore as restore_owner
 from runtime.charge.session import RestoredSessionDocument
 from runtime.charge.session_atomic import WriteStatus, compare_replace_session
 from tests.test_modularization_auto_restore_atomic_admission import _Host, _valid_document
@@ -49,8 +50,8 @@ class RestoreFinalizationContractTests(unittest.TestCase):
             return False
 
         with patch("runtime.charge.persistence.time.time", return_value=self.NOW), \
-             patch.object(persistence, "log_session_header", side_effect=log), \
-             patch.object(persistence, "_normalize_terminal_done_document", side_effect=normalizer), \
+             patch.object(restore_owner, "log_session_header", side_effect=log), \
+             patch.object(restore_owner, "_normalize_terminal_done_document", side_effect=normalizer), \
              patch.object(RestoredSessionDocument, "capture", side_effect=capture):
             try:
                 result = persistence.restore_session(
@@ -250,7 +251,7 @@ class RestoreFinalizationContractTests(unittest.TestCase):
         next_host = _Host()
         next_host._save_session = lambda *_args, **_kwargs: (WriteStatus.COMMITTED, preimage)
         with patch("runtime.charge.persistence.time.time", return_value=self.NOW), \
-             patch.object(persistence, "log_session_header"):
+             patch.object(restore_owner, "log_session_header"):
             accepted, _message = persistence.restore_session(
                 next_host, 12.5, 0.0, 0.0, session_file=str(path),
             )

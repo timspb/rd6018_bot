@@ -12,6 +12,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from runtime.charge import persistence
+from runtime.charge import session_restore as restore_owner
 from runtime.charge.persistence import restore_session
 from tests.test_modularization_auto_restore_atomic_admission import _Host, _valid_document
 
@@ -97,7 +98,7 @@ class RestoreContinuationFailureDiagnostics(unittest.TestCase):
     def test_header_logger_exception_is_late(self):
         outcome, host, changed, file_changed = self.run_cut(
             patcher=lambda: patch.object(
-                persistence, "log_session_header",
+                restore_owner, "log_session_header",
                 side_effect=RuntimeError("header exploded"),
             ),
         )
@@ -116,7 +117,7 @@ class RestoreContinuationFailureDiagnostics(unittest.TestCase):
         outcome, host, changed, file_changed = self.run_cut(
             document,
             patcher=lambda: patch.object(
-                persistence, "_normalize_terminal_done_document",
+                restore_owner, "_normalize_terminal_done_document",
                 side_effect=RuntimeError("normalization exploded"),
             ),
         )
@@ -169,7 +170,7 @@ class RestoreContinuationFailureDiagnostics(unittest.TestCase):
             host._session_restore_snapshot = "old-snapshot"
             before = dict(host.__dict__)
             with patch("runtime.charge.persistence.time.time", return_value=self.NOW), \
-                 patch.object(persistence, "project_restore_stage_timeline",
+                 patch.object(restore_owner, "project_restore_stage_timeline",
                               side_effect=RuntimeError("timeline projection exploded")):
                 with self.assertRaisesRegex(RuntimeError, "timeline projection exploded"):
                     restore_session(host, 12.5, 0.0, 0.0, session_file=str(path))

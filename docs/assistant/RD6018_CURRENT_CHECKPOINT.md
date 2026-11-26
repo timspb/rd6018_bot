@@ -8881,3 +8881,39 @@ integration/current-head CI.
 ## 2026-11-26 — B1016 independent controller acceptance (R7.3)
 B1016 Luna run rd6018-b1016-20261126-r73-session-document-projection completed exit0 from base 3b217a0c23676c46d039e637bf869481d79729fd. Exact Wake R7.3 completion event 123a365c5dbe4cdeb700853f54279410 was delivered in own chat and server inspector ACK attempt_count=1 confirmed. Independent controller reviewed source diff, new runtime/charge/session_document_projection.py and changed D123 contract. The existing project_session_document and _set_done_outcome function ASTs are byte-structure equal to base (2/2 PASS); runtime.charge.persistence direct compatibility exports are identical Python objects (2/2 PASS). Candidate projection only READS existing charge_session.json and calls existing session_atomic.complete_session_document; it does not write, does not add a new file, store, timer, service, lock, authorization or ExecutionPort. save_session still invokes persistence.project_session_document so existing monkeypatch seam and one canonical session writer persist. Complete Storage Done priority, START_PENDING fence, guarded MAIN trace document inclusion, terminal measurement fallback and error behavior retained by exact AST.
 Independent normal HOME-PC WSL Python3.12 project venv with inert process-local TG_TOKEN, PYTHONPATH=.:tests:tools: seven scoped modules including deterministic session projection, restore finalization, D123 seam ownership, START_PENDING, START transaction, restore admission and production entrypoint **84/84 PASS exit0 (11.512s)**. Selected py_compile and git diff --check PASS. Prior GitHub CI #2240 on 3b217a0 (run 45801580850) completed SUCCESS; ESPHome dummy-secrets source compilation #159 (run 45801580907) completed SUCCESS, not flashed. Do not attribute that full CI to unpushed B1016 changes. B1016 SOURCE ONLY accepted; P0-P9 still 97/103 documentary checkboxes, P3/P8 physical and P9 final release HOLD. No node104/HA/ESP/RD charger Output/firmware/service/physical/production action. Next source commit and safe fast-forward to Draft PR #182 only; next meaningful ownership seam: persistence.restore_session 336-line persisted snapshot admission/host application, provided existing owners and monkeypatch contracts remain correct.
+
+## 2026-11-26 — B1017 persisted-session restore owner checkpoint
+
+Run `rd6018-b1017-20261126-r73-session-restore-owner`; branch
+`codex/rd6018-b1017-session-restore-20261126`; base and current Git HEAD
+`2579fadd027589f34145882692d6339b49059371`; source edits uncommitted and
+unstaged. The complete `restore_session` use case (336 source lines) and its
+terminal Done normalizer moved to `runtime/charge/session_restore.py`.
+`runtime.charge.persistence.restore_session` directly re-exports the exact same
+function. Production controller retains its persistence import and passes that
+callable to the restore controller route; startup recovery still invokes the
+existing controller restore method. Existing restore admission/projection,
+Native recipe, finalization, session-document and canonical atomic writer
+boundaries remain unchanged. `session_atomic.py` is still the sole writer and
+`charge_session.json` the only canonical session file.
+
+Evidence on HOME-PC WSL project venv, CPython 3.12, inert token:
+restore/failure/Guard/trace/timeline/Native/D123 focused cohort **62/62 PASS**;
+`test_production_entrypoint` **19/19 PASS**; exact moved AST parity **2/2**;
+selected `py_compile` and `git diff --check` PASS. No full suite or CI; task
+context CI #2241 and ESPHome dummy #160 were not queried and are not evidence
+for this work. Exact paths and detailed semantics are in `B1017_REPORT.md`.
+
+Node104 HANDS_OFF/deployment and local/origin gap were not queried. No network,
+node/ESP Native API/HA/hardware, firmware, Output, setpoints, service,
+deployment, production, staging, commit, push, or original dirty worktree
+operation. R7.3 completion/ACK remains Wake Bridge launcher-owned; no manual
+wake/ACK. P0–P9 remains **97/103**; P3 physical, P8 hardware/release and P9
+final integration/release remain **HOLD**. Next: independent controller
+review, then separate authorization for source commit and current-head CI /
+feature-branch integration.
+
+
+## 2026-11-26 — B1017 independent controller acceptance following R7.3 completion
+R7.3 exact B1017 run rd6018-b1017-20261126-r73-session-restore-owner exit0 and completion event 2a7b2e61b1f9434b85fa9e95122cbc92 received. Current-chat server inspector verified ACK attempt_count=1. Exact base 2579fadd027589f34145882692d6339b49059371. Independent review of full source diff: the REAL persisted-session restore_session and terminal DONE normalization function bodies moved unchanged from mixed persistence.py into runtime/charge/session_restore.py (AST 2/2 identical), with direct reexports from persistence and identical exact function objects (2/2), charge_controller.restore_session production import identity and default charge_session.json verified. No reimport cycle, no new session file/writer/ExecutionPort, no altered protected readback/admission/permit/trace/SAFE_WAIT/terminal/age/clock/CAS ordering, and no new crypto or safety authority. New session_restore owner 411 LOC; persistence.py 419 LOC versus 801 before B1017 and 1195 before B1015.
+Independent HOME-PC WSL Python3.12 venv, inert TG_TOKEN, PYTHONPATH=.:tests:tools: thirteen focused modules spanning guarded restore, archived/history trace, timeline, continuation failure cuts, late-failure quarantine, save/finalization, native recipe parity and production entrypoint **94/94 PASS exit0** (1.175s), scoped py_compile and git diff --check PASS. Executor's 81/81 overlapping focused cases additionally PASS. Prior GitHub CI #2241 on 2579fad run 45803425397 SUCCESS and ESPHome dummy-secrets source compile #160 run 45803425373 SUCCESS, NO firmware flashing. These prior checks do NOT imply B1017 full current-head CI acceptance before new PR update. SOURCE-ONLY B1017 ACCEPT. Canonical P0-P9 documentary checklist remains **97/103**, P3/P8 physical and P9 release/integration HOLD. No node104/HA/ESP/RD device, live Output/setpoints, firmware, service, deployment, production or original dirty WIP changed. Next: scope commit and safe feature-branch fast-forward to existing Draft PR #182, then prioritize identifying remaining actual owner/architecture gaps and blockers rather than splitting already cohesive modules for counts alone.
