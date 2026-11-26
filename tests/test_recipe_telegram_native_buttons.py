@@ -8,6 +8,7 @@ from runtime.charge.programs.recipe_catalog import RecipeCatalog
 from runtime.charge.programs.recipe_library import RecipeLibrary
 from runtime.charge.programs.native_recipe_draft_library import NativeRecipeDraftLibrary
 from runtime.ui.telegram.recipes import install_recipe_catalog_commands
+from runtime.ui.telegram.recipe_buttons import install_recipe_buttons
 from test_recipe_real_callback_chain import _App, _Call
 
 
@@ -38,6 +39,22 @@ class NativeButtonEditorTests(unittest.IsolatedAsyncioTestCase):
             "schema": 1, "base_recipe_id": "native_efb_normal",
             "execution_kind": "native_authority", "overrides": {},
         })
+
+    def test_native_routes_register_once_before_native_catalog(self):
+        handlers = self.app.router.callback_query.handlers
+        names = [handler.callback.__name__ for handler in handlers]
+        expected = [
+            "native_draft_list", "native_draft_view", "native_draft_history",
+            "native_draft_edit", "native_draft_adjust", "native_draft_copy",
+        ]
+        start = names.index(expected[0])
+        self.assertEqual(names[start:start + len(expected)], expected)
+        self.assertEqual(names[start + len(expected)], "native_catalog")
+        route_handlers = handlers[start:start + len(expected)]
+        self.assertEqual(len(route_handlers), 6)
+
+        install_recipe_buttons(self.app, catalog=self.catalog, native_drafts=self.drafts)
+        self.assertEqual(len(self.app.router.callback_query.handlers), len(handlers))
 
     async def test_buttons_create_immutable_revision_then_stale_rejected(self):
         view = _Call("recipes:nd:view:trial:1")

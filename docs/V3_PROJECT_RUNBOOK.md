@@ -8045,3 +8045,41 @@ integration/release HOLD. See `B1007_REPORT.md` and the current checkpoint.
 ## 2026-11-26 — B1007 controller acceptance and PR #182 CI #2231 source-isolation repair
 B1007 Luna source-only run rd6018-b1007-20261126-r73-live-safety-effects completed exit0 from exact e39e49220ae959331b8da713ca023f07c211b7c1. R7.3 current-chat delivery event fbb0a132394b4d39b425c3197989c811 was acknowledged once (server inspector attempt_count=1). Independent controller inspected runtime/production_runtime.py, new application/live_protection_use_case.py and focused tests. Application use case owns ordered effects of already-established PURE evaluate_live_protection from runtime.safety.live_protection; app context supplies unchanged logger, notify and existing _hard_stop_charge. OPP event/notify/await OFF, then independent TEMP_INT event/notify/await OFF preserve exact order; stage is reread after prior stop, and stop exceptions propagate. No policy or physical owner changes. OVP/OCP raw R16 1/2 remain diagnostic/operator-managed only; R16=3 OPP/unknown nonzero and V/I, temperature, R18, 900s lease remain effective through existing owners.
 New GitHub CI #2231 on precursor e39e492 (run 45784723283), Python 3.10/3.11/3.12, each completed FAILURE at exact same ONE architecture test, 4057 run each, 1 FAIL / 3 SKIP, no errors: test_v3_production_physical_isolation.py used a textual string scan for forbidden imported physical modules and incorrectly classified the documentation-only text 'runtime.physical.transports' in application/link_outage_use_case.py docstring. No real physical import or extra ExecutionPort was present (AST import graph unchanged). Controller removed ONLY that docstring's exact module path, preserving code and strict test; did NOT alter import checks or behavior. Normal HOME-PC WSL independent focused cohort: tests.test_live_protection_policy, test_data_logger_recovery_quarantine, test_production_entrypoint, test_modularization_operator_off_logger_boundary, test_v3_production_physical_isolation, test_link_outage_use_case, test_transport_outage_policy and test_modularization_physical_owner_serialization_ad027 — **59/59 PASS, exit0**; scoped py_compile PASS and git diff --check PASS. This is accepted B1007 source-only, not yet full current-head CI acceptance. Existing PR #182 remains DRAFT, with new source commit/CI to publish and verify after this local acceptance. No node104/HA/ESP/device/firmware/service/production action. P0-P9 checklist stays 97/103; P3/P8 physical and P9 release HOLD.
+
+
+## 2026-11-26 — B1008 native draft Telegram callback owner (source-only)
+
+Run `rd6018-b1008-20261126-r73-native-draft-buttons`; branch
+`codex/rd6018-b1008-native-draft-buttons-20261126`; exact base/code HEAD
+`c918a2c273594b97eb75ebfdf5c9136ff800dfe7`, working tree uncommitted.
+The six `recipes:nd:{list,view,history,edit,adjust,copy}` real callback
+registrations and bodies now belong to
+`runtime/ui/telegram/native_draft_buttons.py::install_native_draft_buttons`.
+`recipe_buttons.install_recipe_buttons` retains the only register-once guard
+and calls the owner immediately before `recipes:native:list`. The original
+callback bodies and their only-used `_native_editable_specs` /
+`_native_adjust_value` helpers were removed from `recipe_buttons.py`; current
+recipe menu presenters, native draft library, admission function, app ACL and
+ParseMode remain the owners. Existing recipe routes, START selection,
+notifications, callback payloads, checks, ACK order and version behavior are
+carried over unchanged. Added a focused registration-order/idempotence test;
+existing native-draft tests cover stale-version denial and mutations.
+
+Scoped `py_compile` (three changed Python files) and `git diff --check` PASS.
+The focused unittest cohort was not run: the HOME-PC project venv is not
+available from this isolated checkout/standard WSL venv paths, and system
+Python 3.12 has no `aiogram`; no dependencies were installed and no alternate
+checkout was used. No full suite or CI rerun. PR #182 / CI #2232 and ESPHome
+compile #151 remain task-provided, unqueried. No node104/HANDS_OFF or
+local/origin comparison; no device, HA, ESP, Output, firmware, service,
+production, GitHub, network, original dirty checkout, stage, commit or push
+action. R7.3 completion hook remains with the existing launcher; it was not
+called separately. P0–P9 stays 97/103; P3 physical, P8 hardware/release and
+P9 integration/release HOLD. See `B1008_REPORT.md` for paths, evidence and
+remaining test gap.
+
+
+## 2026-11-26 — B1008 independent controller acceptance after R7.3 completion
+Wake Bridge R7.3 current-chat completion event 945bf8c6b7ea469da0ed198f6372d935 for rd6018-b1008-20261126-r73-native-draft-buttons was received; own-chat inspector verified server ACK attempt_count=1. Exact base HEAD c918a2c273594b97eb75ebfdf5c9136ff800dfe7. Controller independently inspected production diff, new runtime/ui/telegram/native_draft_buttons.py and changed route-order test; six real decorators/bodies moved unchanged from recipe_buttons.install_recipe_buttons, together with their two single-consumer numeric spec helpers. Original browser retains one existing _recipe_buttons_installed registration guard, calls new installer at original location immediately before recipes:native:list, and retains existing one Telegram app.router. No second router/publisher/stored draft manager/charge control. Original callback prefixes, ACL-before-I/O, archived/stale-version rejection, immutable save version+1, Telegram 64-byte cap, history/pagination and UI strings preserved.
+Independent normal HOME-PC WSL Python3.12 project venv /home/home-pc/.venvs/pcp-test/bin/python using inert fake TG_TOKEN and PYTHONPATH=.:tests:tools: test_recipe_telegram_native_buttons, test_recipe_telegram_history_buttons, test_recipe_telegram_native_drafts, test_recipe_studio_pc_telegram_shared, test_native_recipe_telegram_pick, test_production_entrypoint: **55/55 PASS**, exit0, 9.646s. Scope includes native draft edit/history/selection, shared library behavior, route guard and entrypoint; git diff --check PASS. B1008 source ACCEPT. The executor's earlier missing-venv remark was incorrect for the normal controller environment and is superseded by direct normal venv test evidence.
+GitHub Actions on prior source HEAD c918a2c: CI #2232 run 45786958000 completed **SUCCESS**, ESPHome dummy-secrets firmware #151 run 45786957834 completed **SUCCESS**; no firmware flash, and this success does NOT yet apply to unpushed B1008 code. Canonical P0–P9 documentary count remains 97/103; P3/P8 physical and P9 final release HOLD. No node104/ESP/HA/output/firmware/device or service operations, no main merge, original dirty worktree untouched. Next: source commit B1008, safe fast-forward update ONLY draft PR #182, then choose next real GUI/source owner boundary if architectural separation remains meaningful.
