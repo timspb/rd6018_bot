@@ -81,6 +81,7 @@ from application.session_recovery_service import (
     SessionRecoveryService,
 )
 from application.operator_pause_use_case import toggle_operator_pause
+from application.link_outage_use_case import transition_link_outage
 from runtime.safety.voltage_variables import PB_AUTOMATIC_TARGET_CEILING_V
 from database import add_record, cleanup_old_records, get_graph_data_with_temp, get_logs_data, get_raw_history, init_db
 from hass_api import HassClient
@@ -724,16 +725,22 @@ async def data_logger() -> None:
             )
         except Exception as ex:
             if _is_physical_transport_error(ex):
-                link_failure_streak += 1
-                mark_link_unavailable(charge_controller, lost_at_s=time.time())
-                if (
-                    charge_controller._last_known_output_on
-                    and link_failure_streak >= LINK_FAILURE_NOTIFY_THRESHOLD
-                    and not link_lost_alert_sent
-                ):
+                transition = transition_link_outage(
+                    category="initial_read",
+                    recoverable_link_error=True,
+                    failure_streak=link_failure_streak,
+                    alert_sent=link_lost_alert_sent,
+                    last_known_output_on=charge_controller._last_known_output_on,
+                    session_active=charge_controller.is_active,
+                    notification_threshold=LINK_FAILURE_NOTIFY_THRESHOLD,
+                )
+                link_failure_streak = transition.failure_streak
+                if transition.mark_unavailable:
+                    mark_link_unavailable(charge_controller, lost_at_s=time.time())
+                if transition.notify_repeated_outage:
                     _charge_notify("🚨 Связь с RD6018 не восстановилась после "
                                    f"{link_failure_streak} попыток. Аппаратный lease остаётся последним рубежом.")
-                    link_lost_alert_sent = True
+                link_lost_alert_sent = transition.alert_sent
                 logger.warning(
                     "ESPHome transport outage #%d; no host STOP sent: %s",
                     link_failure_streak,
@@ -1015,17 +1022,24 @@ async def data_logger() -> None:
 
         except Exception as ex:
             err_str = str(ex).lower()
-            if _is_recoverable_link_boundary_error(ex):
-                link_failure_streak += 1
+            recoverable_link_error = _is_recoverable_link_boundary_error(ex)
+            transition = transition_link_outage(
+                category=("cycle_readback" if recoverable_link_error else "unexpected_cycle"),
+                recoverable_link_error=recoverable_link_error,
+                failure_streak=link_failure_streak,
+                alert_sent=link_lost_alert_sent,
+                last_known_output_on=charge_controller._last_known_output_on,
+                session_active=charge_controller.is_active,
+                notification_threshold=LINK_FAILURE_NOTIFY_THRESHOLD,
+            )
+            link_failure_streak = transition.failure_streak
+            if transition.mark_unavailable:
                 mark_link_unavailable(charge_controller, lost_at_s=time.time())
-                if (
-                    charge_controller._last_known_output_on
-                    and link_failure_streak >= LINK_FAILURE_NOTIFY_THRESHOLD
-                    and not link_lost_alert_sent
-                ):
+            if recoverable_link_error:
+                if transition.notify_repeated_outage:
                     _charge_notify("🚨 Связь с RD6018 не восстановилась после "
                                    f"{link_failure_streak} попыток. Аппаратный lease остаётся последним рубежом.")
-                    link_lost_alert_sent = True
+                link_lost_alert_sent = transition.alert_sent
                 logger.warning(
                     "ESPHome transport outage during cycle #%d; no host STOP sent: %s",
                     link_failure_streak,
@@ -1040,39 +1054,41 @@ async def data_logger() -> None:
             
             # v2.5 Умный watchdog: поведение зависит от последнего состояния выхода
             output_was_on = charge_controller._last_known_output_on
-            mark_link_unavailable(charge_controller, lost_at_s=time.time())
 
             if not output_was_on:
                 # Выход был выключен — тихий переход в IDLE, без уведомлений
-                if charge_controller.is_active:
+                if transition.stop_idle_session:
                     charge_controller.stop(clear_session=False)
                     logger.info("Link lost with output OFF: quiet transition to IDLE")
             else:
                 # Выход был включён — однократное уведомление и аварийное отключение
-                if not link_lost_alert_sent:
+                if transition.notify_active_charge_loss:
                     _charge_notify("🚨 Связь потеряна во время активного заряда!")
-                    link_lost_alert_sent = True
+                    link_lost_alert_sent = transition.alert_sent
                     logger.critical("Link lost during active charge: emergency shutdown")
-                
-                try:
-                    off_confirmed = await _runtime_execution_port().request_emergency_off()
-                    if not off_confirmed:
-                        raise RuntimeError('emergency OFF was not verified')
-                except Exception as off_exc:
-                    logger.exception('LINK_LOST_EMERGENCY_OFF_FAILED; session retained: %s', off_exc)
-                    await asyncio.sleep(30)
-                    continue
 
-                if charge_controller.is_active:
-                    charge_controller.stop(clear_session=False)
-                    log_event(
-                        "EMERGENCY",
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        "LINK_LOST_DURING_CHARGE",
-                    )
+                if transition.request_emergency_off:
+                    try:
+                        # The existing ExecutionPort remains the only path
+                        # for unexpected-cycle emergency containment.
+                        off_confirmed = await _runtime_execution_port().request_emergency_off()
+                        if not off_confirmed:
+                            raise RuntimeError('emergency OFF was not verified')
+                    except Exception as off_exc:
+                        logger.exception('LINK_LOST_EMERGENCY_OFF_FAILED; session retained: %s', off_exc)
+                        await asyncio.sleep(30)
+                        continue
+
+                    if charge_controller.is_active:
+                        charge_controller.stop(clear_session=False)
+                        log_event(
+                            "EMERGENCY",
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            "LINK_LOST_DURING_CHARGE",
+                        )
         await asyncio.sleep(30)
 
 

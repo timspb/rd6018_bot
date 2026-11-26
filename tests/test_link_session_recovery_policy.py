@@ -164,7 +164,10 @@ class LinkSessionRecoveryPolicyTests(unittest.TestCase):
         runtime = Path("runtime/production_runtime.py").read_text(encoding="utf-8")
         self.assertLess(runtime.index("if _operator_pause_active():", runtime.index("# Explicit operator pause")),
                         runtime.index("await SessionRecoveryService.run_cycle("))
-        self.assertIn('output_on = str(output_switch or "").lower() == "on"', runtime)
+        telemetry = Path("runtime/telemetry/source.py").read_text(encoding="utf-8")
+        self.assertIn("observe_data_logger_cycle", runtime)
+        self.assertIn('output_on = str(output_switch or "").lower() == "on"', telemetry)
+        self.assertIn("output_on = observation.output_on", runtime)
         self.assertNotIn("request_verified_on", policy_path.read_text(encoding="utf-8"))
 
 
