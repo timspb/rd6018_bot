@@ -2514,7 +2514,7 @@ Linux focused test imports were blocked before execution by missing `aiogram`/`p
 - [x] Зафиксировать упрощение: никаких новых PKI, подписей, signing keys, attestation, криптографических отпечатков или digest-gates.
 - [x] Запретить искусственные наносекундные/микросекундные окна; использовать существующего владельца времени и обычные операционные границы.
 - [x] Сохранить 900 s ESP dead-man lease, 72 h failsafe, verified OFF, свежесть телеметрии и V/I ограничения.
-- [x] Сохранить R16=1/2 как OVP/OCP trips и R16=3 как OPP; не возвращать software OVP/OCP setters.
+- [x] Сохранить R16=1/2 как наблюдаемые диагностические OVP/OCP коды без программного STOP/admission/уставок; R16=3 (OPP) и неизвестные ненулевые коды остаются fail-closed, без автоматических OVP/OCP setters.
 - [x] Завершить единый baseline всех production-файлов, entrypoints, процессов и зависимостей.
 - [x] Сверить текущую физическую семантику и эталонные MAIN/MIX/AGM/EFB/desulfation сценарии без физического воздействия.
 
@@ -2621,6 +2621,7 @@ See `.recipe-studio-local/REPORT_RD6018_P3P4_RECOVERY_BATCH07_20261119.md`. D123
 - [x] Разделить hass_api.py на существующие transport/adapters без изменения публичной семантики.
 - [x] Удалить только доказанные дубли и dynamic patches.
 - [x] Проверить повторную сборку, startup ordering, shutdown и reconnect.
+- [x] Обеспечить подключение, отключение и удаление необязательных модулей через единый allowlisted ModuleManager и существующий ProductionComposition: без обязательного импорта AI, без hot-unload, без новых owner/ExecutionPort; offline physical-removal AI test должен подтверждать запуск ядра, UI и Safety без AI; отсутствие модуля не превращается в отказ зарядки.
 
 #### P8 — Полная регрессия и production release
 Статус: **HOLD**.

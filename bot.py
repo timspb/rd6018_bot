@@ -17,7 +17,7 @@ from manual_context import install_manual_context_ui
 from operator_dashboard import install_operator_graph_dashboard
 from operator_destructive_guard import install_operator_destructive_guard
 from operator_hmi import install_operator_hmi
-from integrations.ai.telegram_screen import install_analysis_screen
+from runtime.optional_modules import ModuleManager
 from runtime.ui.telegram.charge import install_charge_program_screen
 from runtime.ui.telegram.recipes import install_recipe_catalog_commands
 from runtime.charge.programs.recipe_library import RecipeLibrary
@@ -79,6 +79,7 @@ class ProductionComposition:
 
     def __init__(self, runtime: object) -> None:
         self.runtime = runtime
+        self.modules = ModuleManager()
         self.composed = False
 
     def compose(self) -> "ProductionComposition":
@@ -307,11 +308,13 @@ class ProductionComposition:
             install_stats_screen(
                 app,
             )
-            install_analysis_screen(
-                app,
-                analysis_provider=app._build_ai_analysis_text,
-                home_handler=app._operator_home_handler,
-            )
+
+        # Install optional packages after their required core ports/UI are wired.
+        # UI-only modules are skipped when V2_UI is disabled; non-UI modules
+        # can still participate in the same composition/lifecycle.
+        self.modules.install_all(app, ui_enabled=_ui_support_enabled)
+        # The UI reads this existing manager; it never owns module lifecycle.
+        app._optional_modules = self.modules
 
         runtime_main = app.main
         _startup_recovery = StartupRecovery(
@@ -394,7 +397,10 @@ class ProductionComposition:
                 except asyncio.CancelledError:
                     pass
             self._authority_task = None
-            await physical.stop()
+            try:
+                await self.modules.shutdown(app)
+            finally:
+                await physical.stop()
 
 
 _composition = ProductionComposition(_runtime_substrate).compose()

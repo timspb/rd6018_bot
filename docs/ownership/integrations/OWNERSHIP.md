@@ -101,3 +101,8 @@ Evidence: B896 reconciled the nine `integrations/ai/*.py` modules and their comp
 ## B910 AI compatibility contract review (2026-11-25)
 
 The top-level `ai_engine.py` and `ai_system_prompt.py` remain compatibility exports. The former has current direct test consumers and its exported callable identity is asserted; the latter has no direct in-repository import found, but this owner contract still names it as a supported compatibility boundary. `runtime.production_runtime.__getattr__` also exposes the same AI callables and prompt lazily, and the dialog path resolves those names at callback time. B910 adds a focused identity regression for the prompt facade and runtime lazy exports. This evidence does not authorize removal: deprecation requires an explicit public-consumer/support decision covering callers outside this repository and preserving runtime callback injection. No AI behavior or authority changed.
+
+
+## B1040 — контролируемый жизненный цикл необязательных модулей (source-only)
+
+`runtime/optional_modules.py::ModuleManager` владеет только allowlisted регистрацией, конфигурацией доступности, единовременной установкой и необязательным shutdown-hook. Он вызывается из существующей `ProductionComposition` после сборки обязательных портов. Установку AI предоставляет `integrations/ai/module.py`. При физическом отсутствии `integrations/ai/` или `RD6018_MODULE_AI=0` ядро импортируется без AI, Telegram-экран не устанавливается; обычный Charge Engine, Safety, ExecutionPort и session persistence никогда не попадают в каталог отключаемых модулей. Настройки применяются на следующем запуске, не при горячем удалении кода. Подробный контракт: `docs/architecture/OPTIONAL_MODULE_LIFECYCLE.md`. Это не новое право на деплой node104 или изменение защит.

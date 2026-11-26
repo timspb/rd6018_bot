@@ -322,7 +322,9 @@ def build_safe_stage_snapshot(
     try:
         return dict(controller.get_ai_stage_snapshot(temp_ext) or {})
     except Exception as exc:
-        if on_error is not None:
+        # A deliberately disabled/removed AI module is not a telemetry failure.
+        from runtime.optional_modules import ModuleUnavailable
+        if on_error is not None and not isinstance(exc, ModuleUnavailable):
             on_error(exc)
         try:
             timers = controller.get_timers()

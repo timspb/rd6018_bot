@@ -454,8 +454,12 @@ class ManagedChargeController:
         return auto_timers(self, diagnostic_timers(self))
 
     def get_ai_stage_snapshot(self, temp_c: Optional[float] = None) -> Dict[str, Any]:
-        from integrations.ai.snapshot import get_ai_stage_snapshot
-        return get_ai_stage_snapshot(self, temp_c)
+        from runtime.optional_modules import ModuleUnavailable, optional_export
+        project = optional_export("integrations.ai.snapshot", "get_ai_stage_snapshot")
+        if project is None:
+            # OperatorSnapshotProvider owns the existing neutral readback fallback.
+            raise ModuleUnavailable("optional AI snapshot is disabled or absent")
+        return project(self, temp_c)
 
     def _desulf_target(self, temp_c: Optional[float] = None) -> Tuple[float, float]:
         """Compatibility adapter over the canonical modular DESULFATION target."""

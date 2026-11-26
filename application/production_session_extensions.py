@@ -86,8 +86,9 @@ def auto_timers(host: Any, timers: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def auto_ai_stage_snapshot(host: Any, snapshot: Dict[str, Any], temp_c: Optional[float] = None) -> Dict[str, Any]:
-    from integrations.ai.snapshot import auto_ai_stage_snapshot as project
-    return project(host, snapshot, temp_c)
+    from runtime.optional_modules import optional_export
+    project = optional_export("integrations.ai.snapshot", "auto_ai_stage_snapshot")
+    return project(host, snapshot, temp_c) if project is not None else snapshot
 
 def initialize_production_session_state(host: Any) -> None:
     """Initialize production extension fields on the existing charge host."""

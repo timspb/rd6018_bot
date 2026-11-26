@@ -493,8 +493,9 @@ def _build_charge_modes_keyboard() -> InlineKeyboardMarkup:
     return _operator_modes_keyboard()
 
 def _build_trend_summary(times: list, voltages: list, currents: list) -> str:
-    from integrations.ai.runtime import trend
-    return trend(times, voltages, currents)
+    from runtime.optional_modules import optional_export
+    trend = optional_export("integrations.ai.runtime", "trend")
+    return trend(times, voltages, currents) if trend is not None else "AI-модуль отключён."
 
 def _safe_float(val, default: float = 0.0) -> float:
     if val is None or val in ("unknown", "unavailable", ""):
@@ -626,8 +627,9 @@ async def _operator_pause_toggle(call: Any) -> str:
 
 
 async def _build_ai_analysis_text() -> str:
-    from integrations.ai.runtime import analysis
-    return await analysis(sys.modules[__name__])
+    from runtime.optional_modules import optional_export
+    analysis = optional_export("integrations.ai.runtime", "analysis")
+    return await analysis(sys.modules[__name__]) if analysis is not None else "AI-модуль отключён."
 
 def _build_dashboard_blocks(live: Dict[str, Any]) -> tuple:
     """Compatibility wrapper for extracted legacy dashboard projection."""
@@ -1075,8 +1077,10 @@ async def data_logger() -> None:
 def __getattr__(name: str):
     """Lazy compatibility exports retained for existing AI callers."""
     if name in {"ask_deepseek", "format_ai_snapshot", "format_recent_events", "AI_CONSULTANT_SYSTEM_PROMPT"}:
-        from integrations import ai
-        return getattr(ai, name)
+        from runtime.optional_modules import optional_export
+        exported = optional_export("integrations.ai", name)
+        if exported is not None:
+            return exported
     raise AttributeError(name)
 
 
@@ -1084,13 +1088,15 @@ def __getattr__(name: str):
 
 
 async def get_ai_context() -> str:
-    from integrations.ai.runtime import context
-    return await context(sys.modules[__name__])
+    from runtime.optional_modules import optional_export
+    context = optional_export("integrations.ai.runtime", "context")
+    return await context(sys.modules[__name__]) if context is not None else ""
 
 
 async def get_ai_context_dict() -> Dict[str, Any]:
-    from integrations.ai.runtime import context_dict
-    return await context_dict(sys.modules[__name__])
+    from runtime.optional_modules import optional_export
+    context_dict = optional_export("integrations.ai.runtime", "context_dict")
+    return await context_dict(sys.modules[__name__]) if context_dict is not None else {}
 
 
 async def get_current_context_for_llm() -> str:
@@ -1139,7 +1145,12 @@ async def handle_ah_input(message: Message, profile: str, user_id: int) -> None:
 
 
 async def handle_dialog_mode(message: Message) -> None:
-    from integrations.ai import AI_CONSULTANT_SYSTEM_PROMPT, ask_deepseek
+    from runtime.optional_modules import optional_export
+    prompt = optional_export("integrations.ai", "AI_CONSULTANT_SYSTEM_PROMPT")
+    ask_deepseek = optional_export("integrations.ai", "ask_deepseek")
+    if prompt is None or ask_deepseek is None:
+        await message.answer("AI-модуль отключён или отсутствует.")
+        return
 
     namespace = globals()
     await handle_dialog_delivery(
@@ -1147,7 +1158,7 @@ async def handle_dialog_mode(message: Message) -> None:
         ai_available=bool(DEEPSEEK_API_KEY),
         get_context=namespace["get_ai_context"],
         ask=namespace.get("ask_deepseek", ask_deepseek),
-        system_prompt=namespace.get("AI_CONSULTANT_SYSTEM_PROMPT", AI_CONSULTANT_SYSTEM_PROMPT),
+        system_prompt=namespace.get("AI_CONSULTANT_SYSTEM_PROMPT", prompt),
         sanitize=namespace["_sanitize_telegram_html"],
         parse_mode=ParseMode.HTML,
         logger=logger,

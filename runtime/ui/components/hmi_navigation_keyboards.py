@@ -28,7 +28,16 @@ def _graph_keyboard(app: Any, user_id: int):
 
 
 def _more_keyboard(state: OperatorHmiState, app: Any = None):
-    rows: list[list[tuple[str, str]]] = [[("🧠 AI анализ", ANALYSIS_CALLBACK_DATA)]]
+    from runtime.optional_modules import optional_ui_enabled
+    manager = getattr(app, "_optional_modules", None) if app is not None else None
+    ai_visible = (
+        manager.installed("ai")
+        if manager is not None
+        else optional_ui_enabled("ai")
+    )
+    rows: list[list[tuple[str, str]]] = (
+        [[("🧠 AI анализ", ANALYSIS_CALLBACK_DATA)]] if ai_visible else []
+    )
     if state.process_state is HmiProcessState.IDLE:
         rows.append([("🛠 Ручной режим", "v2_manual_choose")])
         rows.append([("🔋 АКБ", "v2_batteries")])

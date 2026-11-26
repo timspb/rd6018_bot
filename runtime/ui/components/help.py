@@ -4,12 +4,14 @@ from __future__ import annotations
 
 
 def render_help_body() -> str:
+    from runtime.optional_modules import optional_ui_enabled
+    ai_line = "• /ai — AI анализ телеметрии\n" if optional_ui_enabled("ai") else ""
     return (
         "• /start — открыть дашборд\n"
         "• /modes — режимы заряда\n"
         "• /off — меню Off по условию\n"
         "• /logs — последние события\n"
-        "• /ai — AI анализ телеметрии\n"
+        f"{ai_line}"
         "• /stats — где смотреть статистику\n"
         "• /entities — статус сущностей HA\n"
         "• /help — эта справка\n\n"

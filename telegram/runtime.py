@@ -123,18 +123,21 @@ async def run_polling(
 
 async def configure_commands(runtime: TelegramRuntime) -> None:
     """Register the stable operator command surface for the Telegram adapter."""
-    await runtime.bot.set_my_commands([
+    from runtime.optional_modules import optional_ui_enabled
+    commands = [
         BotCommand(command="start", description="Открыть дашборд"),
         BotCommand(command="recovery_clear", description="Снять аварийную блокировку (D084)"),
         BotCommand(command="modes", description="Выбрать режим заряда"),
         BotCommand(command="recipes", description="Мои пользовательские рецепты"),
         BotCommand(command="off", description="Условие выключения (preset/команда)"),
         BotCommand(command="logs", description="Последние события"),
-        BotCommand(command="ai", description="AI анализ телеметрии"),
         BotCommand(command="stats", description="Где смотреть статистику"),
         BotCommand(command="help", description="Справка по командам"),
         BotCommand(command="entities", description="Статус сущностей HA (RD6018)"),
-    ])
+    ]
+    if optional_ui_enabled("ai"):
+        commands.insert(6, BotCommand(command="ai", description="AI анализ телеметрии"))
+    await runtime.bot.set_my_commands(commands)
 
 
 def create_telegram_runtime(token: str) -> TelegramRuntime:
