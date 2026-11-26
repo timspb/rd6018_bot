@@ -71,11 +71,16 @@ class ProductionRuntimeLifecycle:
         # Idle shutdown has no session mutation to serialize. Waiting for a
         # wedged START/STOP owner here previously hung systemd stop until SIGKILL.
         if app.charge_controller.is_active:
+            async def save_under_owner_lock() -> None:
+                async with get_or_create_execution_port(app)._guard_owner_lock:
+                    app.charge_controller._save_session(0.0, 0.0, 0.0)
+
             try:
-                async with asyncio.timeout(SHUTDOWN_SESSION_LOCK_TIMEOUT_S):
-                    async with get_or_create_execution_port(app)._guard_owner_lock:
-                        app.charge_controller._save_session(0.0, 0.0, 0.0)
-            except TimeoutError:
+                await asyncio.wait_for(
+                    save_under_owner_lock(),
+                    timeout=SHUTDOWN_SESSION_LOCK_TIMEOUT_S,
+                )
+            except asyncio.TimeoutError:
                 # Preserve the last durable session; never write outside the
                 # owner lock or authorize an automatic output restart.
                 app.logger.warning("Shutdown session save skipped: execution owner busy")
@@ -83,15 +88,13 @@ class ProductionRuntimeLifecycle:
                 app.logger.warning("Failed to save session on shutdown: %s", ex)
         app.logger.info("Closing physical connector on shutdown")
         try:
-            async with asyncio.timeout(10.0):
-                await app.hass.close()
+            await asyncio.wait_for(app.hass.close(), timeout=10.0)
         except Exception as ex:
             app.logger.warning("Physical connector shutdown incomplete: %s", type(ex).__name__)
         app.logger.info("Closing database on shutdown")
         try:
             from database import close_db
-            async with asyncio.timeout(10.0):
-                await close_db()
+            await asyncio.wait_for(close_db(), timeout=10.0)
         except Exception as ex:
             app.logger.warning("Database shutdown incomplete: %s", type(ex).__name__)
         app.logger.info("Shutdown complete.")

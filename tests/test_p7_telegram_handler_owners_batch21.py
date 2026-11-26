@@ -1,5 +1,7 @@
 """Focused fake-only coverage for the P7 Telegram handler owner cutover."""
 
+from __future__ import annotations
+
 import ast
 import asyncio
 import html
