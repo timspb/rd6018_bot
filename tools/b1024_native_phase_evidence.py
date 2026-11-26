@@ -1,7 +1,11 @@
-"""Offline validator for causally linked Native Output ON/OFF evidence.
+"""Offline validator for captured Native Output ON/OFF phase observations.
 
 This module consumes captured values only. It has no transport, actuator,
 lease, persistence, or production integration and cannot collect live proof.
+
+Per-transport integer generations are not globally unique session identities.
+Validated phase observations therefore do not establish causal linkage between
+an Output receipt and callbacks, or between separate ON/OFF phases.
 """
 from __future__ import annotations
 
@@ -81,10 +85,12 @@ def _phase(receipt: Any, samples: Mapping[str, Any], *, target: bool,
 def assemble_on_off_evidence(*, on_receipt: Any, on_native: Mapping[str, Any],
                              off_receipt: Any, off_native: Mapping[str, Any],
                              now_monotonic: float, max_age_s: float = 8.0) -> dict[str, Any]:
-    """Validate one ON and one OFF phase and return a compact offline summary.
+    """Validate phase shape and return a summary that explicitly lacks causality.
 
     Freshness uses the existing eight-second physical evidence bound. The
     caller supplies monotonic ages captured by the existing Native observer.
+    Receipt/callback clock domains and actual transport-session identity are
+    absent from the envelopes, so these checks cannot establish causal proof.
     """
     now = _finite(now_monotonic, "current monotonic time")
     limit = _finite(max_age_s, "maximum evidence age")
@@ -95,9 +101,12 @@ def assemble_on_off_evidence(*, on_receipt: Any, on_native: Mapping[str, Any],
     if on_generation != off_generation or on_device != off_device:
         raise EvidenceError("ON/OFF phases do not share ESP identity and connection generation")
     if on_completed >= off_completed or on_last >= off_completed or off_first <= on_last:
-        raise EvidenceError("ON and OFF receipts/callbacks are not causally ordered")
+        raise EvidenceError("ON and OFF receipt/callback timestamps are not ordered")
     return {
-        "status": "SOURCE_EVIDENCE_VALIDATED",
+        "status": "NATIVE_PHASE_OBSERVATION_PASS",
+        "native_phase_observation_status": "PASS",
+        "causal_on_off_proof_status": "NOT_PROVEN_MISSING_TRANSPORT_SESSION_IDENTITY",
+        "clock_domain_status": "UNVERIFIED_MONOTONIC_CLOCK_DOMAIN",
         "device_id": on_device,
         "connection_generation": on_generation,
         "on_request_id": on_receipt.request_id,

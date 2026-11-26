@@ -36,10 +36,40 @@ class B1024NativePhaseEvidenceTests(unittest.TestCase):
                     off_receipt=receipt(False, "off-1", 14.0),
                     off_native=phase(False, 14.1), now_monotonic=14.5)
 
-    def test_valid_causally_linked_on_off(self):
+    def test_valid_native_phases_are_explicitly_not_causal_proof(self):
         result = assemble_on_off_evidence(**self.valid_args())
-        self.assertEqual(result["status"], "SOURCE_EVIDENCE_VALIDATED")
+        self.assertEqual(result["status"], "NATIVE_PHASE_OBSERVATION_PASS")
+        self.assertEqual(result["native_phase_observation_status"], "PASS")
+        self.assertEqual(
+            result["causal_on_off_proof_status"],
+            "NOT_PROVEN_MISSING_TRANSPORT_SESSION_IDENTITY",
+        )
+        self.assertEqual(
+            result["clock_domain_status"], "UNVERIFIED_MONOTONIC_CLOCK_DOMAIN")
         self.assertEqual(result["connection_generation"], 7)
+
+    def test_equal_generation_and_device_do_not_prove_same_transport_client(self):
+        # Distinct ESPHomeTransport instances both start their local counter at 1.
+        args = self.valid_args()
+        args["on_receipt"] = receipt(True, "on-1", 10.0, generation=1)
+        args["on_native"] = phase(True, 10.1, generation=1, device=3)
+        args["off_receipt"] = receipt(False, "off-1", 14.0, generation=1)
+        args["off_native"] = phase(False, 14.1, generation=1, device=3)
+        result = assemble_on_off_evidence(**args)
+        self.assertEqual(
+            result["causal_on_off_proof_status"],
+            "NOT_PROVEN_MISSING_TRANSPORT_SESSION_IDENTITY",
+        )
+
+    def test_d106_style_matching_device_type_and_age_still_is_not_session_provenance(self):
+        args = self.valid_args()
+        # D106 opens a separate client; its phase envelope contains device/type,
+        # age and a per-client generation, but no identity shared with the app.
+        result = assemble_on_off_evidence(**args)
+        self.assertEqual(result["device_id"], 3)
+        self.assertEqual(
+            result["native_phase_observation_status"], "PASS")
+        self.assertNotEqual(result["causal_on_off_proof_status"], "PASS")
 
     def test_rejects_ha_cache_stale_precommand_and_wrong_type(self):
         for changes in ({"source": "ha102_rest"}, {"age": 8.1},
@@ -86,7 +116,7 @@ class B1024NativePhaseEvidenceTests(unittest.TestCase):
         args["off_receipt"] = receipt(False, "off-1", 10.11)
         args["off_native"] = phase(False, 10.2)
         args["now_monotonic"] = 10.5
-        with self.assertRaisesRegex(EvidenceError, "causally ordered"):
+        with self.assertRaisesRegex(EvidenceError, "timestamps are not ordered"):
             assemble_on_off_evidence(**args)
 
 
