@@ -1,3 +1,31 @@
+## 2026-11-26 B982 — remove unreachable runtime journal renderer
+
+At isolated supplied code HEAD `7513c787447d30fa082c198378cd7329855989f0`
+(branch `codex/rd6018-ai-read-model-20261126`, tracked upstream ahead/behind
+0/0), removed 271 lines from `runtime/production_runtime.py`: the redundant
+`_collapse_noisy_events`, `_remove_duplicate_events`,
+`_should_hide_restore_event`, `format_log_event`, and their two restore-time
+globals. AST inspection found only definitions and same-block references;
+tracked repository search found no references/imports/patches/exports elsewhere,
+and no literal dynamic lookup. The old duplicate formatter's self-call edges
+were removed together. `datetime`, `time`, `re`, and `html` imports remain in
+use elsewhere. Production journal routing remains the existing composition
+through `EventJournalReadService` and `runtime/ui/components/journal.py`; event
+persistence and physical/control paths were not edited. The journal component
+file is byte-for-byte unchanged. No test was added.
+
+Focused fake-only command with inert `TG_TOKEN`, `PYTHONPATH=tests`, and
+`/home/home-pc/.venvs/pcp-test/bin/python`:
+`test_operator_journal_milestones test_v3_ui_journal_boundary
+test_v3_ui_journal_cutover test_production_entrypoint
+test_production_module_namespace test_runtime_app_namespace_contract` — **60
+PASS**. Runtime module compiled with `py_compile`; `git diff --check` passes.
+No full suite. Source/docs are uncommitted at the supplied HEAD. Node104
+HANDS_OFF/deployment status was not inspected and is not claimed. P0–P9 remains
+**97/103**. No node, ESP/HA, physical Output, network, production, deployment,
+commit, or push action occurred. Evidence: `B982_REPORT.md`. Next: independent
+controller review.
+
 # RD6018 Bot V3 Project Runbook
 
 ## 2026-11-26 B981 — legacy AI context read-model owner
