@@ -1,0 +1,33 @@
+{
+  "schema": 2,
+  "mode": "python_control_change",
+  "pin": {
+    "schema": 1,
+    "node": "node104",
+    "hostname": "rd6018-bot",
+    "machine_id": "NOT VERIFIED: obtain from current node identity",
+    "service": "rd6018-bot.service",
+    "root": "/opt/services/rd6018-bot",
+    "old_source_sha": "NOT VERIFIED: obtain from current D144 installed release identity",
+    "source_sha": "NOT VERIFIED: regenerate from exact FROZEN candidate source HEAD outside tracked release repository",
+    "source_archive_sha256": "NOT VERIFIED: regenerate from exact FROZEN candidate source HEAD outside tracked release repository",
+    "staging_manifest_sha256": "NOT VERIFIED: regenerate from exact FROZEN candidate source HEAD outside tracked release repository",
+    "python": "NOT VERIFIED: confirm installed service interpreter is Python 3.11",
+    "firmware": "NOT VERIFIED: direct Native API firmware identity required",
+    "firmware_digest": null,
+    "systemd_unit_sha256": "NOT VERIFIED: measure current unit metadata",
+    "service_environment_sha256": "NOT VERIFIED: measure .env metadata without exposing secrets",
+    "external_voltage_observer": "NOT VERIFIED: record approved observer identity",
+    "edge_lease_ttl_s": 900,
+    "edge_renewal_s": 300,
+    "expected_state": "NOT VERIFIED: observe current durable state; preserve byte-for-byte",
+    "expected_session": "NOT VERIFIED: observe current session state",
+    "expected_quarantine": "NOT VERIFIED: observe current quarantine state",
+    "physical_acceptance": "HOLD: physical and release acceptance not performed"
+  },
+  "preimage_inventory_sha256": "NOT VERIFIED: fresh D137 composite app+venv+state preimage",
+  "changed_paths": [
+    "NOT VERIFIED: calculate from the actually installed source identity to candidate source"
+  ],
+  "proof_collector_sha256": "NOT VERIFIED: pair exact D147/D149 observer artifacts and verify installed copies"
+}
