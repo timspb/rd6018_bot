@@ -130,7 +130,6 @@ sensor:
         - lambda: |-
             id(rd6018_safety_last_output_rx_ms) = millis();
             id(rd6018_safety_output_on_readback) = (((uint16_t) x) & 0x1U) != 0;
-            id(rd6018_output_public).observe_readback((uint16_t) x);
 
   - platform: template
     id: rd6018_safety_lease_generation_sensor
@@ -218,6 +217,17 @@ binary_sensor:
     device_class: problem
     lambda: |-
       return id(rd6018_safety_boot_quarantine);
+
+# A private second view of the standard RD60xx Output register. It is used only for
+# writes. Safety decisions use rd6018_safety_output_probe + its timestamp above.
+switch:
+  - platform: modbus_controller
+    id: rd6018_safety_output
+    modbus_controller_id: powersupply
+    address: 18
+    register_type: holding
+    bitmask: 0x1
+    internal: true
 
 button:
   - platform: template
@@ -362,7 +372,7 @@ button:
 
             // HANDS_OFF releases only the managed dead-man. It does not grant the
             // separate offline/reboot autonomous operation contract and never changes
-            // register 18 or the V/I program.
+            // register 18 or the V/I/OVP/OCP program.
             id(rd6018_safety_managed_session) = false;
             id(rd6018_safety_last_renew_ms) = 0;
             id(rd6018_safety_generation)++;
@@ -398,7 +408,7 @@ interval:
                      (id(rd6018_safety_managed_session) &&
                       id(rd6018_safety_lease_tripped));
           then:
-            - switch.turn_off: rd6018_output_public
+            - switch.turn_off: rd6018_safety_output
       - lambda: |-
           // Valid autonomous operation never enters boot quarantine. If autonomous
           // and quarantine coexist, treat it as conflict/containment and do not
