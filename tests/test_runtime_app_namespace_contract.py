@@ -73,6 +73,7 @@ APP_ATTRS_WRITTEN = frozenset(
         "_operator_navigation_recovery_installed",
         "_operator_output_truth_installed",
         "_operator_pause_active",
+        "_optional_modules",  # B1040 app-scoped composition read model
         "_rd_autonomous_final_hmi_installed",
         "_rd_ownership_recovery_installed",
         "_refresh_operator_panel",
