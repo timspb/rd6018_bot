@@ -9,6 +9,7 @@ import html
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
+from runtime.charge.programs.recipe_catalog import RecipeCatalog
 from runtime.charge.programs.native_recipe_parameters import native_recipe_parameters
 
 
@@ -145,3 +146,104 @@ def native_history_page(library, name: str, page: int, *, page_size: int = 6):
             text="◀ К актуальной версии", callback_data=latest)])
     rows.append([InlineKeyboardButton(text="Мои копии", callback_data="recipes:nd:list")])
     return InlineKeyboardMarkup(inline_keyboard=rows), pages
+
+
+def catalog_markup(catalog: RecipeCatalog, *, page: int = 0,
+                   page_size: int = 20) -> InlineKeyboardMarkup:
+    """Show active and archived recipes over multiple pages, keeping read-only history."""
+    if page_size < 1:
+        raise ValueError("invalid catalog page size")
+    entries = []
+    active = set(catalog.active_recipes())
+    for name in catalog.list_recipes():
+        versions = catalog.library.versions(name)
+        if versions:
+            callback = f"recipes:view:{name}:{versions[-1]}"
+            if len(callback.encode("utf-8")) <= 64:
+                entries.append((name, versions[-1], callback, name not in active))
+    # Active items first; archived versions remain reachable for read-only review.
+    entries.sort(key=lambda entry: (entry[3], entry[0]))
+    pages = max(1, (len(entries) + page_size - 1) // page_size)
+    if not 0 <= page < pages:
+        raise ValueError("catalog page outside available range")
+    rows = [
+        [InlineKeyboardButton(
+            text=f"{name} · v{version}" + (" [архив]" if archived else ""),
+            callback_data=callback)]
+        for name, version, callback, archived in entries[page * page_size:(page + 1) * page_size]
+    ]
+    navigation = []
+    if page > 0:
+        navigation.append(InlineKeyboardButton(
+            text="◀ Предыдущие", callback_data=f"recipes:list:{page-1}"))
+    if page + 1 < pages:
+        navigation.append(InlineKeyboardButton(
+            text="Следующие ▶", callback_data=f"recipes:list:{page+1}"))
+    if navigation:
+        rows.append(navigation)
+    rows.append([InlineKeyboardButton(
+        text="⚙️ Штатные программы (12)",
+        callback_data="recipes:native:list",
+    )])
+    rows.append([InlineKeyboardButton(
+        text="Мои копии штатных программ", callback_data="recipes:nd:list")])
+    rows.append([InlineKeyboardButton(text="Создать пошаговый черновик", callback_data="recipes:create")])
+    rows.append([InlineKeyboardButton(text="Обновить", callback_data=f"recipes:list:{page}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def recipe_markup(recipe_id: str, version: int, *, editable: bool = True,
+                  page: int = 0, pages: int = 1) -> InlineKeyboardMarkup:
+    rows = [[InlineKeyboardButton(text="◀ Библиотека", callback_data="recipes:list")]]
+    if pages > 1:
+        navigation = []
+        for target, label in ((page - 1, "◀ Шаги"), (page + 1, "Шаги ▶")):
+            if 0 <= target < pages:
+                callback = f"recipes:view:{recipe_id}:{version}:{target}"
+                if len(callback.encode("utf-8")) <= 64:
+                    navigation.append(InlineKeyboardButton(text=label, callback_data=callback))
+        if navigation:
+            rows.append(navigation)
+    for label, data in (
+        ("Редактор шагов", f"recipes:edit:{recipe_id}:{version}"),
+        ("Проверить рецепт", f"recipes:check:{recipe_id}:{version}"),
+        ("История версий", f"recipes:history:{recipe_id}:0"),
+        ("Копировать", f"recipes:duplicate:{recipe_id}:{version}"),
+        ("В архив", f"recipes:archiveask:{recipe_id}"),
+    ):
+        if (editable or label in {"Проверить рецепт", "История версий", "Копировать"}) and len(data.encode("utf-8")) <= 64:
+            rows.append([InlineKeyboardButton(text=label, callback_data=data)])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def recipe_history_markup(catalog: RecipeCatalog, name: str, *,
+                          page: int = 0, page_size: int = 8) -> InlineKeyboardMarkup:
+    """Paginated immutable history, retaining the existing recipe viewer."""
+    versions = catalog.library.versions(name)
+    if not versions or page_size < 1:
+        raise ValueError("recipe has no versions or page size invalid")
+    ordered = sorted(versions, reverse=True)
+    pages = (len(ordered) + page_size - 1) // page_size
+    if not 0 <= page < pages:
+        raise ValueError("history page outside available range")
+    rows = []
+    for version in ordered[page * page_size:(page + 1) * page_size]:
+        data = f"recipes:view:{name}:{version}"
+        if len(data.encode("utf-8")) <= 64:
+            rows.append([InlineKeyboardButton(
+                text=f"Версия {version}", callback_data=data)])
+    navigation = []
+    for target, label in ((page - 1, "◀"), (page + 1, "▶")):
+        if 0 <= target < pages:
+            data = f"recipes:history:{name}:{target}"
+            if len(data.encode("utf-8")) <= 64:
+                navigation.append(InlineKeyboardButton(text=label, callback_data=data))
+    if navigation:
+        rows.append(navigation)
+    latest = f"recipes:view:{name}:{max(versions)}"
+    if len(latest.encode("utf-8")) <= 64:
+        rows.append([InlineKeyboardButton(
+            text="◀ К рецепту", callback_data=latest)])
+    rows.append([InlineKeyboardButton(
+        text="К библиотеке", callback_data="recipes:list")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)

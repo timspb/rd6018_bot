@@ -999,3 +999,53 @@ class RealRecipeCallbackChainTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn(f"recipes:append:{name}:1:set", data)
             self.assertTrue(all(len(value.encode("utf-8")) <= 64 for value in data))
             self.assertEqual(catalog.library.versions(name), (1,))
+
+    async def test_user_recipe_browser_list_callback_keeps_acl_and_registration(self):
+        from runtime.ui.telegram import recipe_buttons, recipe_menu_view
+
+        for name in ("catalog_markup", "recipe_markup", "recipe_history_markup"):
+            self.assertIs(getattr(recipe_buttons, name), getattr(recipe_menu_view, name))
+        with tempfile.TemporaryDirectory() as path:
+            catalog = RecipeCatalog(RecipeLibrary(
+                path, max_voltage_v=15.5, max_current_a=7.2
+            ))
+            catalog.library.save({
+                "id": "browser_item", "version": 1,
+                "steps": [{"action": "off", "params": {},
+                           "until": {"after_seconds": 1}}],
+            })
+            app = _App()
+            install_recipe_catalog_commands(app, catalog=catalog)
+            handlers = [h.callback for h in app.router.callback_query.handlers]
+            names = [handler.__name__ for handler in handlers]
+            expected = [
+                "native_catalog", "native_recipe_details", "native_recipe_parameters_view",
+                "check_recipe", "create_draft", "show_list", "show_recipe",
+                "recipe_history", "recipe_duplicate", "recipe_archive_ask",
+                "recipe_archive_confirm", "copy_help", "edit_menu",
+            ]
+            start = names.index(expected[0])
+            self.assertEqual(names[start:start + len(expected)], expected)
+
+            callback = {handler.__name__: handler for handler in handlers}["show_list"]
+            call = _Call("recipes:list:0")
+            await callback(call)
+            self.assertEqual(len(call.acks), 1)
+            self.assertIn("recipes:view:browser_item:1", [
+                button.callback_data
+                for row in call.message.sent[0][1]["reply_markup"].inline_keyboard
+                for button in row
+            ])
+
+            async def denied(_call):
+                return False
+
+            async def forbidden_lookup():
+                raise AssertionError("catalog lookup ran before ACL")
+
+            app._check_chat_and_respond = denied
+            catalog.list_recipes = forbidden_lookup
+            rejected = _Call("recipes:list:0")
+            await callback(rejected)
+            self.assertEqual(rejected.acks, [])
+            self.assertEqual(rejected.message.sent, [])
