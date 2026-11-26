@@ -123,8 +123,19 @@ class MainGuardAdmissionTests(unittest.TestCase):
             path.unlink()
             target=Path(root)/"other.json"
             target.write_text(json.dumps(self.doc))
-            path.symlink_to(target)
-            self.assertIsNone(read_canonical_session(path))
+            try:
+                path.symlink_to(target)
+            except OSError as exc:
+                if getattr(exc, "winerror", None) != 1314:
+                    raise
+                # Windows without SeCreateSymbolicLinkPrivilege: exercise the
+                # same fail-closed symlink guard without elevating privileges.
+                from unittest.mock import patch
+                path.write_text(json.dumps(self.doc))
+                with patch.object(Path, "is_symlink", return_value=True):
+                    self.assertIsNone(read_canonical_session(path))
+            else:
+                self.assertIsNone(read_canonical_session(path))
 
     def test_actual_shadow_accumulates_and_invalid_binding_breaks_continuity(self):
         holder=MainGuardShadow()
@@ -146,7 +157,7 @@ class MainGuardAdmissionTests(unittest.TestCase):
         self.assertEqual(holder.guard.hardware_limit_a,7.0)
 
     def test_runtime_binding_calls_only_shadow_inside_owner(self):
-        source=(Path(__file__).resolve().parents[1]/"runtime/production_runtime.py").read_text()
+        source=(Path(__file__).resolve().parents[1]/"runtime/production_runtime.py").read_text(encoding="utf-8")
         self.assertIn("admit_main_guard_shadow(",source)
         self.assertIn("read_canonical_session(SESSION_FILE)",source)
         self.assertNotIn("execute_main_current_guard_reduction(",source)
