@@ -142,7 +142,8 @@ class MainGuardPreOnTests(unittest.TestCase):
         no_ocp = live()
         no_ocp.pop("ocp_readback_v2")
         no_ocp["_meta"].pop("ocp_readback_v2")
-        self.assertTrue(self.assess(native_live=no_ocp).guard_reconciled)
+        self.assertEqual(self.assess(native_live=no_ocp).reason,
+                         "native_sources_stale_or_skewed")
 
     def test_real_persisted_reduced_ceiling_never_reverts_to_initial(self):
         g, pending = observed_pending(self.guard)
@@ -150,7 +151,7 @@ class MainGuardPreOnTests(unittest.TestCase):
             proposal_id=pending.proposal_id, now_s=1801,
             measured_current_a=4, measured_current_fresh=True,
             current_limit_readback_a=5, current_readback_fresh=True,
-            ocp_limit_a=5.1, ocp_readback_fresh=True,
+            ocp_limit_a=6.1, ocp_readback_fresh=True,
         )
         doc = attach_guard(canonical(), reduced, now_s=self.now, expected_revision=0)
         restored, _ = read_guard(doc, session_id="sid",
@@ -160,7 +161,7 @@ class MainGuardPreOnTests(unittest.TestCase):
             "restore_target_exceeds_saved_main_ceiling",
         )
         ok = self.assess(session_document=doc, restored_guard=restored,
-                         target_current_a=5.0, native_live=live(5.0, 5.1))
+                         target_current_a=5.0, native_live=live(5.0, 6.1))
         self.assertTrue(ok.guard_reconciled)
         self.assertEqual(ok.confirmed_ceiling_a, 5.0)
 

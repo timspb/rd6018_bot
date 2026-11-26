@@ -17,9 +17,10 @@ from .main_current_guard import (
     MainCurrentGuard, READBACK_TOLERANCE_A,
 )
 from .main_guard_session import GUARD_KEY, GuardJournalError, read_guard
+from runtime.safety.variables import PROTECTION_OCP_MARGIN_A
 
 NATIVE_GUARD_PRE_ON_KEYS = (
-    "output_state_code_v2", "set_current_readback_v2",
+    "output_state_code_v2", "set_current_readback_v2", "ocp_readback_v2",
     "protection_code",
 )
 MAX_NATIVE_AGE_S = 10.0
@@ -59,7 +60,8 @@ def assess_main_guard_before_output_on(
 
     A guarded session is RECONCILED only if live Output is OFF and the native
     Iset programming already equals the target not exceeding its persisted
-    monotone ceiling. Any needed programming is a separate owner-owned OFF
+    monotone ceiling, and OCP remains at the original MAIN ceiling plus the
+    declared margin. Any needed programming is a separate owner-owned OFF
     transaction, followed by a NEW fresh assessment before ON.
     """
     def blocked(reason: str) -> GuardPreOnAssessment:
@@ -142,6 +144,11 @@ def assess_main_guard_before_output_on(
         return blocked("physical_iset_exceeds_persisted_ceiling")
     if abs(programmed_i - proposed) > READBACK_TOLERANCE_A:
         return blocked("physical_iset_does_not_match_resume_target")
+    programmed_ocp = canonical_programmed_readback(native_live, "ocp")
+    expected_ocp = saved.initial_limit_a + float(PROTECTION_OCP_MARGIN_A.default)
+    if (programmed_ocp is None
+            or abs(programmed_ocp - expected_ocp) > READBACK_TOLERANCE_A):
+        return blocked("physical_ocp_not_confirmed")
     return GuardPreOnAssessment(
         "RECONCILED", "native_iset_matches_canonical_main_guard",
         journal_revision=revision,

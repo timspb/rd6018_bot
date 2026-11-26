@@ -44,6 +44,10 @@ class FirstSetAtStartTests(unittest.IsolatedAsyncioTestCase):
                 return recipe
             catalog.library.load = tracked_load
             app = FakeApp(EnableResult(enabled=True))
+            # Model protection registers preconfigured to the first SET
+            # envelope; the transaction receives no protection write target.
+            app.hass.live["ovp"] = app.hass.live["ovp_readback_v2"] = voltage + 0.1
+            app.hass.live["ocp"] = app.hass.live["ocp_readback_v2"] = current + 0.1
             app._user_recipe_catalog = catalog
             message = FakeMessage()
             pending = types.SimpleNamespace(
@@ -79,8 +83,11 @@ class FirstSetAtStartTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result, msg.answers)
         self.assertAlmostEqual(app.hass.enable_kwargs["voltage_v"], 13.8)
         self.assertAlmostEqual(app.hass.enable_kwargs["current_a"], 1.2)
-        self.assertAlmostEqual(app.hass.enable_kwargs["ovp_v"], 13.9)
-        self.assertAlmostEqual(app.hass.enable_kwargs["ocp_a"], 1.3)
+        self.assertIsNone(app.hass.enable_kwargs["ovp_v"])
+        self.assertIsNone(app.hass.enable_kwargs["ocp_a"])
+        # Recipe SET supplies V/I; safe enable verifies existing protections.
+        self.assertAlmostEqual(app.hass.live["ovp_readback_v2"], 13.9)
+        self.assertAlmostEqual(app.hass.live["ocp_readback_v2"], 1.3)
         binding = app.charge_controller._existing_recipe_execution_binding
         self.assertEqual(binding.session.recipe.recipe_id, "chosen")
         self.assertEqual(binding.session.recipe.steps[0]["params"]["voltage_v"], 13.8)

@@ -15,6 +15,7 @@ from typing import Any, Mapping
 from rd6018_telemetry import canonical_programmed_readback, finite_float, telemetry_freshness
 from runtime.charge.strategy.main_targets import select_main_target
 from runtime.charge.strategy.main_guard_session import GUARD_KEY, GuardJournalError, read_guard
+from runtime.safety.variables import PROTECTION_OCP_MARGIN_A
 
 MAX_SESSION_AGE_S = 120.0
 MAX_NATIVE_AGE_S = 10.0
@@ -61,7 +62,9 @@ def admit_main_guard_shadow(
 ) -> MainGuardAdmission | None:
     """Require durable identity, accepted MAIN recipe and native Iset receipt.
 
-    This function NEVER approves hardware changes or journal writes.
+    Native Iset may ratchet down, but the existing physical OCP stays bound to
+    the original MAIN ceiling plus its declared margin. This function NEVER
+    approves hardware changes or journal writes.
     """
     if not isinstance(session_document, Mapping) or not isinstance(live, Mapping):
         return None
@@ -160,10 +163,11 @@ def admit_main_guard_shadow(
         return None
     programmed = canonical_programmed_readback(live, "set_current")
     ocp = canonical_programmed_readback(live, "ocp")
+    expected_ocp = baseline + float(PROTECTION_OCP_MARGIN_A.default)
     if (programmed is None or ocp is None
             or abs(programmed-target) > READBACK_MARGIN_A
             or programmed > baseline + READBACK_MARGIN_A
-            or abs(ocp-programmed-0.1) > READBACK_MARGIN_A):
+            or abs(ocp-expected_ocp) > READBACK_MARGIN_A):
         return None
     return MainGuardAdmission(session_id, battery_id, capacity, recipe, guard_revision)
 

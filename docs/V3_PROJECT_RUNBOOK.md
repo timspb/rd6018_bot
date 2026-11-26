@@ -1,3 +1,24 @@
+## 2026-11-26 B987 — baseline test-contract repairs
+
+At exact isolated clone code HEAD `84d5528702c62b4fd82b33670d816fc1a63478fb`
+(tracking gap 0/0), corrected seven existing test modules and two existing
+MAIN Guard safety owners, detailed in `B987_REPORT.md`. Controller had already proved
+the ten failing identities pre-existed: candidate full suite 2,980 tests,
+8 failures / 2 errors / 3 skipped, and exact original-main `70074de` comparison
+64 tests with the same 8 failures / 2 errors. Changes align tests with
+current-only D109 reductions, no software OVP/OCP writes, the original MAIN
+OCP envelope across Iset ratchets, a fresh Native OCP pre-ON gate, the single
+`TerminalPanelManager` callback presentation owner, and valid unchanged
+preconfigured protection readbacks in the recovery fake. The recovery
+KeyError was a fake-verifier signature mismatch; no recovery source fix was
+needed. Syntax compilation of changed Python modules and `git diff --check`
+pass. No focused/async/full post-change suite
+was run in the Codex sandbox; controller HOME-PC WSL verification is pending,
+so no test PASS is claimed. P0–P9 remains **97/103**. No node104/HANDS_OFF,
+deployment, ESP/HA, hardware, production, service, commit or push action was
+performed. Exact paths, before/after evidence and next action:
+`B987_REPORT.md`.
+
 ## 2026-11-26 B986 — causal diagnosis of P8 full-suite stall
 
 At isolated code HEAD `ba4940a4c6165c4cc021a2867734b2b70b9b762b`, bounded
@@ -1918,3 +1939,7 @@ does not close physical/release gates. Next: independent controller review.
 ## 2026-11-26 — Controller independent B986/B987 standard-WLS comparison: full suite completed, baseline matches all 10 failures
 Controller standard HOME-PC Desktop Commander WSL (NOT Codex sandbox): test_battery_catalog 2/2 PASS in 0.253s; generic asyncio cross-thread thread->loop callback THREAD_CALLBACK=ok. Execution-context-specific Codex sandbox aiosqlite hang established without changing project code. Controller executed ONE entire `tools/ci_unittest_runner.py` from normal HOME-PC in isolated B986 source clone ba4940a using inert TG/HA/ESP env and existing Python3.12 venv with 1200s timeout: `FULL_SUITE_EXIT=1`, exact result **Ran 2980 tests in 267.977s; FAILED (failures=8, errors=2, skipped=3)**. Full raw output resides excluded local evidence `.recipe-studio-local/B987_LOGS/full-suite-homepc.log`; finish record `.recipe-studio-local/B987_LOGS/full-suite-homepc.status`. No timeout, no aiosqlite hang. Affected tests: D109 Main Guard checkpoint three registrations (set_ocp expected), D123 AGM step effect (set_ovp), D123 MAIN desulfation effect (set_ovp/set_ocp), D123 Native Sprint57 reason physical_ocp_not_confirmed vs native_iset_matches..., `test_recipe_first_set_start_target` (ovp_v None vs 13.9), `test_v3_residual_authority_migration` (set_ovp expected), `test_operator_navigation_expired_callback` (no home navigation on expired callback), `test_recovery_resume_output_transaction` (guarded desulfation MAIN return False; underlying KeyError ovp_v from fake adapter). Three modules with new test data in B973–B985 were compared; no blanket diagnosis before test/code review.
 Controller prepared clean independent Git clone E:/CODEX/My_Local/RD6018_B987_BASELINE_WORK at EXACT ORIGINAL MAIN 70074de154b4c6f44614f2b4cfddf6ac77c55fbb, status clean. Ran exactly 9 previously failing test modules on ORIGINAL MAIN from same normal HOME-PC WSL venv fake environment: `Ran 64 tests in 6.888s`, **FAILED (failures=8, errors=2)**, with identical 10 failing identities and failure substance, including expired callback and desulfation return. This is PROVEN all 10 are pre-existing baseline failures, not introduced by B973–B985. No full PASS; do not claim P8 acceptance. Distinguish stale OVP/OCP-setting test assertions conflicting with accepted no-software-protection-setters policy from underlying baseline functional issues in Telegram stale callback and recovery. Next bounded B987: repair only verified outdated test contracts in existing tests to assert NO programming of software OVP/OCP, plus investigate actual callback/recovery errors; never restore forbidden writes or fake success. Stage/commit source in isolated clone only after controller independent review. P0–P9 remains 97/103; no node104/HA/ESP/production/physical/GitHub push changed. Existing current local main-forward chain ba4940a, GitHub main still 70074de. User remains committed to actual owner modularization and no fake gate bureaucracy.
+
+
+## Controller final software acceptance, 2026-11-26
+Independent standard HOME-PC WSL full suite on THIS B987 working tree (including controller's supplementary fixed tests and B987 Main Guard source fix) completed successfully with **FULL_SUITE_EXIT=0**. Original existing `tools/ci_unittest_runner.py`, Python 3.12 venv, inert fake test credentials; **Ran 2980 tests in 259.983s; OK (skipped=3)**, 0 FAIL / 0 ERROR. Log and process status were verified independently at `.recipe-studio-local/B987_FULL/full-suite.log` and `.recipe-studio-local/B987_FULL/full-suite.status` (run once, 900s OS timeout, normal WSL outside Codex sandbox). Independent focused eleven-module preflight after controller's three small fake fixture corrections: **86/86 PASS in 6.760s**. Full-suite results are source/CI ACCEPTED only; **NO physical Native evidence, no equipment operation, no node104 deployment, no GitHub push, no P8 hardware or P9 release acceptance**. Canon P0–P9 remains 97/103. Next gate is local candidate commit, explicit Git target verification/readiness and safe hardware P3/P8 acceptance when authorized.

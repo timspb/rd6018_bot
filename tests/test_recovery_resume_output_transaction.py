@@ -175,7 +175,7 @@ class RecoveryResumeOutputTransactionTests(unittest.IsolatedAsyncioTestCase):
                 self.v = 14.8
                 self.i = 5.0
                 self.ovp = 14.9
-                self.ocp = 5.1
+                self.ocp = 7.3
                 self.stamp = 1.0
                 self.calls = []
 
@@ -184,13 +184,14 @@ class RecoveryResumeOutputTransactionTests(unittest.IsolatedAsyncioTestCase):
                 vals = {
                     "output_state_code_v2": self.output, "current": 0.0,
                     "set_current_readback_v2": self.i, "ocp_readback_v2": self.ocp,
+                    "ovp_readback_v2": self.ovp,
                     "protection_code": 0,
                 }
                 vals["_meta"] = {
                     key: {"source": "esp_native_api", "native_type": "SensorState",
                           "subscription_timestamp_monotonic": self.stamp, "age_s": 0}
                     for key in ("output_state_code_v2", "current", "set_current_readback_v2",
-                                "ocp_readback_v2", "protection_code")
+                                "ovp_readback_v2", "ocp_readback_v2", "protection_code")
                 }
                 return vals
 
@@ -203,10 +204,11 @@ class RecoveryResumeOutputTransactionTests(unittest.IsolatedAsyncioTestCase):
             async def set_current(self, value): self.calls.append(("current", value)); self.i = value; return True
             async def verify_live_programming(self, **kwargs):
                 self.calls.append(("verify", kwargs))
-                return (self.v == kwargs["voltage_v"] and self.i == kwargs["current_a"]
-                        and self.ovp == kwargs["ovp_v"] and self.ocp == kwargs["ocp_a"])
+                return (self.v == kwargs["voltage_v"] and self.i == kwargs["current_a"])
 
         owner = NativeOwner()
+        preconfigured_protection = (owner.snapshot()["ovp_readback_v2"],
+                                    owner.snapshot()["ocp_readback_v2"])
         controller = create_production_charge_host(owner)
         controller.start("EFB", 72)
         controller.current_stage = controller.STAGE_SAFE_WAIT
@@ -258,9 +260,14 @@ class RecoveryResumeOutputTransactionTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(result)
             names = [call[0] for call in owner.calls]
             self.assertIn(("current", 7.2), owner.calls)
-            self.assertIn(("ocp", 7.3), owner.calls)
+            self.assertNotIn("ovp", names)
+            self.assertNotIn("ocp", names)
+            self.assertEqual((owner.snapshot()["ovp_readback_v2"],
+                              owner.snapshot()["ocp_readback_v2"]),
+                             preconfigured_protection)
+            self.assertEqual(owner.snapshot()["ovp_readback_v2"], 14.9)
+            self.assertEqual(owner.snapshot()["ocp_readback_v2"], 7.3)
             self.assertLess(names.index("off"), names.index("current"))
-            self.assertLess(names.index("ocp"), names.index("current"))
             self.assertEqual(controller.current_stage, controller.STAGE_MAIN)
             self.assertEqual(controller._main_current_guard.hardware_limit_a, 7.2)
             self.assertEqual(controller._main_current_guard.accrued_output_on_s, 0.0)
