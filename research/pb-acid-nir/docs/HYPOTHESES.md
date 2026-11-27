@@ -1,0 +1,65 @@
+# Реестр гипотез
+| ID | Гипотеза | Статус | Проверка/источник |
+|---|---|---|---|
+| H01 | Различение стратификации и сульфатации по переходным процессам | OPEN | R01, R05–R07 |
+| H02 | Эффект формы тока при равном среднем токе/заряде | OPEN | R03, контрольные группы |
+| H03 | Релаксация содержит диагностическую информацию о деградации | OPEN | R05–R07, не специфична сама по себе |
+| H04 | Мягкое КЗ и разбаланс можно распознавать по совокупности признаков | OPEN | R04-D, R13 |
+| H05 | Высоковольтный дозаряд дает полезный эффект при приемлемом ресурсе | OPEN | R04/R09, отдельно по конструкции |
+| H06 | Восстановленная емкость сохраняется после циклов/хранения | OPEN | R19 |
+| H07 | DCA коррелирует с остаточной емкостью | OPEN | R01/R12 |
+| H08 | Начальный малый ток после экстремального переразряда увеличивает риск металлизации | OPEN | R04-D, прямое сравнение не найдено |
+| H09 | При равном SOC предыстория влияет на зарядоприемность | SUPPORTED в отдельных работах | R01/R02; собственная проверка открыта |
+| H10 | Перемешивание может имитировать восстановление сульфатации | OPEN | R01/R02/R04 |
+| H11 | Интеграл MIX и динамика SG позволяют оценить достаточность воздействия при контроле потери воды | OPEN | R04/R09 |
+
+| H12 | Rcharge60 характеризует обратимую деградацию зарядоприемности EFB/CaCa | OPEN | R05-S02, перенос из BESS требует испытаний |
+| H13 | Многовременные признаки релаксации диагностически лучше одного dU/dt | OPEN | R05–R07, независимый C20 и контроль SOC/T |
+
+| H14 | Набор стандартизированных DC откликов улучшает прогноз C20 относительно одного показателя | OPEN | R06/R12, независимая проверка |
+
+| H15 | Совокупность независимых признаков повышает различимость механизмов отказа | OPEN | R07, независимая разметка и валидация |
+
+| H16 | Комбинация tail current, стабилизации, Q, T и релаксации уменьшает ложные окончания MAIN | OPEN | R08, независимая емкость |
+
+| H17 | Ранний MIX сокращает время при эквивалентных SOC, G и ресурсе | OPEN | R09-S01, перенос не проверен |
+| H18 | U/I/T/релаксация позволяют прогнозировать вертикальный градиент | OPEN | R09, независимая калибровка |
+
+| H19 | Последовательная оценка прироста C с неопределенностью сокращает бесполезные воздействия | OPEN | R10/R11/R19 |
+
+| H20 | Периодическое воздействие 0,05C 5–7 минут каждый час может сохранять целевой результат при меньшем повреждающем воздействии, чем непрерывный форсированный заряд | OPEN, anecdote | TG-01; контроль равных Ah/Wh, SG(z), T и C20 |
+| H21 | Конкретный режим Repair не дает преимуществ перед штатным зарядом при сопоставимых условиях | OPEN, anecdote | TG-02; независимый контролируемый A/B |
+
+| H22 | k Пейкерта и температурная модель воспроизводимы для одного типа АКБ при 3+ стандартизованных скоростях | OPEN | R11; лаборатория |
+| H23 | Стандартизованная U/I/T телеметрия и точное определение cutoff снижают разброс оценки C20 | OPEN | R11; метрология |
+
+| H24 | OCV/rest/T/Rdc(t)/история заряда совместно уменьшают независимую ошибку SOH_C20 относительно простых baseline | OPEN | R12; leave-one-battery-out, C20 labels |
+| H25 | SOC без актуального Cmax систематически смещен при низком SOH | OPEN | R12; сопоставить с независимым C20 |
+| H26 | статус «недостаточно данных» уменьшит риск ошибочной диагностики без чрезмерного отказа от оценок | OPEN | R12; coverage/risk |
+
+| H27 | U(t)+T(t)+Ri(SOC)+история зарядов лучше одного OCV/Ri для диагностики внутренней утечки при независимых labels | OPEN | R13-S01, лабораторный контроль |
+| H28 | SOC и время покоя существенно меняют чувствительность Rdc к одному слабому элементу | OPEN | R13-S01, синтетическая проверка и эталонные реальные АКБ |
+| H29 | отдельный статус недостатка данных снижает ложные диагнозы vs порога dU/dt | OPEN | R13, blind holdout |
+
+| H30 | NAM carbon additives повышают DCA EFB при прочих равных, без автоматического выигрыша в ресурсе/водопотерях | OPEN | R14-S04/S05, matched independent DCA/C20/cycling |
+| H31 | Концентрационная или насыщенная стратификация возможна у крупных/стареющих AGM | OPEN | R14-S06, специализированная лабораторная проверка без вскрытия VRLA в эксплуатации |
+| H32 | При одинаковом EN50342-6 и SOC/T/истории порядок DCA EFB и AGM может зависеть от конструкции и производителя | OPEN | R14-S02/S09, independent paired test |
+| H33 | Одна метка Ca/Ca не определяет безопасный/оптимальный зарядный профиль | OPEN | R14-S01/S10, cross-datasheet evidence audit |
+
+| H34 | Часть потери емкости на холоде исчезает при повторном эталонном C20(25°C), без скрытой смены SOH | OPEN | R15; paired control + retest + safe specimens |
+| H35 | Thermal dose в сочетании с U/SOC history лучше средней T предсказывает потерю ресурса | OPEN | R15; long-term multi-batch |
+| H36 | Несколько внешних T-датчиков лучше одного ambient в обнаружении аномального локального нагрева | OPEN | R15/R13; safe validation |
+| H37 | I²R-модель не объясняет переходный нагрев CC→CV без поляризации и термохимических членов | OPEN | R15-S02; calorimetry |
+
+| H38 | Учет SG(z,t) и T улучшает объяснение Uocv и DCA flooded vs одной средней SG | OPEN | R16; native hydrometer and matched C20 |
+| H39 | Более высокая исходная SG при сравнимых конструкциях повышает initial C20 до максимума, но ускоряет износ при равном throughput | OPEN | R16-S03; independent factorial cells |
+| H40 | Градиент кислоты меняет локальную зарядоприемность сильнее, чем равномерный bulk SG при той же средней | OPEN | R16; lab reference electrodes |
+| H41 | Pb-Ca-Sn alloy + process metallurgy predicts grid contact/corrosion better than Ca/Ca label | OPEN | R16-S05; factory specs and microstructure |
+| H42 | Equilibrium PbSO4 solubility ratios alone poorly predict dendrite formation without migration/reduction/separator structure | OPEN | R16/R04-D/R13; literature + morphology evidence |
+
+| H43 | Sext predicts short-term NAM DCA only until saturation from mixing/transport/positive plate limits | OPEN | R17-S01; independent replicated material batch |
+| H44 | Carbon dose has nonmonotonic optimum in HRPSoC due to pore transport, HER and structural interactions | OPEN | R17-S03/S06; factorial trials with gas/Wh |
+| H45 | Carbon+lignosulfonate+BaSO4 interactions explain cycle response more than carbon identity alone | OPEN | R17-S08; randomized controlled formulation |
+| H46 | Early DCA tests overpredict preservation of rankings after months and prolonged rest | OPEN | R17-S01; prospective manufacturer held-out run-in |
+| H47 | PAM carbon effects and oxidative stability/water-loss are different from NAM carbon | OPEN | R17-S10/S12; independent AGM lab C20/waterloss |
+| H48 | Factory carbon-additive results cannot support any safe retrofit or high-voltage 'carbon treatment' of an existing battery | OPEN, negative safety assumption | R17-S01/S02 and absence of retrofit controls |

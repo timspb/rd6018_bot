@@ -1,0 +1,59 @@
+# CURRENT_CHECKPOINT
+R01: начальная библиотека и исследовательский отчёт перенесены текстом из архива чата. Полные тексты публикаций и графики ещё не собраны.
+R02: следующий этап — сульфатация и рекристаллизация PbSO4. Проверить первоисточники, сохранить доступные легальные полные тексты в sources, оформить выводы и ограничения в отдельном отчёте.
+Интеграция RD6018 и разрядника отложена до отдельного решения владельца и получения разрядника.
+Рабочий каталог исключительно <RESEARCH_ROOT>.
+
+R02: литературный этап выполнен частично, отчет 04_R02.md записан; 12 записей источников, 4 гипотезы. Полные тексты и архив вложений остаются открытой задачей. Следующий этап R03: сравнительные испытания импульсного, постоянного и малотокового заряда, анализ контрольных групп и долговременного результата. Работы только в Pb-Research.
+
+R03: отчет 05_R03.md записан, извлечены данные NASA, выявлена арифметическая ошибка в оригинальной таблице, изучена статья Mizumoto. Следующий R04 — высоковольтный дозаряд и паразитные реакции. Оригиналы PDF не скачаны. RD6018 не изменять.
+
+R04-D: внеплановое исследование дендритных замыканий, отчет 06_R04_DENDRITES.md записан. Гипотеза о влиянии начального тока не доказана. Основной R04 по MIX открыт. Работы только в Pb-Research.
+
+CASE-001: сохранена текстовая копия чата (255 строк) и аналитическая карточка cases/CASE-001/README.md. Б5 уточнена владельцем; диагноз не установлен. Основной R04 остается открытым.
+
+CASE-001: АКБ передана в магазин по гарантии; дальнейшие инструментальные данные недоступны. Диагноз не установлен, наблюдение ограничено административным исходом. Исследования продолжать независимо от результата гарантии.
+
+Документация v1.0 создана (README/RUNBOOK/ROADMAP/DECISIONS/HYPOTHESES/CONCLUSIONS/EXPERIMENT_PROTOCOL/INTEGRATION_RD6018/CHANGELOG). R04 PARTIAL: 07_R04_MIX.md, шесть источников, баланс Фарадея, исправление сравнения Banner/АКОМ. Следующий R05 — релаксация. Архив PDF открыт. RD6018 не изменен.
+
+R05 PARTIAL: 08_R05_RELAXATION.md, 8 записей, IRCA/Rcharge60, протокол регистрации релаксации, C13–C15, H12–H13. Попытка архивировать MDPI с HOME-PC: HTTP403. Следующий R06. RD6018 не изменен.
+
+R06 PARTIAL: 09_R06_IMPEDANCE.md, 7 источников, извлечены таблицы Kwiecien, C16–C18, H14. Следующий R07 дифференциальная диагностика. Оригиналы не архивированы, RD6018 не изменен.
+
+R07 PARTIAL: 10_R07_DIFFERENTIAL.md, 6 источников, диагностическая матрица, C19–C21, H15. Следующий R08 MAIN. Оригиналы не архивированы, RD6018 не изменен.
+
+R08 PARTIAL: 11_R08_MAIN.md, 6 источников, Sandia Fig2 визуально проверен, C22–C24, H16. R04-D дополнен уточнением Cyberpapa. Следующий R09 MIX. RD6018 не изменен.
+
+Уточнен канон: научная независимость первична, целевые инструменты RD6018 и БВ-600. Следующий этап остается R09. Код и оборудование не изменены.
+
+R09 PARTIAL: 12_R09_MIX_CRITERIA.md, 6 источников, C25–C27, H17–H18. D08 разрешает только обоснованные рекомендации RD6018. REC-001 подготовлена как проверка семантики статусов, не отправлена. Следующий R10. RD6018 не изменен.
+
+R09 дополнен диссертацией tel-00443615 и сообщением о почасовом MIX Cyberpapa; R04-D дополнен библиографическим указанием Устинова/Вайнера. Первичная атрибуция растворимости открыта. Следующий R10.
+
+R10 PARTIAL: 13_R10_DESULFATION.md, 6 записей, Shi 313h и Mariani, C28–C30/H19. Снимки PDF cache miss; оригиналы не архивированы. Следующий R11. RD6018 не изменен.
+
+Telegram connector: Telethon MTProto authorization PASS, @zaryadAKBin recent/read/search PASS. Local stdio MCP 4 tools built and SDK tested in telegram_connector/telegram-research-plugin. Current ChatGPT tool registration pending; do not claim ChatGPT connector installed. Details TELEGRAM_CONNECTOR.md.
+
+Telegram first pass: 1800 of 92940 messages (2026-07-26—11-27), 320 with media, one image examined (Pavlov Table V). TELEGRAM_TRIAGE_001.md with TG-01..TG-08, two hypotheses H20/H21, link provenance. Wider server search tool call rejected by security; did not bypass. Existing CASE-001 not duplicated. Research only; no RD changes.
+
+D09: утверждена двунаправленная научно-практическая верификация, обязательная проверка условий опытов, первоисточников, альтернатив и отрицательных результатов. Без правок RD6018/БВ-600.
+
+R11 PARTIAL: 14_R11_CAPACITY_PEUKERT.md, 7 источников с пометками уровня доступа, C31–C34, H22–H23. Офлайн модель интегрирования с interpolation cutoff: tools/r11_capacity_analysis.py PASS (C20 72Ah, 835.2Wh, Peukert, incomplete/rejected telemetry); никаких физических испытаний и изменений RD6018/БВ-600. Далее R12 SOC/SOH. Первичные PDF screenshots cache miss.
+
+R12 PARTIAL: 15_R12_SOC_SOH.md, 9 источников (S01+S07 FULL HTML, S02 PDF machine-text screenshot cache miss, S03/S04/S05/S06 abstract, S08 snippet, S09 recycled), 5 выводов C35–C39, 3 гипотезы H24–H26. Офлайн математическая демонстрация tools/r12_identifiability.py PASS; свой реальный SOH estimator не строился и не валидировался. R13 следующий: саморазряд, мягкое/интермиттирующее КЗ. RD6018/БВ-600 неизменны.
+
+R13 PARTIAL: создан 16_R13_SELF_DISCHARGE_SHORTS.md, S01 Conradt et al. 2024 (полный текст в https://d-nb.info/138247959X/34, 3 отдельных опыта), S02 Conradt et al. 2023 (полный текст PDF, ~459 field-aged, 6% dominant cell short), S03–S07 с границами доступа; C40–C44, H27–H29, REC-002 candidate не передана. Синтетическая локальная арифметика tools/r13_short_diagnostics_offline.py PASS (15.47Ah/72h=214.9mA, R9.29Ω для 2V cell). Web screenshots PDF cache miss, визуальные графики не проверены, аппаратные испытания отсутствуют. Следующий R14 Ca/Ca EFB AGM GEL. RD6018/БВ-600 неизменны.
+
+R14 PARTIAL: 17_R14_CONSTRUCTION_CACA_EFB_AGM_GEL.md, 13 источников с уровнями доступа. S04 Batteries 2022 EFB DCA FULL HTML; S09 JACI GSC 12pp original PDF archived locally (SHA256 c706a5c28563c1b83da131ddb49ea4867932a0fd84d3bb0ba0b3376ea8e7e1c8), S02/S03 manufacturer HTML, S01 DOE PDF text, остальные annotations/records. 7 выводов C45–C51, 4 гипотезы H30–H33. Ключевое: Ca/Ca=сплав, EFB=flooded, AGM/GEL=VRLA immobilized; no generic volts. Противоречивые сравнительные DCA claims VARTA vs Hitachi не решены без matched test. PDF Berlin repository not downloaded (URLError), PDF web screenshots cache miss. R14 открыт для полного первичного корпуса и independent validation. Следующий R15 температурные зависимости. RD6018/БВ-600 без изменений.
+
+R15 PARTIAL: создан 18_R15_TEMPERATURE.md, 11 источников с разными уровнями проверки, C52–C58 и H34–H37. Три публичных PDF сохранены на HOME-PC sources/R15 (Bača 2024 тепловой баланс, OSTI 2015 float rule, EnerSys SBS XC+ 2023). Просмотрена методика и fig.1 Bača; ENERSYS EON скачивание HTTPError, издательский Wiley HTML403, MDPI429; preprint проверен отдельно. Различаются reversible Q(T) и irreversible thermal aging, обнаружено −3 vs −4mV/(cell°C) для двух VRLA float линеек одного производителя (не уставки для Leoch). Дальше R16 электролит и легирование. Никаких изменений RD6018, БВ-600, физического оборудования или регистраций режима не выполнялось.
+
+R16 PARTIAL: 19_R16_ELECTROLYTE_ALLOYS.md, 11 источников, 2 оригинальных NBS первичных PDF реально архивированы (NBS1939 16p Table5 p66 визуально проверена; NBS1934 9p Table3 текст проверен), SHA256 в отчёте. R16 tools/r16_nbs_solubility_analysis.py PASS: 27 концентраций Table5, 25/0°C, non-monotonic extrema & ratio water vs acid. Pavlov 2008 full PDF text, Prengaman 2001 full PDF text (web screenshot cache miss). C59–C66 и H38–H42, D09 Telegram cross-check: вода 42.5 мг/л (not g/L), acid ~1.2 mg/L only for certain acid concentration, ×40 not universal. R16 remains PARTIAL without modern laboratory validation/primary water value determination. Следующий R17 NAM carbon/active materials. RD6018 и БВ-600 не изменены.
+
+R17 PARTIAL: 20_R17_CARBON_ACTIVE_MASS.md (14 research refs with explicit access levels), Bozkaya 2022 original full 8p PDF and Lach 2019 open 13p review archived in sources/R17 with hashes; both key sections read. Indexed Xie 2024 CF 1267→3642 microcycles 2C/50% SOC (dose non-monotonic), NCC 2023 809/1834/4324 microcycles, Bozkaya normalized CA 0.21→0.58 A/Ah at carbon Sext 7.1→92.1m2/g then plateau, long run-in ranking fades. 2025–26 PAM AGM studies examined at abstract/index level; local publisher/university PDF HTTPError. Local Telegram 1800-message archive search no direct carbon additives/BaSO4/expander examples, only generic paste discussions (not carbon evidence). C67–C75, H43–H48. Offline sources/numeric checks tools/r17_quantitative_provenance.py PASS. R17 remains PARTIAL; next R18 reversal/polarity consequences; RD6018 and БВ-600 unchanged.
+
+Ревизия передачи новому чату 28.11.2026: проверены RUNBOOK.md, AGENTS.md, 00_CANON.md, ROADMAP.md, TELEGRAM_CONNECTOR.md, реестры, инструменты и файлы. Созданы OPERATOR_METHODS.md с точными правилами HOME-PC MCP, Python, PDF, Telegram, D09 и безопасных проверок, а также HANDOFF_NEW_CHAT.md — текущая точка R17 PARTIAL → R18 OPEN и известные ограничения. Исправлено устаревшее указание R02 в AGENTS, README/RUNBOOK дополнены маршрутом нового чата. Проверено отсутствие .git; remote sync не утверждается. RD6018/БВ-600 не изменены.
+
+Handoff-аудит 28.11.2026: tools/validate_handoff.py создан и запущен, HANDOFF_CONSISTENCY_PASS. Проверены обязательные файлы, этап R17 PARTIAL/R18 OPEN, .git отсутствует, наличие локальных инструментов и сессии без чтения секретов. Не тестировалась текущая Telegram авторизация, удалённая синхронизация не выполнялась.
+
+GitHub NIR branch created 28.11.2026: `timspb/rd6018_bot:research/pb-acid-nir`, based on `main` SHA `70074de154b4c6f44614f2b4cfddf6ac77c55fbb`; verified branch search + compare (identical immediately after creation). URL https://github.com/timspb/rd6018_bot/tree/research/pb-acid-nir. No research files committed yet; local Pb-Research remains source of truth and still has no .git. Next transfer only vetted non-secret docs to isolated subdirectory; exclude Telegram sessions, env secrets, raw private cache/media. No production code/main/runtime changed.

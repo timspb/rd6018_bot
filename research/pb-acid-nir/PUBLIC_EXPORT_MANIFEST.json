@@ -1,0 +1,252 @@
+{
+  "date": "2026-11-28",
+  "branch": "research/pb-acid-nir",
+  "files": [
+    {
+      "path": "README.md",
+      "bytes": 809,
+      "sha256": "36a302dbe81c6e0dbbc2a6e97a6286e5cafd83d5e26176d2fc9736adab01fee9"
+    },
+    {
+      "path": "docs/00_CANON.md",
+      "bytes": 5892,
+      "sha256": "b1541daf4161d80450b1d0156b19c20f88359dd552670ff9c93ebfa75b9fc4e2"
+    },
+    {
+      "path": "docs/01_SOURCES.md",
+      "bytes": 9939,
+      "sha256": "8011e78bf6aa2c57c222ae561848a95e0bf8dd4276da1806094b52c64b9c9e29"
+    },
+    {
+      "path": "docs/02_EXPERIMENTS.md",
+      "bytes": 2100,
+      "sha256": "5fa4fa099b50478122797c1df5cc30deee0ae7538c3a4720f5afc17c7fe248d2"
+    },
+    {
+      "path": "docs/03_R01.md",
+      "bytes": 4793,
+      "sha256": "f65b02155e6ec22c44663e6d34125045b5c4b00e13ba9fd7a0267108a851aec2"
+    },
+    {
+      "path": "docs/04_R02.md",
+      "bytes": 8877,
+      "sha256": "a6bf8387e9004f91b07d7b5fda67c4722ee8a37462f986362139614264f483ea"
+    },
+    {
+      "path": "docs/05_R03.md",
+      "bytes": 5838,
+      "sha256": "aca2a748d9adf44fab1991db5406f8eae1bb3594cf7193ae1973dcad698dd6f8"
+    },
+    {
+      "path": "docs/06_R04_DENDRITES.md",
+      "bytes": 10320,
+      "sha256": "ffca7a5ef570f21d10292482944e9a58094f5cf7c169b93450daec54edcd014b"
+    },
+    {
+      "path": "docs/07_R04_MIX.md",
+      "bytes": 5633,
+      "sha256": "ef7a12043229abd32dabb4ca41d869a6a5c08b49c5ff45e97ce8f0072a15385c"
+    },
+    {
+      "path": "docs/08_R05_RELAXATION.md",
+      "bytes": 8910,
+      "sha256": "7340ae672a030f08d7653165d94e5b6c5027c6de13a5ed6e4ace5b2e3343d65a"
+    },
+    {
+      "path": "docs/09_R06_IMPEDANCE.md",
+      "bytes": 6648,
+      "sha256": "a07b07523aef90a7448a6ff8c254a216a4d4ef00366378494903cf91d8c8d4e5"
+    },
+    {
+      "path": "docs/10_R07_DIFFERENTIAL.md",
+      "bytes": 8005,
+      "sha256": "5548d5713aa181addb16b9c5e441c8ee37171295d69582ecc9e4fb372296b336"
+    },
+    {
+      "path": "docs/11_R08_MAIN.md",
+      "bytes": 6861,
+      "sha256": "b404204052debb9f7913d4b7e0203431fa99eb8a2077447209be7662d68ae3f1"
+    },
+    {
+      "path": "docs/12_R09_MIX_CRITERIA.md",
+      "bytes": 9910,
+      "sha256": "0f830318d2a03504e6c6ca91ce47a1323f622b3102df0a8deba5a75d6960898e"
+    },
+    {
+      "path": "docs/13_R10_DESULFATION.md",
+      "bytes": 9321,
+      "sha256": "a23ac98e9c707de6b95ac1538a781f6cfbd92555f02cb78abec48575b5fc0d2a"
+    },
+    {
+      "path": "docs/14_R11_CAPACITY_PEUKERT.md",
+      "bytes": 16127,
+      "sha256": "2ad1b59f5496163a99dc5bddf2a4bca947890364f6a3b6665900160734273a66"
+    },
+    {
+      "path": "docs/15_R12_SOC_SOH.md",
+      "bytes": 19483,
+      "sha256": "675d553e1f8bd99f3743d5a0da1734b1df54ad9d60572073bbb5634c7f8acf3c"
+    },
+    {
+      "path": "docs/16_R13_SELF_DISCHARGE_SHORTS.md",
+      "bytes": 21568,
+      "sha256": "0bb7bfca50fd0b63182fee28b277df3823282a7dfe1eaf9cabc3e7aa17d9383d"
+    },
+    {
+      "path": "docs/17_R14_CONSTRUCTION_CACA_EFB_AGM_GEL.md",
+      "bytes": 25865,
+      "sha256": "3135b2744b38be8b35779be867e3cf812a8e7da4a15c4a8666bc608c87fc6d90"
+    },
+    {
+      "path": "docs/18_R15_TEMPERATURE.md",
+      "bytes": 26540,
+      "sha256": "2ad54c3375f2df858e2c7b058e12de60d26359811edc5053a5e8f8b59fbe7931"
+    },
+    {
+      "path": "docs/19_R16_ELECTROLYTE_ALLOYS.md",
+      "bytes": 27531,
+      "sha256": "a44d132a5f60079c4f25758fcc933eda47c0c51570575e6eef65deb1e98712e2"
+    },
+    {
+      "path": "docs/20_R17_CARBON_ACTIVE_MASS.md",
+      "bytes": 21072,
+      "sha256": "2c1f81e998d5c4cd2ec449cfc553eb9a6fe06736dfcd85e53ec099b5ceeb37b7"
+    },
+    {
+      "path": "docs/AGENTS.md",
+      "bytes": 4100,
+      "sha256": "48107a4bc1b6eba8062414871ea3821f4c46fdd574f78b4d7b502312e19f06de"
+    },
+    {
+      "path": "docs/CHANGELOG.md",
+      "bytes": 5001,
+      "sha256": "7902c7fd31c8567a19a5cc8f25e3aca686402a756c2173af73151e908ef0d6fa"
+    },
+    {
+      "path": "docs/CONCLUSIONS.md",
+      "bytes": 17217,
+      "sha256": "aa76dc2ee59d1a8a5766b924c39470589ad5c5ddeeb9ca8a4a7600850251babc"
+    },
+    {
+      "path": "docs/CURRENT_CHECKPOINT.md",
+      "bytes": 13755,
+      "sha256": "483ce5d67b574496368eba5f61efc4311399dc55dddafe33e551e6f42648b7e4"
+    },
+    {
+      "path": "docs/DECISIONS.md",
+      "bytes": 1887,
+      "sha256": "31303f4154ec6bce31c6dbe84d58cda3c8ae0b814cd017a96f8a8bc15ffdc9c8"
+    },
+    {
+      "path": "docs/EXPERIMENT_PROTOCOL.md",
+      "bytes": 11296,
+      "sha256": "469b416ae63a156618e5be281b4a488cfd26327046598fa66f178a9a6d1a536f"
+    },
+    {
+      "path": "docs/HANDOFF_NEW_CHAT.md",
+      "bytes": 6771,
+      "sha256": "53287b4a4a6e2c01018ea06317174b011b2eb795507daec3a744d4b00327a20a"
+    },
+    {
+      "path": "docs/HYPOTHESES.md",
+      "bytes": 9901,
+      "sha256": "6d120a409644dbe56fd55a8bfda4354ed967953ae0793a4c059cdd02758012a8"
+    },
+    {
+      "path": "docs/INTEGRATION_RD6018.md",
+      "bytes": 6043,
+      "sha256": "0835f9cfa77122fabd5815c0d374fb7b7658c8ccb2bded9493f04d0e54d6d2df"
+    },
+    {
+      "path": "docs/OPERATOR_METHODS.md",
+      "bytes": 13413,
+      "sha256": "d5eb061b5e79bd981a4f80f049ab7ac027a88c24f0bb7e1049977e05922416c7"
+    },
+    {
+      "path": "docs/README.md",
+      "bytes": 1393,
+      "sha256": "82d745ec19d6fc7da54acacf3766177e371d92dcf0d7a01e4b4cd11737e29f2f"
+    },
+    {
+      "path": "docs/ROADMAP.md",
+      "bytes": 2851,
+      "sha256": "203661e9033c9c00665718954b67d4a8a5b7d006ae06b249e6df735841bb9b83"
+    },
+    {
+      "path": "docs/RUNBOOK.md",
+      "bytes": 8740,
+      "sha256": "ade548ad44c87b35bfd2f14146f5709f93cfcabb544deae05574fe10bbaf931d"
+    },
+    {
+      "path": "docs/TELEGRAM_CONNECTOR.md",
+      "bytes": 2881,
+      "sha256": "4b0838e0517b2cbf4258d3b7c0a1f277440da1b24e1c525bf3f4fffec3c81b37"
+    },
+    {
+      "path": "docs/TELEGRAM_TRIAGE_001.md",
+      "bytes": 12836,
+      "sha256": "022724127598beaf011f6a587e4f3e928516747bcacdf8ca611c516ab2d45d7b"
+    },
+    {
+      "path": "tools/r11_capacity_analysis.py",
+      "bytes": 4884,
+      "sha256": "220ede5a5be8798ad1f3abf3b8eb632757c07cdfdbf0e68e3ed317e4e4d84829"
+    },
+    {
+      "path": "tools/r12_identifiability.py",
+      "bytes": 1885,
+      "sha256": "47721fa899e881c3d8b312afe342541035bcf997a6ee4f932e45bfc9ec53ee57"
+    },
+    {
+      "path": "tools/r13_short_diagnostics_offline.py",
+      "bytes": 3069,
+      "sha256": "6d150254820db87d32151c7c37766743e36cb0a9106ff5409fec5a461ebea668"
+    },
+    {
+      "path": "tools/r14_source_archive.py",
+      "bytes": 1241,
+      "sha256": "4537e2392668be04994f04c5c00f4d9f8b01c034b3a0f1201a79f577c25e7007"
+    },
+    {
+      "path": "tools/r15_archive_sources.py",
+      "bytes": 1712,
+      "sha256": "79e573d162dcc3ec013d0ad6e96e48537ee9d8ada7957dd778e63ede2415b25b"
+    },
+    {
+      "path": "tools/r16_archive_nist.py",
+      "bytes": 1198,
+      "sha256": "ac89eee02f028fc5be2496feb0ff752647a32a6dc47af2d54fcd685d4f3a7bc8"
+    },
+    {
+      "path": "tools/r16_nbs_solubility_analysis.py",
+      "bytes": 2627,
+      "sha256": "46b25eab3e7745c29dc46edb0602e850a309216323d3a5a343e63e406d3add99"
+    },
+    {
+      "path": "tools/r16_validate_checkpoint.py",
+      "bytes": 1875,
+      "sha256": "2ded0570bf0c122679d0df8ef66c9ccae55ee963d58e0dd8f7f23e7b7a487933"
+    },
+    {
+      "path": "tools/r17_archive_pam_2025_26.py",
+      "bytes": 1298,
+      "sha256": "8c8b896453a247f6527e0ac5e81ea7e4293ed223757bc108cff63b2d0dd81f04"
+    },
+    {
+      "path": "tools/r17_archive_public_sources.py",
+      "bytes": 1466,
+      "sha256": "8117ce675dc98e5bf0870802ba08859e48d9c7ceaa3872a8f4e7e43ac9aa1b14"
+    },
+    {
+      "path": "tools/r17_quantitative_provenance.py",
+      "bytes": 2977,
+      "sha256": "4680b4ee955437920be54300c592df7631979da9e5f906bd69b55bc8afd7b3d1"
+    },
+    {
+      "path": "tools/r17_validate_checkpoint.py",
+      "bytes": 1481,
+      "sha256": "013383ba26963249ef08ce7501de23c723b52f1a81355ec60935bfc93e8a4efa"
+    }
+  ],
+  "omitted": []
+}
