@@ -39,6 +39,7 @@ def project_session_document(
     session_file: str = SESSION_FILE,
     terminal_request: TerminalPersistenceRequest | None = None,
     now_s: float | None = None,
+    new_start_target: bool = False,
 ) -> dict[str, Any] | None:
     """Return the canonical candidate without changing file bytes.
 
@@ -91,19 +92,23 @@ def project_session_document(
         uv, ui = host._cooling_target_v, host._cooling_target_i
     else:
         uv, ui = host._get_target_v_i()
-    # Сохраняем фактические уставки прибора (до потери связи/перезапуска).
-    # Explicit Storage Done is the exception: the queued Storage target is
-    # authoritative even when the last physical readback is still the old HV program.
+    # The START_PENDING candidate describes the NEW requested program before
+    # Output enable; old physical Vset/Iset are telemetry from the preceding
+    # (currently OFF) session, NOT authority for the new persisted target.
+    # Preserve the usual measured-setpoint fallback for ALL non-START saves.
+    # Explicit Storage Done is also authoritative over stale physical readback.
     if (
-        not done_storage
+        not new_start_target
+        and not done_storage
         and host._device_set_voltage is not None
         and host._device_set_voltage > 0
         and host._device_set_current is not None
         and host._device_set_current > 0
     ):
         uv, ui = host._device_set_voltage, host._device_set_current
-    elif not done_storage:
-        # С прибора уставки не приходили — не перезаписывать дефолтами профиля; сохранить из файла, если есть
+    elif not new_start_target and not done_storage:
+        # Ordinary recovery saves may reuse prior targets without fresh readback.
+        # A new START must never import the previous program's target from disk.
         if os.path.exists(session_file):
             try:
                 with open(session_file, "r", encoding="utf-8") as f:
