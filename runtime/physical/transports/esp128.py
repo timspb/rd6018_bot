@@ -430,6 +430,34 @@ class ESPHomeTransport(ReadOnlyTransport):
         self.client.button_command(int(entity.key), int(entity.device_id))
         return True
 
+    def _dispatch_subscribed_state(self, state: Any, *, connection_generation: int,
+                                   source_client: Any) -> None:
+        """Guard a Native callback before forwarding to a read-only observer.
+
+        The pinned D151 observer has a legacy observe(state) signature while
+        current D091 observers accept connection_generation/source_client.
+        In both cases reject stale generations or foreign clients FIRST;
+        otherwise a legacy observer could count an old SensorState as fresh.
+        """
+        if (type(connection_generation) is not int
+                or connection_generation != self._native_connection_generation
+                or source_client is not self.client):
+            return
+        callback = self._on_state
+        signature = inspect.signature(callback)
+        params = tuple(signature.parameters.values())
+        if (len(params) == 1 and params[0].name == "state"
+                and params[0].kind in (inspect.Parameter.POSITIONAL_ONLY,
+                                       inspect.Parameter.POSITIONAL_OR_KEYWORD)):
+            callback(state)
+            return
+        # Check the signature, not a caught callback TypeError: a callback's
+        # own TypeError must fail closed and must never trigger a second call.
+        signature.bind(state, connection_generation=connection_generation,
+                       source_client=source_client)
+        callback(state, connection_generation=connection_generation,
+                 source_client=source_client)
+
     async def _ensure_state_subscription(self) -> None:
         """Connect and install at most one state subscription per connection."""
         async with self._state_subscription_lock:
@@ -446,7 +474,7 @@ class ESPHomeTransport(ReadOnlyTransport):
                 raise RuntimeError("ESPHome Native client is unavailable for state subscription")
             generation = self._native_connection_generation
             remover = client.subscribe_states(
-                lambda state: self._on_state(
+                lambda state: self._dispatch_subscribed_state(
                     state, connection_generation=generation, source_client=client
                 )
             )
