@@ -45,3 +45,5 @@
 2026-11-28: NIR branch initial source import committed 4b0a9e5ab581c42e53ecac048ec9dbde5d20186b (50 safe new files, research/pb-acid-nir only); GitHub compare main verified ahead1/behind0; no sensitive data/PDFs/production modifications. Local handoff/runbook corrected: manual GitHub snapshot exists, auto-sync absent.
 
 2026-11-28: R18 научная ревизия инверсии свинцовых элементов, предприняты и проверены 11 sources. Four primary/official original PDFs archived locally with SHA256; Nguyen thesis full web Ch3 only (local HTTPError), web screenshot cache miss. Independent positive counterexamples Perujo 2004 and Karami 2009 retained with limits; detected Karami baseline '<25%' conflict. OFFLINE math tools/r18_reversal_evidence_offline.py PASS. C76–C83 / H49–H53; roadmap R18 PARTIAL; R19 next. No physical, firmware or RD/BV actions.
+
+2026-11-28: GitHub NIR R18 published 4236209b1438563feb96d23974b79594b0d94a2f; main ahead2/behind0, all 52 changed paths confined to research/pb-acid-nir. Validated R18 offline and public export, no secrets/production changes. Metadata handoff corrected to post-publication state.
