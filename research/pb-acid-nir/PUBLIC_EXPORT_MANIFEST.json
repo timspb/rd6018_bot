@@ -129,8 +129,8 @@
     },
     {
       "path": "docs/CHANGELOG.md",
-      "bytes": 6860,
-      "sha256": "14a0d64cae502c4080cb7922eae372276d35f980c79645dbbcaa11d20dfb764e"
+      "bytes": 7262,
+      "sha256": "0f9efd7520a194edb43ab5e0efe997eff4c44a9e10bd96a2d3f5f5eb3955523f"
     },
     {
       "path": "docs/CONCLUSIONS.md",
@@ -139,8 +139,8 @@
     },
     {
       "path": "docs/CURRENT_CHECKPOINT.md",
-      "bytes": 17444,
-      "sha256": "f7d7d6d1f90a3853fd92f370a97531e97c5ff543bdfab597d0cd5c129c752828"
+      "bytes": 17735,
+      "sha256": "b5a9bffad54511a3c3ecc1a0a8c91b5e44d491972b65b558873b8b627cce919f"
     },
     {
       "path": "docs/DECISIONS.md",
@@ -154,8 +154,8 @@
     },
     {
       "path": "docs/HANDOFF_NEW_CHAT.md",
-      "bytes": 5416,
-      "sha256": "40b0449e6cb46a109b4f1f3e8e6791850cac040ed90ea178352ede96d7b6ec68"
+      "bytes": 5432,
+      "sha256": "70f90b5c0125d51d633927dcb5773d19d5e372d4471a5fba14e53cb23067cb4b"
     },
     {
       "path": "docs/HYPOTHESES.md",
