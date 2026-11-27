@@ -6,7 +6,7 @@ from unittest.mock import patch
 import unittest
 
 from pb_domain import ChargeIntent
-from safe_output import EnableResult
+from runtime.safety.output_policy import EnableResult
 from runtime.charge.programs.native_recipe_draft_library import NativeRecipeDraftLibrary
 from runtime.charge.programs.recipe_catalog import RecipeCatalog
 from runtime.charge.programs.recipe_library import RecipeLibrary
@@ -16,6 +16,18 @@ from test_start_transaction_service import FakeApp, FakeMessage, PENDING
 
 class NativeSelectionStartTests(unittest.IsolatedAsyncioTestCase):
     def _prepared(self, root):
+        session_patch = patch(
+            "runtime.charge.persistence.SESSION_FILE",
+            str(Path(root) / "charge_session.json"),
+        )
+        session_patch.start()
+        self.addCleanup(session_patch.stop)
+        port_patch = patch(
+            "application.start_transaction_service.get_or_create_execution_port",
+            side_effect=lambda app: app.execution_port,
+        )
+        port_patch.start()
+        self.addCleanup(port_patch.stop)
         app = FakeApp(EnableResult(enabled=True))
         catalog = RecipeCatalog(RecipeLibrary(
             Path(root) / "user_recipes", max_voltage_v=15.5, max_current_a=7.2,
@@ -44,9 +56,10 @@ class NativeSelectionStartTests(unittest.IsolatedAsyncioTestCase):
             message = FakeMessage()
             ok = await start_profile_transactional(app, message, pending)
             self.assertTrue(ok)
-            self.assertEqual(len(observed), 1)
+            self.assertEqual(len(observed), 2)
+            self.assertEqual(observed[0], observed[1])
             self.assertEqual(observed[0].version, 1)
-            self.assertEqual(observed[0].base_recipe_id,
+            self.assertEqual(observed[1].base_recipe_id,
                              "native_efb_recovery")
             self.assertIsNone(app.charge_controller._existing_recipe_execution_binding)
             lib.save("my_efb", 2, {
@@ -54,7 +67,7 @@ class NativeSelectionStartTests(unittest.IsolatedAsyncioTestCase):
                 "execution_kind": "native_authority",
                 "overrides": {"charge.main.efb_voltage_v": 14.5},
             })
-            self.assertEqual(observed[0],
+            self.assertEqual(observed[1],
                              app.charge_controller._native_recipe_session_selection)
 
     async def test_wrong_intent_or_missing_version_rejected_before_controller_start(self):
@@ -70,6 +83,9 @@ class NativeSelectionStartTests(unittest.IsolatedAsyncioTestCase):
                     app, message, pending))
                 self.assertFalse(app.charge_controller.started)
                 self.assertIsNone(app.hass.enable_kwargs)
+                self.assertTrue(message.answers[-1][0].startswith(
+                    "❌ Копия штатного рецепта не готова к START:"))
+                self.assertEqual(message.answers[-1][1].get("parse_mode"), "HTML")
             app.charge_controller.started = False
             message = FakeMessage()
             pending = types.SimpleNamespace(

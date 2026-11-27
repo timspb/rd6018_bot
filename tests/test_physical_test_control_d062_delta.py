@@ -34,7 +34,7 @@ class PhysicalTestControlD062DeltaTests(unittest.IsolatedAsyncioTestCase):
     @staticmethod
     def coordinator():
         return types.SimpleNamespace(
-            current_authority=ManagedAdoptionFingerprint(15.10, 0.18, 15.30, 0.40),
+            current_authority=ManagedAdoptionFingerprint(15.10, 0.18),
             last_source_timestamp_s=2_000_000_000.0,
             started_at_s=2_000_000_000.0,
         )

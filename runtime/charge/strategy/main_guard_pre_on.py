@@ -13,6 +13,10 @@ from typing import Any, Mapping
 from rd6018_telemetry import (
     canonical_programmed_readback, finite_float, telemetry_freshness,
 )
+from runtime.safety.protection_boundary import (
+    ProtectionVerdict,
+    assess_protection,
+)
 from .main_current_guard import (
     MainCurrentGuard, READBACK_TOLERANCE_A,
 )
@@ -20,7 +24,6 @@ from .main_guard_session import GUARD_KEY, GuardJournalError, read_guard
 
 NATIVE_GUARD_PRE_ON_KEYS = (
     "output_state_code_v2", "set_current_readback_v2",
-    "protection_code",
 )
 MAX_NATIVE_AGE_S = 10.0
 
@@ -130,11 +133,18 @@ def assess_main_guard_before_output_on(
     if not freshness.valid:
         return blocked("native_sources_stale_or_skewed")
     output_code = finite_float(native_live.get("output_state_code_v2"))
-    protection_code = finite_float(native_live.get("protection_code"))
     if output_code != 0:
         return blocked("output_not_independently_verified_off")
-    if protection_code != 0:
-        return blocked("native_protection_not_normal")
+    protection = assess_protection(
+        native_live,
+        require_fresh=True,
+        require_native=True,
+        max_age_s=MAX_NATIVE_AGE_S,
+        max_skew_s=MAX_NATIVE_AGE_S,
+        now_epoch_s=now,
+    )
+    if protection.verdict is not ProtectionVerdict.CLEAR:
+        return blocked("safety_protection_not_clear")
     programmed_i = canonical_programmed_readback(native_live, "set_current")
     if programmed_i is None:
         return blocked("native_programmed_readback_unavailable")

@@ -89,6 +89,13 @@ class MixNativeClipEvidenceTests(unittest.TestCase):
             with self.subTest(cap=cap):
                 self.assertEqual(ClipStatus.UNKNOWN, classify(cap=cap).status)
 
+    def test_committed_iset_comparison_uses_physical_register_tolerance(self):
+        live = snapshot()
+        live["set_current_readback_v2"] = 0.83  # +0.03 A from committed 0.80 A
+        self.assertEqual(ClipStatus.PROVED_CLIPPED, classify(live).status)
+        live["set_current_readback_v2"] = 0.86  # +0.06 A is outside the band
+        self.assertEqual(ClipStatus.UNKNOWN, classify(live).status)
+
     def test_wrong_session_battery_chemistry_or_agm(self):
         for override in (
             {"session_id": "other"},

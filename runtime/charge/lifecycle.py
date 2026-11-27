@@ -9,7 +9,7 @@ from typing import Any
 from charging_log import log_session_header
 from runtime.charge.runtime.variables import DELTA_MONITOR_DELAY_S
 from runtime.safety.variables import MAX_STAGE_CURRENT_A
-from runtime.charge.session import clear_stage_history
+from runtime.charge.session import clear_stage_history, set_current_stage
 
 
 logger = logging.getLogger("rd6018")
@@ -38,13 +38,17 @@ def reset_session_data(host: Any) -> None:
     host._stage_tracking_enabled = False
 
 
-def initialize_session(host: Any, battery_type: str, ah_capacity: int, start_stage: str) -> None:
+def initialize_session(
+    host: Any, battery_type: str, ah_capacity: int, start_stage: str, *,
+    now_s: float | None = None, clear_session: bool = True,
+) -> None:
     host.reset_session_data()
     host.battery_type = battery_type
     host.ah_capacity = max(1, ah_capacity)
     host._stage_tracking_enabled = True
-    host.current_stage = start_stage
-    host.stage_start_time = time.time()
+    stage_started_at = time.time() if now_s is None else float(now_s)
+    host.stage_start_time = stage_started_at
+    set_current_stage(host, start_stage, now_s=stage_started_at)
     host._stage_start_ah = 0.0
     host._reset_stage_metrics()
     host._reset_bank_fault_state()
@@ -82,11 +86,18 @@ def initialize_session(host: Any, battery_type: str, ah_capacity: int, start_sta
     host._reset_link_loss_state()
     clear_stage_history(host)
     host._clear_restored_targets()
-    host._clear_session_file()
+    if clear_session:
+        host._clear_session_file()
 
 
-def start_charge(host: Any, battery_type: str, ah_capacity: int) -> None:
-    host._init_session(battery_type, ah_capacity, host.STAGE_PREP)
+def start_charge(
+    host: Any, battery_type: str, ah_capacity: int, *,
+    now_s: float | None = None, clear_session: bool = True,
+) -> None:
+    host._init_session(
+        battery_type, ah_capacity, host.STAGE_PREP,
+        now_s=now_s, clear_session=clear_session,
+    )
     target_v, target_i = host._get_target_v_i()
     log_session_header(
         "start",

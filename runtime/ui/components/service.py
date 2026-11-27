@@ -21,7 +21,6 @@ def render_service_details_body(view: ServiceDetailsView) -> str:
             f"Этап: <code>{html.escape(view.stage)}</code>",
             f"V2 analysis: <code>{html.escape(view.v2_analysis)}</code>",
             f"Decision: <code>{html.escape(view.decision)}</code>",
-            f"OVP/OCP: <code>{_value(view.ovp_v, 2, 'V')} / {_value(view.ocp_a, 2, 'A')}</code>",
             f"Protection/Regulation: <code>{html.escape(view.protection)} / {html.escape(view.regulation)}</code>",
             f"Heartbeat: <code>{html.escape(view.heartbeat)}</code>",
             "Lease/Modbus details доступны в диагностическом экране.",

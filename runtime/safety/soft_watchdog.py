@@ -104,12 +104,18 @@ async def soft_watchdog_poll_once(
         timeout = float(getattr(app, "SOFT_WATCHDOG_TIMEOUT", 180.0))
     except (TypeError, ValueError, OverflowError):
         timeout = float("nan")
+    guard = getattr(app, "runtime_safety_guard", None)
+    # One managed safety guard owns the 300s telemetry wait. This watchdog
+    # must not create an independent 180s OFF during its accepted recovery.
+    recovery_pending = bool(
+        getattr(guard, "telemetry_recovery_active", False)
+    )
     decision = decide_watchdog(
         WatchdogSnapshot(
             now=current,
             last_heartbeat_at=last_ok,
             timeout_s=timeout,
-            authority_suspended=_pb_watchdog_suspended(app),
+            authority_suspended=_pb_watchdog_suspended(app) or recovery_pending,
             managed_authority_active=_managed_authority_active(app),
         ),
         WatchdogIncidentState(

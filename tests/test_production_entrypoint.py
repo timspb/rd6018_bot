@@ -1,6 +1,9 @@
 import os
 import pathlib
 import unittest
+import asyncio
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 os.environ.setdefault("TG_TOKEN", "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZ123456789")
 
@@ -16,6 +19,38 @@ from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
 
 
 class V2EntrypointTests(unittest.TestCase):
+    def test_status_callback_reads_live_values_through_application_source(self):
+        import production_bot_ui
+        from ui_polish import format_active_evidence_pretty
+
+        app = production_runtime
+        handler = next(
+            item.callback
+            for item in app.router.observers["callback_query"].handlers
+            if item.callback.__name__ == "status_handler"
+        )
+        live = {"battery_voltage": 12.4, "current": 1.2, "temp_ext": 24.0}
+        snapshot = {"intent": "status-test-intent", "metrics": {}}
+        source = SimpleNamespace(read_live=AsyncMock(return_value=live))
+        call = SimpleNamespace(
+            from_user=SimpleNamespace(id=1), message=None,
+            answer=AsyncMock(),
+        )
+        with patch.object(app, "_check_chat_and_respond", AsyncMock(return_value=True)), \
+             patch.object(app.charge_controller, "ui_support_snapshot", return_value=snapshot), \
+             patch.object(production_bot_ui, "OperatorReadSource", return_value=source), \
+             patch.object(app, "hass", SimpleNamespace(
+                 get_all_live=AsyncMock(side_effect=AssertionError("direct read")),
+             )):
+            asyncio.run(handler(call))
+
+        source.read_live.assert_awaited_once_with()
+        self.assertEqual(call.answer.await_count, 2)
+        answer_text = call.answer.await_args_list[1].args[0]
+        self.assertIn(format_active_evidence_pretty(snapshot), answer_text)
+        self.assertIn("status-test-intent", answer_text)
+        self.assertIn("Этап: <code>Idle</code>", answer_text)
+
     @staticmethod
     def _callbacks(markup):
         return {
@@ -44,6 +79,11 @@ class V2EntrypointTests(unittest.TestCase):
             progress="",
             safety="",
         )
+
+    def test_production_runtime_preserves_entity_map_composition_contract(self):
+        from config import ENTITY_MAP
+
+        self.assertEqual(production_runtime.ENTITY_MAP, ENTITY_MAP)
 
     def test_import_bot_is_composition_only_without_runtime_bridge(self):
         self.assertEqual(bot.__name__, "bot")
@@ -139,6 +179,55 @@ class V2EntrypointTests(unittest.TestCase):
         )
         compose_call_ids = {id(node) for node in ast.walk(compose_method)}
         self.assertTrue(all(id(call) in compose_call_ids for call in install_calls))
+
+    def test_repeated_composition_keeps_the_installed_production_graph_identical(self):
+        """A repeated compose on the supported root must not duplicate registrations."""
+        app = production_runtime
+        composition = bot._composition
+        callback_handlers = tuple(app.router.observers["callback_query"].handlers)
+        message_handlers = tuple(app.router.observers["message"].handlers)
+        connector_handle = app.hass
+        connector_client = object.__getattribute__(connector_handle, "_client")
+        panel_manager = app.terminal_panel_manager
+        execution_port = app.execution_port
+        charge_monitor = app.charge_monitor
+
+        self.assertIs(composition.compose(), composition)
+        self.assertEqual(tuple(app.router.observers["callback_query"].handlers), callback_handlers)
+        self.assertEqual(tuple(app.router.observers["message"].handlers), message_handlers)
+        self.assertIs(app.hass, connector_handle)
+        self.assertIs(object.__getattribute__(app.hass, "_client"), connector_client)
+        self.assertIs(app.terminal_panel_manager, panel_manager)
+        self.assertIs(app.execution_port, execution_port)
+        self.assertIs(app.charge_monitor, charge_monitor)
+
+    def test_partial_native_reconnect_baseline_defers_charge_tick(self):
+        class StopAfterFirstPoll(Exception):
+            pass
+
+        async def stop_after_delay(_seconds):
+            raise StopAfterFirstPoll()
+
+        incomplete = {
+            "_native_link_outage_since": 123.0,
+            "_managed_telemetry_recovery_pending": True,
+            "switch": "unknown",
+        }
+        with patch.object(
+            production_runtime.runtime_safety_guard,
+            "get_all_live",
+            new=AsyncMock(return_value=incomplete),
+        ), patch.object(
+            production_runtime,
+            "run_charge_session_tick",
+            new=AsyncMock(),
+        ) as charge_tick, patch(
+            "runtime.production_runtime.asyncio.sleep", new=stop_after_delay
+        ):
+            with self.assertRaises(StopAfterFirstPoll):
+                asyncio.run(production_runtime.data_logger())
+
+        charge_tick.assert_not_awaited()
 
     def test_production_lifecycle_is_owned_by_composition(self):
         import ast

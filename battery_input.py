@@ -89,3 +89,30 @@ def parse_battery_spec(text: str) -> tuple[BatteryIdentity, BatteryLifecycle]:
         model=model,
     )
     return identity, BatteryLifecycle(condition=BatteryCondition.UNKNOWN)
+
+
+def parse_legacy_pipe_battery_spec(text: str) -> tuple[BatteryIdentity, BatteryLifecycle]:
+    """Parse one-line registry input: ID | chemistry | Ah | manufacturer | model."""
+    parts = [part.strip() for part in str(text or "").split("|")]
+    if len(parts) < 3:
+        raise ValueError("формат: ID | AGM/EFB/Ca/Ca | Ah | производитель | модель")
+    battery_id = parts[0]
+    if not battery_id or len(battery_id) > 64:
+        raise ValueError("ID обязателен и должен быть короче 65 символов")
+    chemistry = _parse_chemistry(parts[1])
+    try:
+        capacity = float(parts[2].replace(",", "."))
+    except ValueError as exc:
+        raise ValueError("ёмкость Ah должна быть числом") from exc
+    if capacity <= 0 or capacity > 1000:
+        raise ValueError("ёмкость должна быть в диапазоне 0..1000 Ah")
+    manufacturer = parts[3] if len(parts) >= 4 else ""
+    model = parts[4] if len(parts) >= 5 else ""
+    identity = BatteryIdentity(
+        battery_id=battery_id,
+        chemistry=chemistry,
+        nominal_capacity_ah=capacity,
+        manufacturer=manufacturer,
+        model=model,
+    )
+    return identity, BatteryLifecycle(condition=BatteryCondition.UNKNOWN)

@@ -15,6 +15,17 @@ class RecoveryDecision(str, Enum):
     REST_AND_DIAGNOSE = "rest_and_diagnose"
     PAUSE_THERMAL = "pause_thermal"
 
+_UNSAFE_RECOVERY_DECISIONS = frozenset({
+    RecoveryDecision.HOLD_OUTPUT_OFF,
+    RecoveryDecision.PAUSE_THERMAL,
+    RecoveryDecision.REST_AND_DIAGNOSE,
+})
+
+
+def is_unsafe_recovery_decision(decision: RecoveryDecision) -> bool:
+    """Return whether a recovery decision forbids automatic stage progression."""
+    return decision in _UNSAFE_RECOVERY_DECISIONS
+
 
 @dataclass(frozen=True)
 class RecoveryDecisionResult:

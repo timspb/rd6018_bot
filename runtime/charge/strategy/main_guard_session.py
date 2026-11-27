@@ -8,9 +8,6 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-import os
-from pathlib import Path
-import tempfile
 from typing import Any, Mapping
 
 from .main_current_guard import MainCurrentGuard, GuardError, READBACK_TOLERANCE_A
@@ -42,7 +39,27 @@ def _identity(document: Mapping[str, Any], guard: MainCurrentGuard) -> None:
         raise GuardJournalError("session_identity_mismatch")
     if document.get("v2_battery_id") != guard.battery_id:
         raise GuardJournalError("battery_identity_mismatch")
-    if document.get("stage") not in ELIGIBLE_STAGES:
+    stage = document.get("stage")
+    if stage == "Done":
+        # Terminal Storage retains the prior MAIN Guard journal, but is not
+        # another MAIN current-limit authority. Also preserve terminal OFF
+        # evidence without replacing or erasing the existing guarded history.
+        from runtime.charge.terminal_intent import (
+            DONE_COMPLETION_STORAGE, DONE_COMPLETION_TERMINAL,
+            DONE_OUTPUT_ON, DONE_OUTPUT_OFF,
+        )
+        terminal_shape = (
+            document.get("done_state_version") == 1
+            and document.get("terminal_session_id") == guard.session_id
+            and (document.get("completion_kind"), document.get("output_intent"))
+            in {
+                (DONE_COMPLETION_STORAGE, DONE_OUTPUT_ON),
+                (DONE_COMPLETION_TERMINAL, DONE_OUTPUT_OFF),
+            }
+        )
+        if not terminal_shape:
+            raise GuardJournalError("terminal_guard_intent_invalid")
+    elif stage not in ELIGIBLE_STAGES:
         raise GuardJournalError("ineligible_charge_stage")
     try:
         capacity = float(document["ah_limit"])
@@ -96,6 +113,10 @@ def attach_guard(document: Mapping[str, Any], guard: MainCurrentGuard, *,
         raise GuardJournalError("expected_revision_invalid")
     _identity(document, guard)
     previous = document.get(GUARD_KEY)
+    if document.get("stage") == "Done" and (
+        previous is None or expected_revision <= 0
+    ):
+        raise GuardJournalError("terminal_requires_existing_main_guard")
     if document.get("stage") == "Mix Mode":
         # MIX can preserve an already-validated, revisioned MAIN Guard but
         # cannot create or erase its ratchet journal on its own.
@@ -114,6 +135,17 @@ def attach_guard(document: Mapping[str, Any], guard: MainCurrentGuard, *,
         )
         if old_revision != expected_revision:
             raise GuardJournalError("stale_canonical_checkpoint_revision")
+        if (
+            document.get("stage") == "Done"
+            and document.get("completion_kind") == "storage"
+            and document.get("output_intent") == "on"
+        ):
+            # Terminal Storage carries the already sealed MAIN evidence, not
+            # a fresh ratchet or authority to alter its last observed state.
+            if guard.pending is not None or guard.fault is not None:
+                raise GuardJournalError("storage_requires_resolved_main_guard")
+            if guard.snapshot() != previous.get("snapshot"):
+                raise GuardJournalError("storage_cannot_mutate_main_guard")
         if guard.segment_id != old.segment_id:
             verified_return_shape = (
                 document.get("stage") == "Безопасное ожидание"
@@ -175,45 +207,6 @@ def attach_guard(document: Mapping[str, Any], guard: MainCurrentGuard, *,
     return result
 
 
-def atomic_write_guard_session(path: Path, guard: MainCurrentGuard, *,
-                               now_s: float, expected_revision: int) -> int:
-    """Atomic replacement requiring EXCLUSIVE ownership by the caller.
-
-    This is not a sidecar writer. Do not call while the legacy session writer
-    runs independently; that writer must share the same owner lock first.
-    """
-    path = Path(path)
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(raw, dict):
-            raise GuardJournalError("canonical_session_not_object")
-    except (OSError, json.JSONDecodeError) as exc:
-        raise GuardJournalError("canonical_session_unavailable") from exc
-    next_document = attach_guard(raw, guard, now_s=now_s,
-                                 expected_revision=expected_revision)
-    content = json.dumps(next_document, ensure_ascii=False, indent=2,
-                         allow_nan=False).encode("utf-8") + b"\n"
-    # Same-directory temporary file is required for atomic os.replace.
-    fd, temporary = tempfile.mkstemp(prefix=".main-guard-", suffix=".tmp",
-                                    dir=str(path.parent))
-    try:
-        with os.fdopen(fd, "wb") as stream:
-            stream.write(content)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, path)
-        directory_fd = os.open(str(path.parent), os.O_RDONLY)
-        try:
-            os.fsync(directory_fd)
-        finally:
-            os.close(directory_fd)
-    finally:
-        if os.path.exists(temporary):
-            os.unlink(temporary)
-    return int(next_document[GUARD_KEY]["revision"])
-
-
 __all__ = [
     "GUARD_KEY", "GuardJournalError", "read_guard", "attach_guard",
-    "atomic_write_guard_session",
 ]

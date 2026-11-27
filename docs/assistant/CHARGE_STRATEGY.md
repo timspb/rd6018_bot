@@ -2,6 +2,14 @@
 
 Этот документ — короткий source of truth по текущей production-стратегии V2.
 
+**OVP/OCP correction (2026-11-14):** preserve OVP/OCP entities, register 82/83
+readbacks and trip diagnostics. The current HassClient / ESP Native physical
+adapter exposes V/I setters only, so it does not automatically program OVP/OCP
+thresholds during START or MAIN/MIX. A confirmed trip stops an active PB_MANAGED
+session through the existing safety owner. HANDS_OFF + AUTONOMOUS is read-only
+and receives no bot-originated stop. This current decision supersedes older
+OVP/OCP programming/removal wording below.
+
 Порядок проверки: `V2_DECISION_LOG.md` -> `V2_OPEN_QUESTIONS.md` -> этот документ -> `PB_RECOVERY_V2.md` -> `V1_BEHAVIORAL_AUDIT.md`.
 
 ## Главная модель
@@ -20,7 +28,7 @@
 - `AutoStrategyProductionChargeControllerV2` владеет AUTO Main/timeout/Mix strategy.
 - `DiagnosticProductionChargeControllerV2` добавляет hypothesis-specific HV veto и durable Mix active-time authority.
 - `ProductionManualSessionManager` владеет Manual.
-- Пока ownership = `PB_MANAGED`, `V2RuntimeSafetyGuard` + configured-value readback + verified OFF + edge lease образуют обязательную аппаратную границу managed Pb authority.
+- Пока ownership = `PB_MANAGED`, `V2RuntimeSafetyGuard` + V/I configured-value readback + OVP/OCP status/readback monitoring + verified OFF + edge lease образуют обязательную аппаратную границу managed Pb authority.
 - `RdControlModeManager` — внешний ownership boundary. Явный `HANDS_OFF` снимает Pb/bot actuator authority с RD6018; это не ослабление managed safety, а прекращение managed Pb ownership.
 - `DiagnosticActionJournal` хранит lifecycle диагностических действий, но не заменяет safety/chemistry authority.
 
@@ -57,9 +65,9 @@
 ```text
 fresh telemetry
 -> envelope validation
--> OVP/OCP
--> V/I
--> readback verify
+-> OVP/OCP status/readback check (thresholds are not auto-programmed)
+-> V/I programming
+-> V/I readback verify
 -> edge lease
 -> Output ON
 -> post-enable verify
@@ -287,8 +295,8 @@ Fresh re-authorization:
 ```text
 operator review
 -> fresh telemetry/safety
--> fresh OVP/OCP + V/I programming
--> configured readback
+-> fresh OVP/OCP status/readback + V/I programming
+-> V/I configured readback
 -> Output enable/verification
 -> new active-time clock
 ```

@@ -25,8 +25,6 @@ class FakeHass:
             "switch": "off",
             "is_cv": True,
             "is_cc": False,
-            "ovp_triggered": False,
-            "ocp_triggered": False,
         }
         self.enable_requests = []
         self.off_calls = 0
@@ -59,10 +57,8 @@ class ManualModeTests(unittest.IsolatedAsyncioTestCase):
     def tearDown(self):
         self.tempdir.cleanup()
 
-    def test_exact_17_5v_is_accepted_and_protections_are_derived(self):
+    def test_exact_17_5v_is_accepted_with_manual_mode_label(self):
         request = ManualChargeRequest(voltage_v=17.5, current_a=12.0)
-        self.assertAlmostEqual(request.ovp_v, 17.6)
-        self.assertAlmostEqual(request.ocp_a, 12.1)
         self.assertEqual(request.operation_mode_label, "Ручной МИКС")
         self.assertEqual(ManualChargeRequest(15.7, 2.0).operation_mode_label, "Ручной Основной")
         with self.assertRaises(ValueError):
@@ -121,8 +117,7 @@ class ManualModeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.hass.enable_requests), 1)
         programmed = self.hass.enable_requests[0]
         self.assertAlmostEqual(programmed["voltage_v"], 14.8)
-        self.assertAlmostEqual(programmed["ovp_v"], 14.9)
-        self.assertAlmostEqual(programmed["ocp_a"], 5.1)
+        self.assertEqual(set(programmed), {"voltage_v", "current_a", "recipe_voltage_ceiling_v"})
         assert manager._task is not None
         manager._task.cancel()
         try:

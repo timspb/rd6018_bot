@@ -1,4 +1,7 @@
 import asyncio
+import os
+import subprocess
+import sys
 import time
 import unittest
 from types import SimpleNamespace
@@ -6,6 +9,38 @@ from unittest.mock import patch
 
 from tools.acceptance_guard import transient
 from tools.acceptance_guard.transient import TransientAcceptance
+
+
+class PortableImportTests(unittest.TestCase):
+    def test_read_only_and_acceptance_contract_modules_import_without_fcntl(self):
+        code = (
+            "import builtins; original=builtins.__import__; "
+            "blocked={'fcntl'}; "
+            "builtins.__import__=lambda name,*a,**k: "
+            "(_ for _ in ()).throw(ImportError(name)) if name in blocked "
+            "else original(name,*a,**k); "
+            "import tools.acceptance_guard.transient; "
+            "import tools.acceptance_guard.pairing; "
+            "import tools.acceptance_guard.detached; "
+            "import tools.acceptance_guard.kill_supervisor; "
+            "import tools.acceptance_guard.fixture_supervisor; "
+            "import tools.node104_d106_readonly_projection"
+        )
+        result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+        self.assertEqual(0, result.returncode, result.stderr)
+
+    def test_voltage_relaxation_sidecar_is_explicitly_posix_only(self):
+        code = (
+            "import builtins; original=builtins.__import__; "
+            "blocked={'fcntl'}; "
+            "builtins.__import__=lambda name,*a,**k: "
+            "(_ for _ in ()).throw(ImportError(name)) if name in blocked "
+            "else original(name,*a,**k); "
+            "import tools.voltage_relaxation_sidecar"
+        )
+        result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("fcntl", result.stderr)
 
 
 class FakeClient:
@@ -77,12 +112,12 @@ class TransientTests(unittest.IsolatedAsyncioTestCase):
 
     def test_node_gate_requires_pinned_root_machine(self):
         with patch.object(transient.socket, 'gethostname', return_value='rd6018-bot'), \
-             patch.object(transient.os, 'geteuid', return_value=0), \
+             patch.object(transient.os, 'geteuid', return_value=0, create=True), \
              patch.object(transient.Path, 'read_text', return_value=transient._NODE104_MACHINE_ID):
             transient.require_node104()
 
         with patch.object(transient.socket, 'gethostname', return_value='wsl-host'), \
-             patch.object(transient.os, 'geteuid', return_value=0), \
+             patch.object(transient.os, 'geteuid', return_value=0, create=True), \
              patch.object(transient.Path, 'read_text', return_value=transient._NODE104_MACHINE_ID):
             with self.assertRaisesRegex(RuntimeError, 'exact node104'):
                 transient.require_node104()
@@ -111,7 +146,7 @@ class TransientTests(unittest.IsolatedAsyncioTestCase):
         tx = TransientAcceptance(client=client, lease=lease,
             stop_production=stop, verify_stopped=verify, prove_single_owner=owner,
             restore_production=restore, independent_off=off,
-            target={'voltage_v': 14.4, 'current_a': .2, 'ovp_v': 15.0, 'ocp_a': .4},
+            target={'voltage_v': 14.4, 'current_a': .2},
             duration_s=duration, sleep=sleep or dwell)
         return tx, e
 

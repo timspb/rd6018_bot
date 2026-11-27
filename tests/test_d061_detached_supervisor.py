@@ -1,5 +1,6 @@
 """Hardware-inert contracts for detached parent/child integration."""
-import fcntl
+import builtins
+import importlib
 import os
 from pathlib import Path
 import signal
@@ -38,7 +39,7 @@ class DetachedProofTests(unittest.TestCase):
     def test_exact_canonical_source_keyset_fresh_and_monotonic(self):
         proof = self.proof()
         self.assertEqual(set(proof), PROOF_KEYS)
-        self.assertEqual(len(proof["checks"]), 19)
+        self.assertEqual(len(proof["checks"]), 17)
         self.assertEqual(verify_live_adoption_proof(proof, self.identity,
             previous_epoch=1, now_monotonic=21), 2)
         for bad in (
@@ -59,19 +60,50 @@ class DetachedProofTests(unittest.TestCase):
         with patch.dict(os.environ, {}, clear=True):
             self.assertEqual(stop_off_main(), 78)
 
+    def test_detached_import_is_portable_and_posix_lock_fails_closed_without_fcntl(self):
+        import tools.acceptance_guard.detached as detached_module
+
+        original_import = builtins.__import__
+
+        def without_fcntl(name, *args, **kwargs):
+            if name == "fcntl":
+                raise ModuleNotFoundError("blocked fake fcntl import")
+            return original_import(name, *args, **kwargs)
+
+        with tempfile.TemporaryDirectory() as tmp, patch(
+                "builtins.__import__", side_effect=without_fcntl), \
+                patch.object(detached_module.subprocess, "Popen") as popen, \
+                patch.object(detached_module.os, "open") as os_open:
+            imported = importlib.reload(detached_module)
+            self.assertTrue(callable(imported.verify_live_adoption_proof))
+            self.assertTrue(callable(imported.inherited_parent_gate))
+            self.assertIsNone(imported.DetachedChild(Path(tmp) / "lock").lock.fd)
+            popen.assert_not_called()
+            os_open.assert_not_called()
+
+            if os.name != "nt":
+                lock = imported.GlobalLock(Path(tmp) / "lock", euid=lambda: 0, owner_uid=0)
+                with self.assertRaisesRegex(ModuleNotFoundError, "blocked fake fcntl import"):
+                    lock.acquire()
+                self.assertIsNone(lock.fd)
+                self.assertFalse((Path(tmp) / "lock").exists())
+
 
 class BoundedCallbackTests(unittest.TestCase):
+    @unittest.skipIf(os.name == "nt", "bounded callback worker requires POSIX fork and procfs fd enumeration")
     def test_infinite_callback_is_killed_by_os_deadline(self):
         started = time.monotonic()
         with self.assertRaises(TimeoutError):
             run_bounded(lambda: time.sleep(30), .15)
         self.assertLess(time.monotonic() - started, 2.0)
 
+    @unittest.skipIf(os.name == "nt", "bounded callback worker requires POSIX fork and procfs fd enumeration")
     def test_callback_value_and_failure_propagate(self):
         self.assertEqual(run_bounded(lambda: 7, 1), 7)
         with self.assertRaisesRegex(RuntimeError, "callback failed"):
             run_bounded(lambda: (_ for _ in ()).throw(ValueError("inert")), 1)
 
+    @unittest.skipIf(os.name == "nt", "bounded callback worker requires POSIX fork and procfs fd enumeration")
     def test_worker_does_not_inherit_parent_lock_or_other_descriptors(self):
         fd = os.open(os.devnull, os.O_RDONLY)
         try:
@@ -97,9 +129,13 @@ class SystemdTemplateTests(unittest.TestCase):
         self.assertIn("KillMode=process", unit)
 
 
-@unittest.skipUnless(os.geteuid() == 0, "root-owned 0600 production lock contract")
 class ParentLockHandoffTests(unittest.TestCase):
+    @unittest.skipIf(os.name == "nt", "inherited descriptor flock contract requires POSIX")
+    @unittest.skipUnless(hasattr(os, "geteuid") and os.geteuid() == 0,
+                         "root-owned 0600 production lock contract")
     def test_inherited_descriptor_survives_child_exit_and_blocks_unrelated_flock(self):
+        import fcntl
+
         with tempfile.TemporaryDirectory() as tmp:
             lock = Path(tmp) / "lock"
             fd = os.open(lock, os.O_CREAT | os.O_RDWR, 0o600)
@@ -127,6 +163,9 @@ class ParentLockHandoffTests(unittest.TestCase):
             finally:
                 os.close(fd)
 
+    @unittest.skipIf(os.name == "nt", "inherited descriptor ownership contract requires POSIX file metadata")
+    @unittest.skipUnless(hasattr(os, "geteuid") and os.geteuid() == 0,
+                         "root-owned 0600 production lock contract")
     def test_wrong_inode_or_missing_fd_is_denied(self):
         from tools.acceptance_guard.detached import inherited_parent_gate
         with tempfile.TemporaryDirectory() as tmp:

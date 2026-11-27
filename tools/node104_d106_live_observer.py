@@ -21,6 +21,7 @@ if TOOLS not in sys.path:
     sys.path.insert(0, TOOLS)
 import node104_d091_physical_proof_collector as ro
 import node104_d106_readonly_projection as projection
+from node104_native_phase_capture import capture_native_phase
 
 # Actual physical register, configured readback and authority entity keys.
 ENTITY = {
@@ -28,7 +29,6 @@ ENTITY = {
     "current_a": "current", "protection_r16": "protection_code",
     "autonomous": "autonomous_mode",
     "set_voltage_v": "configured_voltage", "set_current_a": "configured_current",
-    "ovp_v": "ovp", "ocp_a": "ocp",
 }
 NATIVE_EDGE = {
     "lease_armed": "edge_lease_armed",
@@ -88,9 +88,18 @@ def _ha_record(field: str, entity_id: str, data: dict, now: float) -> dict:
 def _native_record(field: str, object_id: str, esp, inventory, now: float) -> dict:
     if not object_id:
         raise ro.ProofError("missing native entity mapping: " + field)
+    if field in {"set_voltage_v", "set_current_a"}:
+        measured_ids = {
+            esp.config.entities.get("voltage"),
+            esp.config.entities.get("current"),
+        }
+        if object_id in measured_ids:
+            raise ro.ProofError("configured readback aliases measured channel: " + field)
+    # These are *readback* registers, not writable Number controls.
+    # R16/Vset/Iset are SensorState; autonomous and lease armed
+    # are BinarySensorState on the installed 2.3-ha-canonical firmware.
     expected_entity_type = (
-        "BinarySensorInfo" if field == "lease_armed"
-        else "NumberInfo" if field in {"set_voltage_v", "set_current_a", "ovp_v", "ocp_a"}
+        "BinarySensorInfo" if field in {"lease_armed", "autonomous"}
         else "SensorInfo"
     )
     value, meta = ro._cached_native_state(
@@ -130,22 +139,29 @@ def _native_callback_record(field: str, callback: tuple, inventory, now: float) 
             or meta.get("entity_type") != "SensorInfo"):
         raise ro.ProofError("native measurement callback identity/type mismatch: " + field)
     matches = [entity for entity in inventory
-               if getattr(entity, "object_id", None) == object_id
+               if type(entity).__name__ == "SensorInfo"
+               and getattr(entity, "object_id", None) == object_id
                and getattr(entity, "key", None) == key]
-    if (len(matches) != 1 or type(matches[0]).__name__ != "SensorInfo"
+    # A configured NumberInfo can legitimately share the measurement's
+    # object_id AND key on ESPHome. Its NumberState is not SensorState.
+    # Still reject multiple SensorInfo identities or a foreign device ID.
+    if (len(matches) != 1
             or type(getattr(matches[0], "device_id", None)) is not int
             or matches[0].device_id != device_id):
         raise ro.ProofError("native measurement inventory identity mismatch: " + field)
     timestamp = ro._number(meta.get("subscription_timestamp_monotonic"))
     reported = _physical_value(field, value, ha=False)
-    return {"value": reported, "meta": {
+    record_meta = {
         "source": "esp_native_api", "object_id": field,
         "actual_object_id": object_id, "native_type": "SensorState",
         "entity_type": "SensorInfo", "native_key": key,
         "device_id": device_id, "status": "ok",
         "subscription_timestamp_monotonic": timestamp,
         "reported_at_epoch": now - age,
-    }}
+    }
+    if "connection_generation" in meta:
+        record_meta["connection_generation"] = meta["connection_generation"]
+    return {"value": reported, "meta": record_meta}
 
 
 def _validate_callback_cache_generation(field: str, callback: tuple, cached: dict) -> None:
@@ -179,8 +195,11 @@ def _validate_callback_cache_generation(field: str, callback: tuple, cached: dic
             raise ro.ProofError("native same-callback/cache disagreement: " + field)
 
 
-async def collect_live() -> dict:
+async def collect_live(*, phase_observation: bool = False) -> dict:
     """The actual read-only adapter; requires an installed node104 app/runtime."""
+    if type(phase_observation) is not bool:
+        raise ValueError("phase_observation must be bool")
+    phase_started = time.monotonic()
     pid, count = ro._service_identity()
     ro._load_service_environment(pid)
     if str(ro.APP) not in sys.path:
@@ -226,6 +245,25 @@ async def collect_live() -> dict:
             ("current_a", native_measurements["current"]),
         ):
             native[field] = _native_callback_record(field, callback, inventory, now)
+        if phase_observation:
+            phase_capture_time = time.monotonic()
+            phase_records = {
+                field: native[field]
+                for field in ("output_r18", "voltage_v", "current_a")
+            }
+            phase = capture_native_phase(
+                phase_records, phase_started_monotonic=phase_started,
+                captured_at_monotonic=phase_capture_time,
+            )
+            return {
+                "native_phase_observation": {
+                    "phase": "ON" if phase["output_r18"]["value"] == 1 else "OFF",
+                    "records": phase,
+                    "captured_at_monotonic": phase_capture_time,
+                    "device_info": device_info,
+                },
+                "observed_pid": pid, "bot_process_count": count,
+            }
         required_ha = {
             field: hc.entities.get(ENTITY[field]) for field in projection.HA_FIELDS}
         if not all(required_ha.values()):
@@ -266,7 +304,9 @@ async def collect_live() -> dict:
 
 def main() -> int:
     try:
-        value = asyncio.run(asyncio.wait_for(collect_live(), timeout=40))
+        phase_observation = "--phase-observation" in sys.argv[1:]
+        value = asyncio.run(asyncio.wait_for(
+            collect_live(phase_observation=phase_observation), timeout=40))
         print(json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False))
         return 0
     except Exception as exc:

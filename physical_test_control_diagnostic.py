@@ -135,21 +135,15 @@ class PhysicalTestControlDiagnostic:
             lease = await self.control._lease_state()
             set_v = finite_float(live.get("set_voltage"))
             set_i = current_readback_evidence(live)
-            ovp = finite_float(live.get("ovp"))
-            ocp = finite_float(live.get("ocp"))
             if not self.control._is_on(live) or not bool(lease.armed):
                 raise PhysicalTestControlError("temporary Manual was not positively ON/leased")
             if (
                 set_v is None
                 or set_i is None
-                or ovp is None
-                or ocp is None
                 or abs(set_v - _MANUAL_V) > 0.08
                 or abs(set_i - _MANUAL_I) > _I_TOL
-                or ovp > 14.20
-                or ocp > 0.50
             ):
-                raise PhysicalTestControlError("temporary Manual exceeded hard-coded envelope")
+                raise PhysicalTestControlError("temporary Manual exceeded V/I envelope")
             return battery_id, lease_before
         except BaseException:
             try:

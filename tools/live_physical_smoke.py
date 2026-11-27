@@ -26,8 +26,6 @@ def _snapshot(value):
         "measured_current": data["measured_current"],
         "configured_voltage": data["configured_voltage"],
         "configured_current": data["configured_current"],
-        "ovp": data["ovp"],
-        "ocp": data["ocp"],
         "temperature": data["temperature"],
         "battery_voltage": data["battery_voltage"],
     }

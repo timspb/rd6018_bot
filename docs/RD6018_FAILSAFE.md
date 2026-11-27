@@ -3,8 +3,8 @@
 ## Live physical-state authority: direct ESP Native, not HA cache
 
 For all operational checks **actively collect fresh ESP Native API callbacks
-first** (`docs/ESP_NATIVE_LIVE_EVIDENCE.md`). R18 Output, measured U/I, R16,
-Vset/Iset, OVP/OCP, armed/generation/remaining, Modbus age and boot/trip state
+first** (`docs/ESP_NATIVE_LIVE_EVIDENCE.md`). R18 Output, measured U/I, R16/OPP,
+Vset/Iset, armed/generation/remaining, Modbus age and boot/trip state
 must come from the actual ESP with verified identity, provenance, callback
 type and timestamp. HA102 is a secondary route via the ESP; its REST state
 cannot substitute for direct native proof. A previously saved ESP snapshot
@@ -161,3 +161,15 @@ an unnecessary hole during Main/Desulf transitions and restart/restore. The edge
 therefore protects **every controller-managed Output ON**. Mix receives the same 30-minute
 maximum communication-loss exposure, while ordinary stages gain the same fail-safe for
 free.
+
+
+## D090/D106 read-only proof type boundary (2026-11-19)
+
+`tools/node104_d106_proof_types.py` is the pure owner of `TrialOffProof`, its existing fail-closed field validation, and the shared `TransactionError` class. The import graph is `D106 observer -> D106 projection -> pure proof types`; the D090 transaction imports and publicly re-exports those exact definitions while retaining its Unix `fcntl` transaction lock. Read-only proof consumers must not import the transaction lifecycle to obtain a DTO. This extraction does not alter Native/HA evidence requirements, D090 release/recovery gates, or authorize physical operations.
+
+
+## 2026-11-19 — independent P7 D090/D106 pure proof DTO batch-28 acceptance
+
+- HOME-PC Codex Luna run `rd6018-mod-p7-d106-proof-boundary-luna-20261119-28` exit 0; R7.2 completion event observed. The pure `tools/node104_d106_proof_types.py` is the single owner of `TrialOffProof` and `TransactionError`; D090 continues public compatibility re-exports and strict `isinstance` transaction validation with its Unix `fcntl` lock intact, while D106 read-only projection no longer imports D090 transaction at all.
+- Original Windows RED reproduced (`test_same_object_id_sensor_and_number_keep_independent_typed_cache_for_d106` imported D090 and raised `ModuleNotFoundError: fcntl`). After repair independent Windows project `.venv` full ESPHome/D106/HA/connector cohort **60 PASS + 7 subtests PASS** with no D106 deselection. Extended Windows Native+D106+production lifecycle/entrypoint/D061 cohort **90 PASS + 24 subtests PASS**, exit 0. Native Linux `python3 -m unittest tests.test_node104_d090_transaction tests.test_node104_d106_readonly_recovery tests.test_node104_d106_projection_portability -q`: **74 PASS**, exit 0; public class identity, refusal evidence and transaction safety exercised. Compile and `git diff --check` PASS.
+- P7 read-only proof type boundary source/fake ACCEPTED. P7 overall PARTIAL, P8 full release/physical HOLD, AD083/AD148 whole-file HOLD. No node104/live HA/ESP, Output, setpoints, charge, lease, firmware, service/deployment or remote push.

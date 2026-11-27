@@ -1,4 +1,5 @@
 import asyncio
+import ast
 import types
 import unittest
 from unittest import mock
@@ -18,6 +19,30 @@ class _Managed:
 
 
 class StartupRecoveryTests(unittest.TestCase):
+    def test_deferred_restore_cancellation_quarantines_and_reraises(self):
+        from application.execution_port import ExecutionPort
+        from application.guard_execution_owner_lock import GuardExecutionOwnerLock
+        from application.session_recovery_guard import SessionRecoveryGuard
+        guard = SessionRecoveryGuard()
+        app = types.SimpleNamespace(
+            charge_controller=types.SimpleNamespace(is_active=False, _guarded_restore_candidate=None),
+            hass=types.SimpleNamespace(),
+        )
+        app.execution_port = ExecutionPort(object(), guard, app=app)
+        app.execution_port.bind_guard_owner_lock(GuardExecutionOwnerLock())
+        app.execution_port.read_live = mock.AsyncMock(side_effect=asyncio.CancelledError())
+        recovery = StartupRecovery(app, _Managed(), _Managed())
+
+        async def invoke():
+            with mock.patch("runtime.startup_recovery.get_or_create_execution_port",
+                            return_value=app.execution_port):
+                with self.assertRaises(asyncio.CancelledError):
+                    await recovery.replay_deferred_startup_restore()
+        asyncio.run(invoke())
+        self.assertTrue(guard.quarantined)
+        self.assertEqual(guard.state.reason, "deferred_restore_cancelled")
+        app.execution_port.read_live.assert_awaited_once()
+
     def test_guarded_candidate_stays_quarantined_without_native_snapshot(self):
         from application.execution_port import ExecutionPort
         from application.guard_execution_owner_lock import GuardExecutionOwnerLock
@@ -50,6 +75,79 @@ class StartupRecoveryTests(unittest.TestCase):
         guard_check = deferred.index("may_run_automatic_control()")
         restore = deferred.index("controller.try_restore_session")
         self.assertLess(guard_check, restore)
+
+    def test_startup_restore_exception_quarantines_before_background_control_starts(self):
+        source = Path("runtime/production_lifecycle.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        restore = next(
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "try_restore_session"
+        )
+        parent = {}
+        for node in ast.walk(tree):
+            for child in ast.iter_child_nodes(node):
+                parent[child] = node
+        restore_try = parent[restore]
+        while not isinstance(restore_try, ast.Try):
+            restore_try = parent[restore_try]
+        exception_handler = next(
+            (handler for handler in restore_try.handlers
+             if isinstance(handler.type, ast.Name) and handler.type.id == "Exception"),
+            None,
+        )
+        self.assertIsNotNone(exception_handler)
+        failed_quarantine = ast.parse(
+            "execution_port.session_recovery_guard.quarantine("
+            "'startup_restore_failed:' + type(ex).__name__)"
+        ).body[0].value
+        self.assertIn(
+            ast.dump(failed_quarantine),
+            [ast.dump(node) for node in ast.walk(exception_handler)],
+        )
+        self.assertTrue(any(
+            isinstance(node, ast.Raise) and node.exc is None
+            for node in ast.walk(exception_handler)
+        ), "Exception handler must re-raise after quarantining")
+        enclosing = parent[restore_try]
+        while not isinstance(enclosing, ast.Try):
+            enclosing = parent[enclosing]
+        cancellation_handler = next(
+            (handler for handler in enclosing.handlers
+             if isinstance(handler.type, ast.Attribute)
+             and handler.type.attr == "CancelledError"
+             and isinstance(handler.type.value, ast.Name)
+             and handler.type.value.id == "asyncio"),
+            None,
+        )
+        self.assertIsNotNone(cancellation_handler)
+        cancelled_quarantine = ast.parse(
+            "execution_port.session_recovery_guard.quarantine('startup_restore_cancelled')",
+            mode="eval",
+        ).body
+        self.assertIn(
+            ast.dump(cancelled_quarantine),
+            [ast.dump(node) for node in ast.walk(cancellation_handler)],
+        )
+        self.assertTrue(any(
+            isinstance(node, ast.Raise) and node.exc is None
+            for node in ast.walk(cancellation_handler)
+        ), "CancelledError handler must re-raise after quarantining")
+        background_start = next(
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "start_background_tasks"
+            and any(isinstance(arg, ast.Attribute) and arg.attr == "charge_monitor"
+                    for arg in node.args)
+        )
+        self.assertGreater(background_start.lineno, enclosing.lineno)
+
+    def test_deferred_restore_live_read_uses_execution_port_safety_owner(self):
+        source = Path("runtime/startup_recovery.py").read_text(encoding="utf-8")
+        self.assertIn("live = await execution_port.read_live()", source)
+        self.assertNotIn("live = await app.hass.get_all_live()", source)
 
     def test_recovery_order_is_managed_mix_then_live_then_observer(self):
         events = []

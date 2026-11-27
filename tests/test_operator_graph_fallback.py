@@ -2,9 +2,11 @@ import asyncio
 import io
 import types
 import unittest
+from unittest.mock import AsyncMock, patch
 
 import operator_hmi as hmi
 from operator_dashboard import install_operator_graph_dashboard
+from runtime.ui.telegram.panel_lifecycle import TerminalPanelManager
 
 
 class FailingEditBot:
@@ -97,18 +99,8 @@ class FakeApp:
 class OperatorGraphFallbackTests(unittest.IsolatedAsyncioTestCase):
     async def _run(self, app, *, source_photo=False):
         call = types.SimpleNamespace(message=FakeMessage(photo=source_photo))
-        old_builder = hmi.build_operator_hmi_state
-        old_panel = hmi.render_operator_panel
-        old_details = hmi.render_operator_details
-        old_graph = hmi._render_graph_workspace
-        try:
-            install_operator_graph_dashboard(app)
-            await hmi._render_graph_workspace(app, call, 1)
-        finally:
-            hmi.build_operator_hmi_state = old_builder
-            hmi.render_operator_panel = old_panel
-            hmi.render_operator_details = old_details
-            hmi._render_graph_workspace = old_graph
+        install_operator_graph_dashboard(app)
+        await app._render_graph_workspace(app, call, 1)
         return call
 
     async def test_failed_media_edit_retires_old_workspace_before_photo_replacement(self):
@@ -157,6 +149,42 @@ class OperatorGraphFallbackTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(app.bot.deleted, [(10, 77)])
         self.assertEqual(len(call.message.photo_answers), 1)
+
+    async def test_registered_lifecycle_owner_retires_failed_graph_before_replacement(self):
+        app = FakeApp(graph=True, fail_delete=True)
+        app.user_dashboard = {1: 77}
+        app.chat_dashboard = {10: 77}
+        app.user_graph_dashboard = {1: 77}
+        app.chat_graph_dashboard = {10: 77}
+        app.terminal_panel_manager = TerminalPanelManager(app)
+        retire = AsyncMock(wraps=app.terminal_panel_manager.retire_graph_workspace_message)
+
+        with patch.object(app.terminal_panel_manager, "retire_graph_workspace_message", retire):
+            call = await self._run(app, source_photo=True)
+
+        retire.assert_awaited_once()
+        self.assertEqual(app.bot.deleted, [(10, 77)])
+        self.assertEqual(len(call.message.photo_answers), 1)
+        self.assertEqual(app.user_graph_dashboard, {1: 78})
+        self.assertEqual(app.chat_graph_dashboard, {10: 78})
+        self.assertEqual(app.user_dashboard[1], 78)
+        self.assertEqual(app.chat_dashboard[10], 78)
+
+    async def test_lifecycle_owner_forgets_graph_even_when_telegram_delete_is_stale(self):
+        app = FakeApp(graph=True, fail_delete=True)
+        app.user_dashboard = {1: 77}
+        app.chat_dashboard = {10: 77}
+        app.user_graph_dashboard = {1: 77}
+        app.chat_graph_dashboard = {10: 77}
+        app.terminal_panel_manager = TerminalPanelManager(app)
+        install_operator_graph_dashboard(app)
+        await app._retire_graph_workspace_for_user(10, 1)
+
+        self.assertEqual(app.bot.deleted, [(10, 77)])
+        self.assertEqual(app.user_graph_dashboard, {})
+        self.assertEqual(app.chat_graph_dashboard, {})
+        self.assertEqual(app.user_dashboard, {})
+        self.assertEqual(app.chat_dashboard, {})
 
     async def test_graph_workspace_is_not_rendered_when_charge_is_inactive(self):
         app = FakeApp(graph=True)

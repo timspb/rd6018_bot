@@ -13,8 +13,7 @@ class D106SocketStatusTests(unittest.TestCase):
                            "output_state_code_v2": 0.0,
                            "protection_code": 0,
                            "programmed_values": {
-                               "set_voltage": 13.57, "set_current": .1,
-                               "ovp": 14.07, "ocp": .2},
+                               "set_voltage": 13.57, "set_current": .1},
                            "edge_lease": {"armed": False, "tripped": False,
                                           "boot_quarantine": False, "remaining_s": 0,
                                           "modbus_age_s": 1.0, "generation": 4},

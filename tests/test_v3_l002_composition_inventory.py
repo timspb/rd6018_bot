@@ -49,7 +49,6 @@ PHYSICAL_VALIDATION_COMPONENTS = {
 }
 
 OPERATOR_UI_COMPONENTS = {
-    "install_analysis_screen",
     "install_charge_program_screen",
     "install_custom_cancel_route",
     "install_entities_screen",
@@ -102,11 +101,16 @@ def _compose_install_calls() -> set[str]:
 class L002CompositionInventoryTests(unittest.TestCase):
     def test_remaining_installers_are_explicitly_classified_canonical_components(self) -> None:
         self.assertEqual(_compose_install_calls(), EXPECTED_CANONICAL_INSTALLERS)
+        # AI is installed through the explicit optional-module catalog, not
+        # a mandatory startup import in the canonical composition.
+        from runtime.optional_modules import OPTIONAL_MODULES
+        self.assertEqual({item.name for item in OPTIONAL_MODULES}, {"ai"})
+        self.assertIn("self.modules.install_all(app", BOT.read_text(encoding="utf-8"))
 
     def test_retired_patch_modules_have_zero_production_import_reachability(self) -> None:
         offenders: list[str] = []
         for path in ROOT.rglob("*.py"):
-            if "tests" in path.parts or "__pycache__" in path.parts:
+            if any(part in path.parts for part in ("tests", "__pycache__", ".recipe-studio-local", ".venv", "venv", ".git")):
                 continue
             if path.stem in RETIRED_COMPATIBILITY_MODULES:
                 continue

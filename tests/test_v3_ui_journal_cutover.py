@@ -313,12 +313,14 @@ class V3JournalUICutoverTests(unittest.TestCase):
 
     def test_live_graph_toolbar_no_longer_constructs_raw_logs_callback(self):
         source = (ROOT / "operator_dashboard.py").read_text(encoding="utf-8")
+        toolbar = (ROOT / "runtime" / "ui" / "telegram" / "operator_graph_keyboard.py").read_text(encoding="utf-8")
         runtime_source = (ROOT / "runtime" / "production_runtime.py").read_text(encoding="utf-8")
         polish_source = (ROOT / "ui_polish.py").read_text(encoding="utf-8")
-        self.assertNotIn('callback_data="logs"', source)
-        self.assertNotIn('callback_data="logs"', runtime_source)
-        self.assertNotIn('callback_data="logs"', polish_source)
-        self.assertIn("journal_button_spec()", source)
+        self.assertIn("from runtime.ui.telegram.operator_graph_keyboard import (", source)
+        for text in (source, toolbar, runtime_source, polish_source):
+            self.assertNotIn('callback_data="logs"', text)
+        self.assertIn("journal_button_spec()", toolbar)
+        self.assertIn("render_button(journal_button_spec())", toolbar)
         self.assertIn("JOURNAL_CALLBACK_DATA", runtime_source)
         self.assertIn("JOURNAL_CALLBACK_DATA", polish_source)
         self.assertTrue(_is_workspace_callback(JOURNAL_CALLBACK_DATA))

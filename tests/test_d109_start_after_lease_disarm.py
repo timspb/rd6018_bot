@@ -6,9 +6,9 @@ physical I/O. No hardware, network, native button or production control.
 import unittest
 from datetime import datetime, timezone
 
-from edge_safety_lease import EdgeSafetyLease, EdgeSafetyLeaseConfig
-from managed_runtime_safety import install_managed_runtime_safety
-from runtime_safety import RuntimeSafetyError
+from runtime.safety.edge_lease import EdgeSafetyLease, EdgeSafetyLeaseConfig
+from runtime.safety.managed_guard import install_managed_runtime_safety
+from runtime.safety.runtime_guard import RuntimeSafetyError
 from tests.test_edge_safety_lease import FakeHass as FakeEdge
 from tests.test_runtime_edge_lease import FakeApp, live_state
 from tests.test_managed_runtime_safety import V2RuntimeSafetyTests
@@ -23,7 +23,7 @@ class StartAfterDisarmTests(unittest.IsolatedAsyncioTestCase):
             disarm_ack_attempts=1, disarm_ack_delay_s=0.0,
         ))
         self.app.edge_safety_lease = self.lease
-        self.guard = install_managed_runtime_safety(self.app)
+        self.guard = install_managed_runtime_safety(self.app, patch_adapter=True)
         self.guard.OFF_CONFIRMATION_WINDOW_S = 0.0
         self.guard.OFF_CONFIRMATION_POLL_S = 0.0
 

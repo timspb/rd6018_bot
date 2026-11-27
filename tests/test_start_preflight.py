@@ -22,11 +22,12 @@ def live(**overrides):
         "temp_int": 30.0,
         "input_voltage": 60.0,
         "switch": "off",
+        "protection_code": 0,
         "ovp_triggered": "off",
         "ocp_triggered": "off",
         "_freshness": {
             key: 0.0
-            for key in ("battery_voltage", "current", "temp_ext", "temp_int", "switch", "ovp_triggered", "ocp_triggered")
+            for key in ("battery_voltage", "current", "temp_ext", "temp_int", "switch", "protection_code", "ovp_triggered", "ocp_triggered")
         },
     }
     value.update(overrides)
@@ -90,6 +91,22 @@ def capacity_request(capacity_ah):
 
 
 class StartPreflightTests(unittest.IsolatedAsyncioTestCase):
+    async def test_preflight_reads_through_managed_safety_owner_not_raw_hass(self):
+        from unittest.mock import AsyncMock
+
+        app = _App()
+        safety_owner = SimpleNamespace(get_all_live=AsyncMock(return_value=live()))
+        app.runtime_safety_guard = safety_owner
+        app.hass.get_all_live = AsyncMock(
+            side_effect=AssertionError("START preflight must not bypass ManagedRuntimeSafetyGuard")
+        )
+
+        result = await StartPreflightService(app).evaluate(request())
+
+        self.assertTrue(result.allowed)
+        safety_owner.get_all_live.assert_awaited_once()
+        app.hass.get_all_live.assert_not_awaited()
+
     async def test_preflight_uses_request_capacity_not_stale_controller_capacity(self):
         app = _App()
         app.charge_controller.ah_capacity = 60
@@ -142,7 +159,7 @@ class StartPreflightTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("invalid_profile", result.reasons)
 
     async def test_safety_deny_is_reported(self):
-        result = await StartPreflightService(_App(live(ovp_triggered="on"))).evaluate(request())
+        result = await StartPreflightService(_App(live(protection_code=3))).evaluate(request())
         self.assertFalse(result.allowed)
         self.assertEqual(result.safety_status, "denied")
 
@@ -178,7 +195,7 @@ class StartPreflightTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("controller", plan.__dict__)
 
     async def test_denied_preflight_cannot_create_plan(self):
-        result = await StartPreflightService(_App(live(ovp_triggered="on"))).evaluate(request())
+        result = await StartPreflightService(_App(live(protection_code=3))).evaluate(request())
         with self.assertRaises(ValueError):
             approved_plan_from_preflight(result)
 

@@ -10,6 +10,9 @@ from runtime.charge.programs.recipe_schema import parse_recipe
 
 
 class InterruptedPort:
+    async def read_live(self):
+        return {"switch": "on"}
+
     async def apply_intent(self, intent, *, identity):
         raise RuntimeError("link interrupted")
 

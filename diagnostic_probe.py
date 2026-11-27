@@ -10,8 +10,10 @@ from application.execution_port import ExecutionPort
 from battery_diagnostics import DynamicLoopProbe
 from rd6018_telemetry import (
     PROGRAMMED_CURRENT_READBACK_TIMEOUT_S,
+    ProtectionStatus,
     canonical_programmed_readback,
     finite_float,
+    resolve_protection,
 )
 
 
@@ -68,17 +70,8 @@ class ControlledCurrentProbe:
 
     @staticmethod
     def _protection_clear(live: dict[str, Any]) -> bool:
-        raw = live.get("protection_code")
-        if raw is not None:
-            code = finite_float(raw)
-            return code is not None and int(code) == 0
-        ovp = live.get("ovp_triggered")
-        ocp = live.get("ocp_triggered")
-        return str(ovp).lower() not in {"on", "true", "1"} and str(ocp).lower() not in {
-            "on",
-            "true",
-            "1",
-        }
+        protection = resolve_protection(live)
+        return protection.status is ProtectionStatus.NORMAL
 
     def _preflight(self, live: dict[str, Any], plan: ProbePlan) -> Tuple[bool, str, Optional[float]]:
         if not self._output_on(live.get("switch")):
@@ -93,9 +86,6 @@ class ControlledCurrentProbe:
             return False, "configured_current_unavailable", None
         if plan.step_current_a >= configured_current - plan.readback_tolerance_a:
             return False, "probe_must_reduce_current", configured_current
-        ocp = finite_float(live.get("ocp"))
-        if ocp is None or ocp + plan.readback_tolerance_a < configured_current:
-            return False, "ocp_does_not_cover_original_current", configured_current
         return True, "", configured_current
 
     async def _wait_current_readback(

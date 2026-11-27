@@ -4,7 +4,11 @@ import unittest
 from unittest.mock import AsyncMock
 
 from pb_domain import BatteryCondition, ChargeIntent
-from application.start_transaction_adapter import StartTransactionInput
+from application.start_transaction_adapter import (
+    StartPersistenceStatus,
+    StartTransactionInput,
+    StartTransactionOutcome,
+)
 from application.start_transaction_runner import StartTransactionRunner
 
 
@@ -13,7 +17,11 @@ class NativeSelectionStartMetadataTests(unittest.IsolatedAsyncioTestCase):
         received = []
         async def owner(app, event, pending):
             received.append(pending)
-            return False
+            return StartTransactionOutcome(
+                started=False,
+                reason="start_transaction_denied_or_failed",
+                persistence_status=StartPersistenceStatus.NOT_ATTEMPTED,
+            )
         tx = StartTransactionInput(
             trace_id="trace", profile="EFB", chemistry="efb",
             capacity_ah=72., battery_id="battery-1",
@@ -39,7 +47,11 @@ class NativeSelectionStartMetadataTests(unittest.IsolatedAsyncioTestCase):
         received = []
         async def owner(app, event, pending):
             received.append(pending)
-            return False
+            return StartTransactionOutcome(
+                started=False,
+                reason="start_transaction_denied_or_failed",
+                persistence_status=StartPersistenceStatus.NOT_ATTEMPTED,
+            )
         tx = StartTransactionInput(
             trace_id="trace", profile="EFB", chemistry="efb",
             capacity_ah=72., battery_id="battery-1",

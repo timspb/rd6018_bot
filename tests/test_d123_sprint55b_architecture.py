@@ -29,10 +29,14 @@ class Sprint55BArchitectureTests(unittest.TestCase):
 
     def test_guard_extension_mix_order_remains(self):
         persistence = (ROOT / "runtime/charge/persistence.py").read_text()
+        restore_owner = (ROOT / "runtime/charge/session_restore.py").read_text()
         continuation = (ROOT / "runtime/charge/session_continuation_restore.py").read_text()
         extension = (ROOT / "application/production_session_extensions.py").read_text()
-        guard = persistence.index("if GUARD_KEY in data:")
-        first_host_mutation = persistence.index("host._stage_tracking_enabled = False", guard)
+        from runtime.charge import persistence as persistence_api, session_restore
+        self.assertIn("from runtime.charge.session_restore import (", persistence)
+        self.assertIs(persistence_api.restore_session, session_restore.restore_session)
+        guard = restore_owner.index("if GUARD_KEY in data:")
+        first_host_mutation = restore_owner.index("host._stage_tracking_enabled = False", guard)
         extensions = continuation.index("restore_production_session_state(")
         ordinary = extension.index("restore_production_session_state")
         mix_load = extension.index("restore_mix_active_authority(host)", ordinary)

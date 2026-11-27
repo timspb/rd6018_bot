@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Any, Awaitable, Callable
+from dataclasses import dataclass
+from typing import Any, Awaitable, Callable, Dict, Optional
 
 from aiogram import F
 from aiogram.filters import Command
 
-from application.intents import OperatorIntentKind
+from application.intents import OperatorIntent, OperatorIntentKind
 from runtime.ui.actions import UIAction
+from runtime.ui.components.hmi_values import StartFeedbackResult
 from runtime.ui.routing.registry import route_for
 from runtime.ui.screens.charge import build_charge_program_screen
 from runtime.ui.telegram.renderer import (
@@ -17,6 +19,63 @@ from runtime.ui.telegram.renderer import (
     render_screen_markup,
     render_screen_text,
 )
+from pb_domain import BatteryCondition, ChargeIntent
+from runtime.ui.telegram import battery_selection
+from ui_support import intent_label
+
+
+async def handle_capacity_input(
+    message: Any,
+    profile: str,
+    user_id: int,
+    *,
+    route: Any,
+    pending_intent: Dict[int, ChargeIntent],
+    parse_mode: Any,
+    logger: Any,
+    format_start_feedback: Callable[[StartFeedbackResult], str],
+) -> None:
+    """Validate the active wizard's capacity and submit through composed START."""
+    text = (message.text or "").strip()
+    try:
+        ah = int(float(text))
+        if ah < 1 or ah > 500:
+            await message.answer("Введите число от 1 до 500.")
+            return
+    except ValueError:
+        await message.answer("Введите число (например 60).")
+        return
+
+    if route is None:
+        logger.error(
+            "START denied: production start route is not composed; direct legacy START is retired"
+        )
+        await message.answer(
+            "❌ START недоступен: production-маршрут запуска не собран. "
+            "Старый прямой запуск отключён.",
+            parse_mode=parse_mode,
+        )
+        return
+
+    intent = OperatorIntent(
+        OperatorIntentKind.START_CHARGE,
+        "telegram",
+        str(user_id),
+        {
+            "profile": profile,
+            "capacity_ah": ah,
+            "battery_identity": None,
+            "battery_id": "operator-battery",
+            "intent": pending_intent.get(user_id, ChargeIntent.NORMAL),
+            "condition": BatteryCondition.UNKNOWN,
+        },
+    )
+    result = await route.submit(intent)
+    if not result.accepted:
+        await message.answer(f"START отклонён: {result.reason}", parse_mode=parse_mode)
+        return
+
+    await message.answer(format_start_feedback(result), parse_mode=parse_mode)
 
 CHARGE_CALLBACK_DATA = callback_data_for(UIAction.OPEN_CHARGE)
 PROFILE_CALLBACK_PREFIX = callback_data_for(UIAction.SELECT_PROFILE)
@@ -24,6 +83,61 @@ BATTERIES_CALLBACK_DATA = callback_data_for(UIAction.OPEN_BATTERIES)
 BATTERY_ADD_CALLBACK_DATA = callback_data_for(UIAction.OPEN_BATTERY_ADD)
 MANUAL_CALLBACK_DATA = callback_data_for(UIAction.OPEN_MANUAL)
 INTERRUPTED_MANUAL_CALLBACK_DATA = callback_data_for(UIAction.OPEN_INTERRUPTED_MANUAL)
+
+
+@dataclass(frozen=True)
+class PendingStart:
+    """Process-local selection for the existing Telegram charge-program wizard."""
+
+    profile: str
+    capacity_ah: float
+    intent: ChargeIntent
+    battery_id: str
+    condition: BatteryCondition
+    recipe_id: str | None = None
+    recipe_version: int | None = None
+    native_recipe_name: str | None = None
+    native_recipe_version: int | None = None
+
+
+_pending_profile: Dict[int, str] = {}
+_pending_intent: Dict[int, ChargeIntent] = {}
+_pending_start: Dict[int, PendingStart] = {}
+
+
+def selected_program_for_user(user_id: int) -> Optional[str]:
+    """Project the existing process-local charge-program selection for display."""
+    user_id = int(user_id)
+    pending = _pending_start.get(user_id)
+    if pending is not None:
+        return f"{pending.profile} {pending.capacity_ah:g} Ah · {intent_label(pending.intent)}"
+    profile = _pending_profile.get(user_id)
+    if profile:
+        return f"{profile} · ожидается ёмкость АКБ"
+    record = battery_selection.selected_battery_for_user(user_id)
+    if record is not None:
+        return f"{record.identity.chemistry.value} {record.identity.nominal_capacity_ah:g} Ah · выбрана АКБ"
+    return None
+
+
+def _clear_pending_program_state(app: Any, user_id: int) -> None:
+    """Clear only this user's accepted START wizard state, retaining battery choice."""
+    user_id = int(user_id)
+    _pending_start.pop(user_id, None)
+    _pending_profile.pop(user_id, None)
+    _pending_intent.pop(user_id, None)
+    awaiting = getattr(app, "awaiting_ah", None)
+    if isinstance(awaiting, dict):
+        awaiting.pop(user_id, None)
+
+
+def legacy_profile_from_callback(data: str) -> str | None:
+    """Map active legacy profile callback payloads to canonical profile names."""
+    return {
+        "v2_profile_caca": "Ca/Ca",
+        "v2_profile_efb": "EFB",
+        "v2_profile_agm": "AGM",
+    }.get(data)
 
 
 def install_charge_program_screen(
@@ -133,4 +247,5 @@ __all__ = [
     "MANUAL_CALLBACK_DATA",
     "PROFILE_CALLBACK_PREFIX",
     "install_charge_program_screen",
+    "handle_capacity_input",
 ]

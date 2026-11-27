@@ -1,0 +1,55 @@
+# RD6018 node104 — D145 deployment and recovery-clearance handoff — 2026-11-11
+
+## Production deployment
+
+- Candidate: 45dcaac4b4d5ed4f4e92ca1a947adcd327f05bd0.
+- D138 identity: 92404cdd543e10bbce49aba2309c5dc37bb46c8f2d22c9703b4c2bd305d63557.
+- D145 executed through the source-paired, pinned owner entrypoint and the canonical D090 lock.
+- D144: COMMITTED, slot 19, transaction 9bcc51db443b4d1a9ff5d758b24774e4.
+- Installed marker source SHA and candidate identity match the reviewed candidate exactly.
+- rd6018-bot.service: active/running, PID 247377, NRestarts 0.
+- Telegram polling started successfully; log identifies the bot instance @RD6018_bot.
+- rd6018-wake-observer.service: active/running, PID 244494, NRestarts 0.
+
+## Staging issues resolved
+
+1. candidate-d144-19 was a stale, uncommitted staging copy of source 29273348ed4b875b248478682dee5aa7d25798d3. Its app content digest matched that exact old staged source; its venv matched the current runtime; slot-19 D144 journal and identity were absent. Removed only this orphan directory under the canonical D090 owner lock. Production app/venv and service PID were unchanged by this cleanup.
+2. D138 staging contained exactly three unmanifested Python bytecode files under tools/__pycache__. The manifest had 1483 entries, actual tree had 1486 files. Removed only those three exact generated .pyc files after verifying there were no missing or other extra files. D138 file set then matched exactly (1483/1483).
+
+## Post-start physical and state verification
+
+D151 read-only software-release D091 proof captured at 2026-11-10T17:41:38Z (node clock synchronized with HOME-PC WSL; check at 17:43:00Z):
+
+- HA102 output OFF: true; current 0.0 A.
+- ESP128 output OFF: true; current 0.0 A.
+- Native sensor state fresh: true.
+- Active session: false; charge_session.json absent.
+- Edge lease armed: false; boot quarantine: false.
+- Exactly one physical node owner.
+- Two distinct independent source nonces.
+- Proof belongs to new service PID 247377.
+- Voltage fields are intentionally null in the software-release proof; no RD6018 analog voltage claim is made.
+
+## Preserved quarantine / legacy state
+
+- session_recovery_quarantine.json remains active schema 1, unchanged SHA-256 34d672337ddb112ea71483ed2d08a48e924f76fae9eb4c03cf6bbee3f95b25b1.
+- Incident: acb9302c-8925-47b1-be48-15a38dc01b4a.
+- Reason: main_guard_current_ocp_transaction_unconfirmed:MainGuardExecutionFault:postflight_guard_ack_rejected:programmed_current_readback_mismatch.
+- Legacy D090_TRANSACTION.json remains STARTED and unchanged SHA-256 030f0b7aae43402f523bb57f5acd606e3ab2fe4f7c7d4efd40258b40bde8014e. D144 transaction's legacy_sha256 matches it exactly.
+- No charge session was restored, no START issued, no setpoint/protection/lease/Output command issued.
+- The application startup log correctly reports that automatic session restore and controller tick remain suppressed by the active quarantine.
+
+## Remaining operator action — quarantine retirement
+
+The deployed candidate includes the existing private Telegram /recovery_clear path. This is deliberately operator-authenticated and requires the allow-listed operator's own private-chat message plus one-use incident-bound confirmation. The assistant must not impersonate that operator or forge the callback.
+
+Required:
+1. In the private Telegram chat with @RD6018_bot, send /recovery_clear.
+2. Confirm the inline action bound to incident acb9302c-8925-47b1-be48-15a38dc01b4a.
+3. Then verify the schema-2 retirement tombstone, durable controller-session retirement receipt, quarantine false, and unchanged Output-OFF state.
+
+Do not issue START after clearance unless separately requested. The software release is deployed; quarantine retirement is not yet complete.
+
+## Wake observer / event delivery
+
+The observer systemd unit remains active (PID 244494, zero restarts). ChatGPT R7.2 self-inspector last_ack remains null; visible heartbeat envelopes are host-visible receipts, not server ACK proof. Do not replay existing sending/quarantined events. This does not affect D145 deployment or quarantine retirement.

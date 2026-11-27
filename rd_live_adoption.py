@@ -52,8 +52,6 @@ class LiveMixObserverState(str, Enum):
 class LiveMixFingerprint:
     set_voltage_v: float
     set_current_a: float
-    ovp_v: float
-    ocp_a: float
 
 
 @dataclass(frozen=True)
@@ -71,7 +69,7 @@ class HandsOffMixObserver:
 
     This is the D063 non-autonomous fallback for a live RD6018 that cannot safely be
     converted to full managed authority in place. It deliberately remains in
-    HANDS_OFF: it never writes V/I/OVP/OCP, never turns Output ON, and never treats HA
+    HANDS_OFF: it never writes V/I, never turns Output ON, and never treats HA
     history as finish evidence. Optional DELTA_THEN_OFF grants exactly one bounded
     actuator authority: after a *fresh post-activation* V2 Delta plus the normal 2 h
     hold, issue the existing explicit verified HANDS_OFF Output OFF.
@@ -82,7 +80,7 @@ class HandsOffMixObserver:
     charging authority.
     """
 
-    VERSION = 1
+    VERSION = 2
 
     def __init__(
         self,
@@ -136,8 +134,6 @@ class HandsOffMixObserver:
                 {
                     "set_voltage_v": self.fingerprint.set_voltage_v,
                     "set_current_a": self.fingerprint.set_current_a,
-                    "ovp_v": self.fingerprint.ovp_v,
-                    "ocp_a": self.fingerprint.ocp_a,
                 }
                 if self.fingerprint is not None
                 else None
@@ -223,19 +219,13 @@ class HandsOffMixObserver:
         values = [
             finite_float(live.get("set_voltage")),
             finite_float(live.get("set_current")),
-            finite_float(live.get("ovp")),
-            finite_float(live.get("ocp")),
         ]
         if any(value is None for value in values):
             return None
-        set_v, set_i, ovp, ocp = (float(value) for value in values if value is not None)
-        # HANDS_OFF pickup fingerprints the external RD configuration; it does not
-        # grant Pb protection authority. RD60xx exposes 0 as a legitimate disabled
-        # protection setting, so explicit OVP/OCP zero must be preserved and compared
-        # rather than mislabeled as missing readback. Negative values remain invalid.
-        if set_v <= 0 or set_i <= 0 or ovp < 0 or ocp < 0:
+        set_v, set_i = (float(value) for value in values if value is not None)
+        if set_v <= 0 or set_i <= 0:
             return None
-        return LiveMixFingerprint(set_v, set_i, ovp, ocp)
+        return LiveMixFingerprint(set_v, set_i)
 
     @staticmethod
     def fingerprint_matches(
@@ -249,8 +239,6 @@ class HandsOffMixObserver:
             for a, b in (
                 (expected.set_voltage_v, actual.set_voltage_v),
                 (expected.set_current_a, actual.set_current_a),
-                (expected.ovp_v, actual.ovp_v),
-                (expected.ocp_a, actual.ocp_a),
             )
         )
 
@@ -546,7 +534,7 @@ def format_live_mix_preview(preview: LiveMixPreview) -> str:
         (
             f"RD сейчас: {preview.fingerprint.set_voltage_v:.2f} V / "
             f"{preview.fingerprint.set_current_a:.2f} A · "
-            f"OVP {preview.fingerprint.ovp_v:.2f} / OCP {preview.fingerprint.ocp_a:.2f}"
+
         ),
     ]
     hard_limit = MIX_HARD_LIMIT_HOURS.get(preview.chemistry)
@@ -582,7 +570,7 @@ def format_live_mix_preview(preview: LiveMixPreview) -> str:
             "<b>Важно:</b> история HA используется только как контекст/оценка возраста. "
             "Она не переносит старый Imin/Vmax в автоматическое решение.",
             "После подтверждения начинается новый Delta epoch. Режим остаётся HANDS_OFF: "
-            "бот не меняет V/I/OVP/OCP и не включает Output.",
+            "бот не меняет V/I и не включает Output.",
         ]
     )
     return "\n".join(lines)
@@ -656,7 +644,7 @@ def install_rd_live_adoption(app: Any, manager: Any) -> HandsOffMixObserver:
             return
         fingerprint = observer.fingerprint_from_live(live)
         if fingerprint is None:
-            await call.answer("Нет полного readback V/I/OVP/OCP", show_alert=True)
+            await call.answer("Нет свежего readback V/I", show_alert=True)
             return
         try:
             history = await reader.read_mix_evidence(live=live)
@@ -767,7 +755,7 @@ def install_rd_live_adoption(app: Any, manager: Any) -> HandsOffMixObserver:
             "🧲 <b>Текущий Mix подхвачен в HANDS_OFF.</b>\n"
             f"{action}.\n"
             "История HA сохранена как контекст; Delta считается заново с первого нового "
-            "source-report после этого подтверждения. V/I/OVP/OCP не изменялись.",
+            "source-report после этого подтверждения. V/I не изменялись.",
             parse_mode=app.ParseMode.HTML,
         )
 

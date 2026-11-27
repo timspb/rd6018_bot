@@ -162,8 +162,7 @@ class V2UiPolishTests(unittest.TestCase):
             _format_manual_off_for_dashboard=lambda: "",
             _format_stage_progress_line=lambda live: "",
         )
-        ui_module = types.SimpleNamespace(format_active_evidence=None)
-        install_dashboard_polish(app, ui_module)
+        install_dashboard_polish(app)
 
         text = app._compact_dashboard_caption(
             {
@@ -192,7 +191,7 @@ class V2UiPolishTests(unittest.TestCase):
         self.assertNotIn("Лимит этапа", text)
         self.assertNotIn("🧭", text)
         self.assertNotIn("decision", text)
-        self.assertIs(ui_module.format_active_evidence, format_active_evidence_pretty)
+        self.assertIsNotNone(app._compact_dashboard_caption)
 
     def test_operator_keyboard_has_one_primary_action_and_icons(self):
         controller = types.SimpleNamespace(is_active=False)

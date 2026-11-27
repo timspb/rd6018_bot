@@ -1,12 +1,14 @@
 import tempfile
+from datetime import datetime, timedelta, timezone
 import types
 import unittest
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from rd_control_mode import RdControlMode, install_rd_control_mode
-from runtime_safety import OutputOffNotConfirmed, RuntimeSafetyError
-from managed_runtime_safety import ManagedRuntimeSafetyGuard
+from runtime.safety.runtime_guard import OutputOffNotConfirmed, RuntimeSafetyError
+from runtime.safety.managed_guard import ManagedRuntimeSafetyGuard
+from application.execution_port import get_or_create_execution_port
 from application.start_transaction_service import start_profile_transactional
 
 
@@ -16,6 +18,7 @@ class DummyHass:
         self.base_url = ""
         self.turn_on_calls = 0
         self.turn_off_calls = 0
+        self.turn_off_entities = []
         self.set_voltage_calls = 0
         self.off_confirms = True
 
@@ -37,6 +40,7 @@ class DummyHass:
 
     async def turn_off(self, entity_id=None):
         self.turn_off_calls += 1
+        self.turn_off_entities.append(entity_id)
         if not self.off_confirms:
             return False
         self.live["switch"] = "off"
@@ -57,6 +61,47 @@ class DummyHass:
 
     async def set_ocp(self, value):
         self.live["ocp"] = value
+        return True
+
+
+class FakeReturnEdgeLease:
+    def __init__(
+        self,
+        *,
+        armed=False,
+        tripped=False,
+        boot_quarantine=False,
+        modbus_age_s=0.5,
+        remaining_s=0.0,
+    ):
+        self.state = types.SimpleNamespace(
+            armed=armed,
+            tripped=tripped,
+            boot_quarantine=boot_quarantine,
+            generation=7,
+            modbus_age_s=modbus_age_s,
+            remaining_s=remaining_s,
+        )
+        self.config = types.SimpleNamespace(
+            max_modbus_age_s=20.0,
+            ack_remaining_slack_s=2.0,
+        )
+        self.suspended = False
+        self.disarm_calls = 0
+
+    def suspend_renewals(self):
+        self.suspended = True
+
+    def _fresh_modbus(self, state):
+        return state.modbus_age_s <= self.config.max_modbus_age_s
+
+    async def read_state(self):
+        return types.SimpleNamespace(**vars(self.state))
+
+    async def disarm(self):
+        self.disarm_calls += 1
+        self.state.armed = False
+        self.state.remaining_s = 0.0
         return True
 
 
@@ -117,9 +162,13 @@ class RdControlModeTests(unittest.IsolatedAsyncioTestCase):
             "ocp": 2.1,
         }
 
-    def _app(self, state_file, *, install_ui=False):
+    def _app(self, state_file, *, install_ui=False, include_ovp_ocp_setters=True):
+        hass = DummyHass(self._generic_psu_live())
+        if not include_ovp_ocp_setters:
+            hass.set_ovp = None
+            hass.set_ocp = None
         app = types.SimpleNamespace(
-            hass=DummyHass(self._generic_psu_live()),
+            hass=hass,
             charge_controller=DummyController(),
             manual_session_manager=None,
             _charge_notify=lambda *args, **kwargs: None,
@@ -129,7 +178,7 @@ class RdControlModeTests(unittest.IsolatedAsyncioTestCase):
         guard.edge_lease_enforced = False
         guard.OFF_CONFIRMATION_WINDOW_S = 0.0
         guard.OFF_CONFIRMATION_POLL_S = 0.0
-        guard.install()
+        guard.install(patch_adapter=False)
         app.runtime_safety_guard = guard
 
         if install_ui:
@@ -158,6 +207,7 @@ class RdControlModeTests(unittest.IsolatedAsyncioTestCase):
             )
 
         manager = install_rd_control_mode(app, install_ui=install_ui)
+        get_or_create_execution_port(app)
         return app, manager, guard
 
     async def test_hands_off_observes_non_pb_state_without_fail_closed(self):
@@ -179,15 +229,51 @@ class RdControlModeTests(unittest.IsolatedAsyncioTestCase):
             app.hass.live["autonomous_mode"] = "on"
 
             live = await app.hass.get_all_live()
+            manager._observe_edge_mode(live)
 
             self.assertTrue(manager.edge_autonomous)
             self.assertEqual(live["autonomous_mode"], "on")
             with self.assertRaisesRegex(RuntimeSafetyError, "AUTONOMOUS"):
-                await app.hass.turn_on()
+                await app.execution_port.request_verified_on()
             with self.assertRaisesRegex(RuntimeSafetyError, "AUTONOMOUS"):
-                app.charge_controller.start("Ca/Ca", 60)
+                app.execution_port.authorize_managed_start()
             self.assertEqual(app.hass.turn_on_calls, 0)
             self.assertEqual(app.charge_controller.start_calls, 0)
+
+    async def test_optional_ovp_ocp_setters_do_not_break_hass_client_composition(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app, manager, _guard = self._app(
+                f"{tmp}/mode.json", include_ovp_ocp_setters=False
+            )
+            self.assertIsNone(app.hass.set_ovp)
+            self.assertIsNone(app.hass.set_ocp)
+            await manager.enter_hands_off()
+            live = await app.hass.get_all_live()
+            self.assertEqual(live["switch"], "on")
+            self.assertEqual(app.hass.turn_off_calls, 0)
+
+    async def test_hands_off_and_autonomous_block_all_setpoint_writes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app, manager, _guard = self._app(f"{tmp}/mode.json")
+            await manager.enter_hands_off()
+            for write in (
+                app.execution_port.program_voltage,
+                app.execution_port.program_current,
+            ):
+                with self.assertRaises(RuntimeSafetyError):
+                    await write(1.0)
+
+            app.hass.live["autonomous_mode"] = "on"
+            manager._observe_edge_mode(await app.hass.get_all_live())
+            for write in (
+                app.execution_port.program_voltage,
+                app.execution_port.program_current,
+            ):
+                with self.assertRaises(RuntimeSafetyError):
+                    await write(1.0)
+            with self.assertRaises(RuntimeSafetyError):
+                await app.execution_port.request_verified_off()
+            self.assertEqual(app.hass.turn_off_calls, 0)
 
     async def test_edge_autonomous_blocks_restore_without_invoking_controller(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -203,7 +289,7 @@ class RdControlModeTests(unittest.IsolatedAsyncioTestCase):
             app.rd_control_mode_manager = None
             app.hass._rd_control_mode_wrapped = False
             manager = install_rd_control_mode(app, install_ui=False)
-            await app.hass.get_all_live()
+            manager._observe_edge_mode(await app.hass.get_all_live())
             app.charge_controller.try_restore_session(
                 14.2, 0.3, 70.0, output_is_on=True, is_cv=True, is_cc=False
             )
@@ -248,13 +334,13 @@ class RdControlModeTests(unittest.IsolatedAsyncioTestCase):
             await manager.enter_hands_off()
 
             with self.assertRaisesRegex(RuntimeSafetyError, "HANDS_OFF"):
-                await app.hass.set_voltage(12.0)
+                await app.execution_port.program_voltage(12.0)
             with self.assertRaisesRegex(RuntimeSafetyError, "HANDS_OFF"):
-                await app.hass.turn_on()
+                await app.execution_port.request_verified_on()
             with self.assertRaisesRegex(RuntimeSafetyError, "HANDS_OFF"):
-                await app.hass.turn_off()
+                await app.execution_port.request_verified_off()
             with self.assertRaisesRegex(RuntimeSafetyError, "HANDS_OFF"):
-                app.charge_controller.start("Ca/Ca", 60)
+                app.execution_port.authorize_managed_start()
 
             self.assertEqual(app.hass.set_voltage_calls, 0)
             self.assertEqual(app.hass.turn_on_calls, 0)
@@ -268,8 +354,11 @@ class RdControlModeTests(unittest.IsolatedAsyncioTestCase):
             app, manager, _guard = self._app(f"{tmp}/mode.json")
             await manager.enter_hands_off()
 
-            self.assertTrue(await manager.operator_output_off())
+            port = app.execution_port
+            self.assertIs(port._execution_owner, _guard)
+            self.assertTrue(await manager.operator_output_off("switch.test"))
             self.assertEqual(app.hass.turn_off_calls, 1)
+            self.assertEqual(app.hass.turn_off_entities, ["switch.test"])
             self.assertEqual(app.hass.live["switch"], "off")
             self.assertTrue(manager.hands_off)
 
@@ -286,19 +375,209 @@ class RdControlModeTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(guard._off_unconfirmed)
             self.assertEqual(app.hass.live["switch"], "on")
 
+    async def test_false_explicit_off_returns_without_residual_lease_disarm(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app, manager, guard = self._app(f"{tmp}/mode.json")
+            await manager.enter_hands_off()
+            calls = []
+            disarm_calls = []
+
+            async def request_off(entity_id=None, *, allow_hands_off_operator_off=False):
+                calls.append((entity_id, allow_hands_off_operator_off))
+                return False
+
+            async def disarm():
+                disarm_calls.append(True)
+
+            app.execution_port.request_emergency_off = request_off
+            guard._disarm_edge_lease_best_effort = disarm
+            self.assertFalse(await manager.operator_output_off("switch.test"))
+            self.assertEqual(calls, [("switch.test", True)])
+            self.assertEqual(disarm_calls, [])
+            self.assertTrue(manager.hands_off)
+
     async def test_return_to_pb_requires_confirmed_off(self):
         with tempfile.TemporaryDirectory() as tmp:
             app, manager, _guard = self._app(f"{tmp}/mode.json")
             await manager.enter_hands_off()
 
-            with self.assertRaisesRegex(RuntimeSafetyError, "requires confirmed Output OFF"):
+            with self.assertRaisesRegex(
+                RuntimeSafetyError,
+                "Output OFF|freshness metadata",
+            ):
                 await manager.return_pb_control()
             self.assertTrue(manager.hands_off)
-            self.assertEqual(app.hass.turn_off_calls, 0)
+            # The composed Safety owner may fail closed on unmanaged Output ON
+            # when the fake transport supplies no freshness metadata.
+            self.assertGreaterEqual(app.hass.turn_off_calls, 1)
 
             await manager.operator_output_off()
             self.assertTrue(await manager.return_pb_control())
             self.assertEqual(manager.mode, RdControlMode.PB_MANAGED)
+
+    @staticmethod
+    def _fresh_output_metadata(source_key="switch", *, age_s=0.0):
+        reported = (datetime.now(timezone.utc) - timedelta(seconds=age_s)).isoformat()
+        return {
+            "status": "ok",
+            "source_key": source_key,
+            "last_reported": reported,
+            "last_updated": reported,
+        }
+
+    async def test_return_pb_rejects_stale_off_heartbeat(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app, manager, _guard = self._app(f"{tmp}/mode.json")
+            await manager.enter_hands_off()
+            app.hass.live["switch"] = "off"
+            app.hass.live["_meta"] = {
+                "switch": self._fresh_output_metadata(age_s=60.0)
+            }
+
+            with self.assertRaisesRegex(RuntimeSafetyError, "fresh confirmed Output OFF"):
+                await manager.return_pb_control()
+
+            self.assertTrue(manager.hands_off)
+
+    async def test_return_pb_uses_canonical_v2_output_over_legacy_switch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app, manager, _guard = self._app(f"{tmp}/mode.json")
+            await manager.enter_hands_off()
+            app.hass.live["switch"] = "off"
+            app.hass.live["output_state_code_v2"] = 1
+            app.hass.live["_meta"] = {
+                "switch": self._fresh_output_metadata(
+                    "output_state_code_v2"
+                ),
+                "output_state_code_v2": self._fresh_output_metadata(
+                    "output_state_code_v2"
+                ),
+            }
+
+            with self.assertRaisesRegex(RuntimeSafetyError, "fresh confirmed Output OFF"):
+                await manager.return_pb_control()
+
+            self.assertTrue(manager.hands_off)
+
+    async def test_return_pb_rejects_stale_v2_heartbeat_even_if_switch_alias_is_fresh(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app, manager, _guard = self._app(f"{tmp}/mode.json")
+            await manager.enter_hands_off()
+            app.hass.live["switch"] = "off"
+            app.hass.live["output_state_code_v2"] = 0
+            app.hass.live["_meta"] = {
+                "switch": self._fresh_output_metadata(
+                    "output_state_code_v2"
+                ),
+                "output_state_code_v2": self._fresh_output_metadata(
+                    "output_state_code_v2",
+                    age_s=60.0,
+                ),
+            }
+
+            with self.assertRaisesRegex(RuntimeSafetyError, "fresh confirmed Output OFF"):
+                await manager.return_pb_control()
+
+            self.assertTrue(manager.hands_off)
+
+    async def test_return_pb_accepts_fresh_v2_off_when_legacy_alias_is_stale(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app, manager, _guard = self._app(f"{tmp}/mode.json")
+            await manager.enter_hands_off()
+            app.hass.live["switch"] = "off"
+            app.hass.live["output_state_code_v2"] = 0
+            app.hass.live["_meta"] = {
+                "switch": self._fresh_output_metadata(
+                    "output_state_code_v2",
+                    age_s=60.0,
+                ),
+                "output_state_code_v2": self._fresh_output_metadata(
+                    "output_state_code_v2"
+                ),
+            }
+
+            self.assertTrue(await manager.return_pb_control())
+            self.assertTrue(manager.pb_managed)
+
+    async def test_return_pb_rejects_v2_off_without_source_heartbeat(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app, manager, _guard = self._app(f"{tmp}/mode.json")
+            await manager.enter_hands_off()
+            app.hass.live["switch"] = "off"
+            app.hass.live["output_state_code_v2"] = 0
+            app.hass.live.pop("_meta", None)
+
+            with self.assertRaisesRegex(RuntimeSafetyError, "fresh confirmed Output OFF"):
+                await manager.return_pb_control()
+
+            self.assertTrue(manager.hands_off)
+
+    async def test_return_pb_uses_fresh_canonical_v2_off_and_retires_armed_lease(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app, manager, guard = self._app(f"{tmp}/mode.json")
+            await manager.enter_hands_off()
+            app.hass.live["switch"] = "on"
+            app.hass.live["output_state_code_v2"] = 0
+            app.hass.live["_meta"] = {
+                "switch": self._fresh_output_metadata(
+                    "output_state_code_v2"
+                ),
+                "output_state_code_v2": self._fresh_output_metadata(
+                    "output_state_code_v2"
+                ),
+            }
+            lease = FakeReturnEdgeLease(armed=True, remaining_s=300.0)
+            guard.edge_lease_enforced = True
+            guard.edge_safety_lease = lease
+
+            self.assertTrue(await manager.return_pb_control())
+
+            self.assertTrue(manager.pb_managed)
+            self.assertEqual(lease.disarm_calls, 1)
+            self.assertTrue(lease.suspended)
+
+    async def test_return_pb_does_not_repeat_an_already_confirmed_lease_disarm(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app, manager, guard = self._app(f"{tmp}/mode.json")
+            await manager.enter_hands_off()
+            app.hass.live["switch"] = "off"
+            lease = FakeReturnEdgeLease(armed=False, remaining_s=0.0)
+            guard.edge_lease_enforced = True
+            guard.edge_safety_lease = lease
+
+            self.assertTrue(await manager.return_pb_control())
+
+            self.assertTrue(manager.pb_managed)
+            self.assertEqual(lease.disarm_calls, 0)
+            self.assertTrue(lease.suspended)
+
+    async def test_return_pb_fails_closed_when_required_edge_lease_is_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app, manager, guard = self._app(f"{tmp}/mode.json")
+            await manager.enter_hands_off()
+            app.hass.live["switch"] = "off"
+            guard.edge_lease_enforced = True
+            guard.edge_safety_lease = None
+
+            with self.assertRaisesRegex(RuntimeSafetyError, "required edge safety lease is unavailable"):
+                await manager.return_pb_control()
+
+            self.assertTrue(manager.hands_off)
+
+    async def test_return_pb_refuses_unhealthy_edge_lease(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app, manager, guard = self._app(f"{tmp}/mode.json")
+            await manager.enter_hands_off()
+            app.hass.live["switch"] = "off"
+            lease = FakeReturnEdgeLease(tripped=True)
+            guard.edge_lease_enforced = True
+            guard.edge_safety_lease = lease
+
+            with self.assertRaisesRegex(RuntimeSafetyError, "tripped, quarantined or stale"):
+                await manager.return_pb_control()
+
+            self.assertTrue(manager.hands_off)
+            self.assertEqual(lease.disarm_calls, 0)
 
     async def test_hands_off_persists_across_restart(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -57,7 +57,14 @@ class EspHomeFullTargetContractTests(unittest.TestCase):
         self.assertNotIn("1800000", self.text)
 
     def test_legacy_status_entities_are_derived_from_authoritative_raw_codes(self):
-        self.assertIn("id(rd6018_protection_status_code).state", self.text)
+        self.assertIn("id: rd6018_ovp_triggered_legacy", self.text)
+        self.assertIn("id: rd6018_ocp_triggered_legacy", self.text)
+        self.assertIn("((uint16_t) id(rd6018_protection_status_code).state) == 1U", self.text)
+        self.assertIn("((uint16_t) id(rd6018_protection_status_code).state) == 2U", self.text)
+        self.assertIn("id: rd6018_ovp_setpoint", self.text)
+        self.assertIn("id: rd6018_ocp_setpoint", self.text)
+        self.assertIn("address: 82", self.text)
+        self.assertIn("address: 83", self.text)
         self.assertIn("id(rd6018_regulation_mode_code).state", self.text)
         self.assertNotIn(
             "address: 16\n    register_type: holding\n    bitmask", self.text

@@ -3,6 +3,7 @@ import tempfile
 import types
 import unittest
 
+from application.execution_port import get_or_create_execution_port
 from manual_mode import ManualChargeRequest, ManualSessionState
 from pb_domain import BatteryChemistry
 from rd_control_mode import RdControlMode
@@ -12,8 +13,8 @@ from rd_managed_adoption import (
     ManagedAdoptionState,
     install_managed_live_adoption,
 )
-from runtime_safety import RuntimeSafetyError
-from safe_output import SafetyPolicy
+from runtime.safety.runtime_guard import RuntimeSafetyError
+from runtime.safety.output_policy import SafetyPolicy
 
 
 class FakeHass:
@@ -33,9 +34,12 @@ class FakeHass:
         }
         self.turn_on_calls = 0
         self.turn_off_calls = 0
+        self.turn_off_result = True
+        self.get_all_live_calls = 0
         self.writes = []
 
     async def get_all_live(self):
+        self.get_all_live_calls += 1
         return dict(self.live)
 
     async def turn_on(self, entity_id=None):
@@ -45,6 +49,8 @@ class FakeHass:
 
     async def turn_off(self, entity_id=None):
         self.turn_off_calls += 1
+        if not self.turn_off_result:
+            return False
         self.live["switch"] = "off"
         return True
 
@@ -106,9 +112,20 @@ class FakeGuard:
         self._off_unconfirmed = False
         self._orphan_output_seen_at = None
         self.edge_safety_lease = None
+        self.managed_live_calls = 0
+        self.turn_off_result = True
+        self.turn_off_calls = 0
 
     async def _raw_live(self):
         return dict(self.app.hass.live)
+
+    async def get_all_live(self):
+        self.managed_live_calls += 1
+        return await self._raw_live()
+
+    async def turn_off(self, entity_id=None):
+        self.turn_off_calls += 1
+        return self.turn_off_result
 
     def _critical_telemetry_error(self, live, *, require_programming):
         return None
@@ -125,6 +142,7 @@ class FakeManager:
         self._transition_lock = asyncio.Lock()
         self._release_in_progress = False
         self.write_mode_calls = []
+        self.off_result = None
 
     @property
     def hands_off(self):
@@ -141,6 +159,8 @@ class FakeManager:
         self.write_mode_calls.append(mode)
 
     async def operator_output_off(self, entity_id=None):
+        if self.off_result is not None:
+            return self.off_result
         return await self.app.hass.turn_off(entity_id)
 
 
@@ -183,7 +203,9 @@ class ManagedLiveAdoptionTests(unittest.IsolatedAsyncioTestCase):
         app.rd_live_mix_observer = None
         guard = FakeGuard(app)
         manager = FakeManager(app, guard)
+        app.rd_control_mode_manager = manager
         coordinator = install_managed_live_adoption(app, manager, install_ui=False)
+        get_or_create_execution_port(app)
         coordinator.state_file = state_file
         coordinator.state = ManagedAdoptionState.IDLE
         coordinator.edge = FakeEdge(app)
@@ -203,7 +225,7 @@ class ManagedLiveAdoptionTests(unittest.IsolatedAsyncioTestCase):
             chemistry=BatteryChemistry.CA_CA,
             capacity_ah=72.0,
             fingerprint=ManagedAdoptionFingerprint(
-                float(set_voltage), float(set_current), float(ovp), float(ocp)
+                float(set_voltage), float(set_current)
             ),
         )
 
@@ -216,6 +238,183 @@ class ManagedLiveAdoptionTests(unittest.IsolatedAsyncioTestCase):
                 await task
             except asyncio.CancelledError:
                 pass
+
+    async def test_false_off_results_keep_off_pending_manual_and_lease_for_all_routes(self):
+        for route in ("hands_off", "emergency", "verified"):
+            with self.subTest(route=route), tempfile.TemporaryDirectory() as tmp:
+                app, manager, coordinator = self.make_system(f"{tmp}/adoption.json")
+                manual = app.manual_session_manager
+                manual.state = ManualSessionState.ACTIVE
+                manual.request = object()
+                manual._task = object()
+                lease = types.SimpleNamespace(disarm_calls=0)
+
+                async def disarm():
+                    lease.disarm_calls += 1
+
+                lease.disarm = disarm
+                coordinator.guard.edge_safety_lease = lease
+                manager.mode = (
+                    RdControlMode.HANDS_OFF if route == "hands_off"
+                    else RdControlMode.PB_MANAGED
+                )
+                if route == "hands_off":
+                    manager.off_result = False
+                else:
+                    app.hass.turn_off_result = False
+
+                self.assertFalse(await coordinator._verified_off(
+                    "test false", emergency=route != "verified"
+                ))
+                self.assertEqual(coordinator.state, ManagedAdoptionState.OFF_PENDING)
+                self.assertIn("unconfirmed", coordinator.last_status)
+                self.assertNotIn("verified OFF", coordinator.last_status)
+                self.assertEqual(manual.state, ManualSessionState.ACTIVE)
+                self.assertIsNotNone(manual.request)
+                self.assertIsNotNone(manual._task)
+                self.assertEqual(lease.disarm_calls, 0)
+                self.assertEqual(manual.persist_count, 0)
+
+    async def test_cancellation_during_off_propagates_and_preserves_pending_manual(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app, manager, coordinator = self.make_system(f"{tmp}/adoption.json")
+            manual = app.manual_session_manager
+            manual.state = ManualSessionState.ACTIVE
+            manual.request = object()
+            manual._task = object()
+            started = asyncio.Event()
+
+            async def cancelled_off(entity_id=None):
+                started.set()
+                raise asyncio.CancelledError()
+
+            manager.operator_output_off = cancelled_off
+            with self.assertRaises(asyncio.CancelledError):
+                await coordinator._verified_off("test cancellation")
+            self.assertTrue(started.is_set())
+            self.assertEqual(coordinator.state, ManagedAdoptionState.OFF_PENDING)
+            self.assertEqual(manual.state, ManualSessionState.ACTIVE)
+            self.assertIsNotNone(manual.request)
+            self.assertIsNotNone(manual._task)
+
+    async def test_off_exception_remains_unconfirmed_without_retiring_manual(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app, manager, coordinator = self.make_system(f"{tmp}/adoption.json")
+            manual = app.manual_session_manager
+            manual.state = ManualSessionState.ACTIVE
+            manual.request = object()
+            manager.off_result = RuntimeError("OFF failure")
+
+            async def raise_off(entity_id=None):
+                raise manager.off_result
+
+            manager.operator_output_off = raise_off
+            self.assertFalse(await coordinator._verified_off("test exception"))
+            self.assertEqual(coordinator.state, ManagedAdoptionState.OFF_PENDING)
+            self.assertIn("RuntimeError", coordinator.last_status)
+            self.assertEqual(manual.state, ManualSessionState.ACTIVE)
+            self.assertIsNotNone(manual.request)
+
+    def prepare_pb_off_failure(self, coordinator, manager):
+        manual = coordinator.manual
+        manual.state = ManualSessionState.ACTIVE
+        manual.request = object()
+        manual._task = object()
+        lease = types.SimpleNamespace(disarm_calls=0)
+
+        async def disarm():
+            lease.disarm_calls += 1
+
+        lease.disarm = disarm
+        coordinator.guard.edge_safety_lease = lease
+        manager.mode = RdControlMode.PB_MANAGED
+        return manual, lease
+
+    async def test_pb_emergency_off_exception_preserves_pending_manual_and_lease(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app, manager, coordinator = self.make_system(f"{tmp}/adoption.json")
+            manual, lease = self.prepare_pb_off_failure(coordinator, manager)
+            request = manual.request
+            task = manual._task
+
+            async def raise_emergency_off():
+                raise RuntimeError("PB emergency OFF failure")
+
+            app.execution_port.request_emergency_off = raise_emergency_off
+            coordinator.state = ManagedAdoptionState.OFF_PENDING
+            self.assertFalse(await coordinator.recover_startup())
+
+            self.assertEqual(coordinator.state, ManagedAdoptionState.OFF_PENDING)
+            self.assertIn("RuntimeError", coordinator.last_status)
+            self.assertIn("unconfirmed", coordinator.last_status)
+            self.assertEqual(manual.state, ManualSessionState.ACTIVE)
+            self.assertIs(manual.request, request)
+            self.assertIs(manual._task, task)
+            self.assertEqual(lease.disarm_calls, 0)
+
+    async def test_pb_emergency_off_cancellation_propagates_and_preserves_pending(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app, manager, coordinator = self.make_system(f"{tmp}/adoption.json")
+            manual, lease = self.prepare_pb_off_failure(coordinator, manager)
+            request = manual.request
+            task = manual._task
+
+            async def cancel_emergency_off():
+                raise asyncio.CancelledError()
+
+            app.execution_port.request_emergency_off = cancel_emergency_off
+            coordinator.state = ManagedAdoptionState.OFF_PENDING
+            with self.assertRaises(asyncio.CancelledError):
+                await coordinator.recover_startup()
+
+            self.assertEqual(coordinator.state, ManagedAdoptionState.OFF_PENDING)
+            self.assertEqual(manual.state, ManualSessionState.ACTIVE)
+            self.assertIs(manual.request, request)
+            self.assertIs(manual._task, task)
+            self.assertEqual(lease.disarm_calls, 0)
+
+    async def test_pb_verified_stop_exception_preserves_pending_manual_and_lease(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app, manager, coordinator = self.make_system(f"{tmp}/adoption.json")
+            manual, lease = self.prepare_pb_off_failure(coordinator, manager)
+            request = manual.request
+            task = manual._task
+            coordinator.state = ManagedAdoptionState.ACTIVE
+
+            async def raise_verified_off():
+                raise RuntimeError("PB verified OFF failure")
+
+            app.execution_port.request_verified_off = raise_verified_off
+            self.assertFalse(await coordinator.verified_stop())
+
+            self.assertEqual(coordinator.state, ManagedAdoptionState.OFF_PENDING)
+            self.assertIn("RuntimeError", coordinator.last_status)
+            self.assertIn("unconfirmed", coordinator.last_status)
+            self.assertEqual(manual.state, ManualSessionState.ACTIVE)
+            self.assertIs(manual.request, request)
+            self.assertIs(manual._task, task)
+            self.assertEqual(lease.disarm_calls, 0)
+
+    async def test_pb_verified_stop_cancellation_propagates_and_preserves_pending(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app, manager, coordinator = self.make_system(f"{tmp}/adoption.json")
+            manual, lease = self.prepare_pb_off_failure(coordinator, manager)
+            request = manual.request
+            task = manual._task
+            coordinator.state = ManagedAdoptionState.ACTIVE
+
+            async def cancel_verified_off():
+                raise asyncio.CancelledError()
+
+            app.execution_port.request_verified_off = cancel_verified_off
+            with self.assertRaises(asyncio.CancelledError):
+                await coordinator.verified_stop()
+
+            self.assertEqual(coordinator.state, ManagedAdoptionState.OFF_PENDING)
+            self.assertEqual(manual.state, ManualSessionState.ACTIVE)
+            self.assertIs(manual.request, request)
+            self.assertIs(manual._task, task)
+            self.assertEqual(lease.disarm_calls, 0)
 
     async def test_successful_adoption_changes_only_ownership_authority(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -235,17 +434,17 @@ class ManagedLiveAdoptionTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(coordinator.edge.adopt_calls, 1)
             await self.cleanup_task(coordinator)
 
-    async def test_disabled_protection_fails_read_only_before_edge_command(self):
+    async def test_retired_ocp_value_does_not_gate_vi_adoption(self):
         with tempfile.TemporaryDirectory() as tmp:
             app, manager, coordinator = self.make_system(f"{tmp}/adoption.json")
             app.hass.live["ocp"] = 0.0
-            with self.assertRaises(RuntimeSafetyError):
-                await coordinator.adopt(self.preview())
-            self.assertTrue(manager.hands_off)
-            self.assertEqual(coordinator.edge.prepare_calls, 0)
-            self.assertEqual(coordinator.edge.adopt_calls, 0)
+            self.assertTrue(await coordinator.adopt(self.preview()))
+            self.assertTrue(manager.pb_managed)
+            self.assertEqual(coordinator.edge.prepare_calls, 1)
+            self.assertEqual(coordinator.edge.adopt_calls, 1)
             self.assertEqual(app.hass.turn_off_calls, 0)
             self.assertEqual(app.hass.writes, [])
+            await self.cleanup_task(coordinator)
 
     async def test_low_temperature_fails_read_only_before_edge_command(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -354,6 +553,8 @@ class ManagedLiveAdoptionTests(unittest.IsolatedAsyncioTestCase):
             await self.cleanup_task(coordinator)
             app.hass.live["set_current"] = 1.20
             await coordinator.observe_once()
+            self.assertEqual(coordinator.guard.managed_live_calls, 1)
+            self.assertEqual(app.hass.get_all_live_calls, 0)
             self.assertEqual(app.hass.turn_off_calls, 1)
             self.assertEqual(coordinator.state, ManagedAdoptionState.FAILED)
 
@@ -364,6 +565,8 @@ class ManagedLiveAdoptionTests(unittest.IsolatedAsyncioTestCase):
             await self.cleanup_task(coordinator)
             app.hass.live["set_current"] = 0.80
             await coordinator.observe_once()
+            self.assertEqual(coordinator.guard.managed_live_calls, 1)
+            self.assertEqual(app.hass.get_all_live_calls, 0)
             self.assertTrue(coordinator.active)
             self.assertEqual(coordinator.current_authority.set_current_a, 0.80)
             self.assertEqual(app.manual_session_manager.request.current_a, 0.80)
@@ -376,13 +579,13 @@ class ManagedLiveAdoptionTests(unittest.IsolatedAsyncioTestCase):
             await self.cleanup_task(coordinator)
 
             with self.assertRaisesRegex(RuntimeSafetyError, "increase blocked"):
-                await app.hass.set_voltage(16.70)
+                await app.execution_port.program_voltage(16.70)
             self.assertEqual(app.hass.writes, [])
 
-            self.assertTrue(await app.hass.set_voltage(16.40))
+            self.assertTrue(await app.execution_port.program_voltage(16.40))
             self.assertEqual(coordinator.current_authority.set_voltage_v, 16.40)
             with self.assertRaisesRegex(RuntimeSafetyError, "increase blocked"):
-                await app.hass.set_voltage(16.50)
+                await app.execution_port.program_voltage(16.50)
 
     async def test_adopted_session_cannot_reenergize_output(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -391,7 +594,7 @@ class ManagedLiveAdoptionTests(unittest.IsolatedAsyncioTestCase):
             await self.cleanup_task(coordinator)
             app.hass.live["switch"] = "off"
             with self.assertRaisesRegex(RuntimeSafetyError, "cannot re-energize"):
-                await app.hass.turn_on()
+                await app.execution_port.request_verified_on()
             self.assertEqual(app.hass.turn_on_calls, 0)
 
     async def test_restart_converts_active_authority_to_verified_off_pending(self):

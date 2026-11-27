@@ -7,8 +7,9 @@
 # Accepted existing software authority:
 #   - internal RD temperature >= 55 C -> Output OFF
 #
-# RD hardware protection authority:
-#   - register 16 non-zero (OVP=1 / OCP=2 / OPP=3 / unknown non-zero) -> Output OFF
+# RD hardware status R16 is always readable for diagnostics.
+#   - OVP=1 / OCP=2: observability only, never a bot/ESP software OFF cause
+#   - OPP=3 or unknown nonzero R16: keep the local Output OFF containment
 #
 # Missing/stale telemetry by itself does NOT become an autonomous OFF reason here.
 # Managed communication-loss containment remains owned by rd6018_safety_lease.yaml.
@@ -28,7 +29,9 @@ binary_sensor:
       const bool overtemp = !isnan(temp_int) &&
         temp_int >= ${rd6018_intrinsic_temp_cutoff_c}f;
       const bool rd_fault = !isnan(protection) &&
-        ((uint16_t) protection) != 0U;
+        ((uint16_t) protection) != 0U &&
+        ((uint16_t) protection) != 1U &&
+        ((uint16_t) protection) != 2U;
       return overtemp || rd_fault;
 
 interval:
@@ -42,10 +45,12 @@ interval:
               const bool overtemp = !isnan(temp_int) &&
                 temp_int >= ${rd6018_intrinsic_temp_cutoff_c}f;
               const bool rd_fault = !isnan(protection) &&
-                ((uint16_t) protection) != 0U;
+                ((uint16_t) protection) != 0U &&
+                ((uint16_t) protection) != 1U &&
+                ((uint16_t) protection) != 2U;
               return overtemp || rd_fault;
           then:
             # Repeated local OFF is intentional while positive intrinsic fault
-            # evidence remains. This actuator is local to the ESP/RD Modbus path and
+            # evidence remains. This actuator is local to the integrated ESP8266/RD Modbus path and
             # therefore does not depend on Wi-Fi, HA, Telegram or a bot process.
-            - switch.turn_off: rd6018_safety_output
+            - switch.turn_off: rd6018_output_public

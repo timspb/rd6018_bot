@@ -148,10 +148,12 @@ class ReleaseVerification(unittest.TestCase):
                 M.verify_staged_release(stage)
         with staged_fixture() as stage:
             file = stage / "tree" / "module.py"
-            file.unlink()
-            file.symlink_to(stage / "RELEASE_MANIFEST.json")
-            with self.assertRaisesRegex(M.GateError, "staged tree contains unsupported"):
-                M.verify_staged_release(stage)
+            file.write_text("fake link entry", encoding="utf-8")
+            real_is_symlink = Path.is_symlink
+            with patch.object(Path, "is_symlink", autospec=True,
+                              side_effect=lambda path: path == file or real_is_symlink(path)):
+                with self.assertRaisesRegex(M.GateError, "staged tree contains unsupported"):
+                    M.verify_staged_release(stage)
 
 
 if __name__ == "__main__":

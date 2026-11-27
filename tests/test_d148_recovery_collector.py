@@ -1,4 +1,5 @@
 import hashlib
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -29,6 +30,7 @@ class D148RecoveryPinTests(unittest.TestCase):
         return d148.install(self.source, self.dest, self.old,
                             host_check=lambda: None)
 
+    @unittest.skipUnless(os.name == "posix", "pin installation fsyncs a POSIX directory descriptor and checks POSIX modes")
     def test_install_exact_and_repeat_idempotent(self):
         value = self.run_install()
         self.assertEqual(value["sha256"], self.newhash)
@@ -37,12 +39,14 @@ class D148RecoveryPinTests(unittest.TestCase):
         self.assertEqual(self.run_install()["sha256"], self.newhash)
         self.assertEqual(self.old.read_bytes(), b"old pinned proof collector")
 
+    @unittest.skipUnless(os.name == "posix", "pin installation requires POSIX directory fsync")
     def test_wrong_new_source_refuses_without_writing(self):
         self.source.write_bytes(b"unreviewed")
         with self.assertRaises(d148.RecoveryCollectorError):
             self.run_install()
         self.assertFalse(self.dest.exists())
 
+    @unittest.skipUnless(os.name == "posix", "old-pin identity checks depend on POSIX mode bits")
     def test_old_pin_drift_refuses_without_writing(self):
         self.old.chmod(0o600)
         self.old.write_bytes(b"changed")
@@ -51,6 +55,7 @@ class D148RecoveryPinTests(unittest.TestCase):
             self.run_install()
         self.assertFalse(self.dest.exists())
 
+    @unittest.skipUnless(os.name == "posix", "pin installation requires POSIX directory fsync and permission modes")
     def test_existing_corrupt_destination_never_overwritten(self):
         self.run_install()
         self.dest.chmod(0o600)
@@ -60,6 +65,7 @@ class D148RecoveryPinTests(unittest.TestCase):
             self.run_install()
         self.assertEqual(self.dest.read_bytes(), b"tampered")
 
+    @unittest.skipUnless(os.name == "posix", "symlink refusal contract requires POSIX symlink support")
     def test_symlink_destination_refused(self):
         self.dest.symlink_to(self.source)
         with self.assertRaises(d148.RecoveryCollectorError):

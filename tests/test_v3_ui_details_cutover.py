@@ -116,14 +116,10 @@ class V3OperatorDetailsUICutoverTests(unittest.TestCase):
         self.assertEqual(DETAILS_CALLBACK_DATA, "ui:nav.diagnostics")
 
     def test_operator_hmi_maps_details_capability_to_canonical_callback(self):
-        import inspect
-
-        source = inspect.getsource(_keyboard_from_actions)
-        self.assertIn(
-            'OperatorAction.SHOW_DIAGNOSTICS: ("ℹ Подробнее", DETAILS_CALLBACK_DATA)',
-            source,
-        )
-        self.assertNotIn('"operator_details"', source)
+        from application.operator_actions import OperatorAction
+        from runtime.ui.labels.operator_actions import OPERATOR_ACTION_LABELS
+        self.assertEqual(OPERATOR_ACTION_LABELS[OperatorAction.SHOW_DIAGNOSTICS][1], DETAILS_CALLBACK_DATA)
+        self.assertNotEqual(OPERATOR_ACTION_LABELS[OperatorAction.SHOW_DIAGNOSTICS][1], "operator_details")
 
     def test_historical_operator_details_callback_is_removed(self):
         source = (ROOT / "operator_hmi.py").read_text(encoding="utf-8")

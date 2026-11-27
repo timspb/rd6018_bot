@@ -6,8 +6,16 @@ import math
 from typing import Any, Awaitable, Callable, Mapping
 
 from rd6018_telemetry import (
-    canonical_programmed_readback, decode_protection_code, finite_float,
-    telemetry_freshness,
+    canonical_programmed_readback, finite_float, telemetry_freshness,
+)
+from runtime.safety.protection_boundary import (
+    ProtectionVerdict,
+    assess_protection,
+    native_protection_generation,
+)
+from runtime.charge.controller_state import (
+    set_observed_device_current,
+    set_observed_device_setpoints,
 )
 from runtime.charge.strategy.main_current_guard import (
     HARDWARE_CURRENT_FLOOR_A,
@@ -17,9 +25,13 @@ from runtime.charge.strategy.main_current_guard import (
 SaveSnapshot = Callable[[dict[str, Any]], Awaitable[None]]
 Now = Callable[[], float]
 MAX_READBACK_AGE_S = 10.0
-# ESP Native setter completion may precede its independent sensor callback.
-POSTWRITE_CONVERGENCE_S = 5.0
+# MAIN current ceiling reduction is not an emergency trip: allow two minutes
+# for independent ESP Native readback convergence after the setter completes.
+POSTWRITE_CONVERGENCE_S = 120.0
 POSTWRITE_POLL_S = 0.25
+# Measured output current must still be effectively zero when Output is OFF.
+# Keep this separate from the wider Iset register acknowledgement tolerance.
+ZERO_CURRENT_TOLERANCE_A = 0.01
 
 
 @dataclass(frozen=True)
@@ -55,7 +67,6 @@ class _ConfirmedPrewriteFault(MainGuardExecutionFault):
 
 _REQUIRED_NATIVE_KEYS = (
     "output_state_code_v2", "current", "set_current_readback_v2",
-    "protection_code",
 )
 
 
@@ -72,20 +83,43 @@ def _native_freshness(live: Mapping[str, Any]) -> bool:
     ).valid
 
 
+def _native_generation(live: Mapping[str, Any]) -> tuple[float, ...]:
+    meta = live.get("_meta")
+    if not isinstance(meta, Mapping):
+        raise MainGuardExecutionFault("native_generation_metadata_missing")
+    try:
+        electrical = tuple(
+            float(meta[key]["subscription_timestamp_monotonic"])
+            for key in _REQUIRED_NATIVE_KEYS
+        )
+        protection = tuple(
+            stamp for _label, stamp in native_protection_generation(live)
+        )
+    except (KeyError, TypeError, ValueError):
+        raise MainGuardExecutionFault("native_generation_incomplete") from None
+    return electrical + protection
+
+
 def _positive_on_snapshot(live: Mapping[str, Any]) -> tuple[float, float]:
-    """Require canonical Output ON, protection clear, and hardware readbacks."""
+    """Require canonical Output ON, generic Safety clear, and hardware readbacks."""
     if not _native_freshness(live):
         raise MainGuardExecutionFault("stale_or_skewed_native_evidence")
     output = finite_float(live.get("output_state_code_v2"))
-    protection = decode_protection_code(live.get("protection_code"))
+    protection = assess_protection(
+        live,
+        require_fresh=True,
+        require_native=True,
+        max_age_s=MAX_READBACK_AGE_S,
+        max_skew_s=MAX_READBACK_AGE_S,
+    )
     actual_i = finite_float(live.get("current"))
     programmed_i = canonical_programmed_readback(live, "set_current")
     if output != 1:
         raise MainGuardExecutionFault("output_not_proven_on")
-    if protection.code is None or protection.unknown:
-        raise MainGuardExecutionFault("protection_code_unavailable_or_unknown")
-    if protection.tripped:
-        raise _ConfirmedPrewriteFault("confirmed_native_protection_trip")
+    if protection.verdict is ProtectionVerdict.UNKNOWN:
+        raise MainGuardExecutionFault("protection_state_unavailable_or_unknown")
+    if protection.verdict is ProtectionVerdict.TRIPPED:
+        raise _ConfirmedPrewriteFault("confirmed_hardware_protection_trip")
     if actual_i is None or actual_i < 0 or programmed_i is None:
         raise MainGuardExecutionFault("canonical_readback_unavailable")
     return actual_i, programmed_i
@@ -100,8 +134,6 @@ async def execute_main_guard_reduction(
     execution_lock: asyncio.Lock,
     now: Now,
     max_stage_current_a: float,
-    ocp_offset_a: float,
-    stabilize_delay_s: float,
 ) -> MainGuardExecutionResult:
     """Execute only a decrease, using verified Iset and durable journal.
 
@@ -153,7 +185,7 @@ async def execute_main_guard_reduction(
             ts = float(now())
             if not math.isfinite(ts) or ts < proposal.created_at_s or ts > proposal.deadline_s:
                 raise MainGuardExecutionFault("proposal_expired")
-            before = await port.execution_owner.get_all_live()
+            before = await port.read_live()
             if not isinstance(before, Mapping):
                 raise MainGuardExecutionFault("preflight_unavailable")
             _, previous_i = _positive_on_snapshot(before)
@@ -174,7 +206,7 @@ async def execute_main_guard_reduction(
             # persistent disagreement, loss of output, or a protection trip.
             deadline = asyncio.get_running_loop().time() + POSTWRITE_CONVERGENCE_S
             while True:
-                after = await port.execution_owner.get_all_live()
+                after = await port.read_live()
                 if not isinstance(after, Mapping):
                     raise MainGuardExecutionFault("postflight_unavailable")
                 measured, actual_i = _positive_on_snapshot(after)
@@ -229,7 +261,7 @@ async def execute_main_guard_reduction(
             return MainGuardExecutionResult(updated, True, "readback_and_journal_verified", hardware_write_invoked=True)
         except asyncio.CancelledError:
             if hardware_write_invoked:
-                await port.request_verified_off()
+                await port.request_emergency_off()
             raise
         except _ConfirmedPrewriteFault as exc:
             try:
@@ -244,7 +276,7 @@ async def execute_main_guard_reduction(
             off_confirmed = False
             if hardware_write_invoked:
                 try:
-                    off_confirmed = bool(await port.request_verified_off())
+                    off_confirmed = bool(await port.request_emergency_off())
                 except Exception:
                     pass
             return MainGuardExecutionResult(
@@ -258,8 +290,7 @@ async def execute_main_guard_reduction(
 async def execute_main_guard_desulfation_return(
     port: Any, *, controller: Any, actions: Mapping[str, Any],
     execution_lock: asyncio.Lock, now: Now, max_stage_current_a: float,
-    recipe_voltage_ceiling_v: float, has_ovp: bool, has_ocp: bool,
-    ocp_offset_a: float, stabilize_delay_s: float,
+    recipe_voltage_ceiling_v: float,
     battery_v: float, current: float, ah: float,
 ) -> MainGuardExecutionResult:
     """Restore the existing guard's original MAIN current after verified OFF.
@@ -293,19 +324,23 @@ async def execute_main_guard_desulfation_return(
         meta = live.get("_meta")
         for key in _REQUIRED_NATIVE_KEYS:
             item = meta.get(key) if isinstance(meta, Mapping) else None
-            allowed_types = ({"SensorState", "BinarySensorState"}
-                             if key == "protection_code" else {"SensorState"})
             if (not isinstance(item, Mapping) or item.get("source") != "esp_native_api"
-                    or item.get("native_type") not in allowed_types):
+                    or item.get("native_type") != "SensorState"):
                 return None
         output = finite_float(live.get("output_state_code_v2"))
         measured_current = finite_float(live.get("current"))
         iset = canonical_programmed_readback(live, "set_current")
-        if (output != 0 or measured_current is None or abs(measured_current) > READBACK_TOLERANCE_A
+        if (output != 0 or measured_current is None or abs(measured_current) > ZERO_CURRENT_TOLERANCE_A
                 or iset is None):
             return None
-        protection = decode_protection_code(live.get("protection_code"))
-        if protection.code is None or protection.unknown or protection.tripped:
+        protection = assess_protection(
+            live,
+            require_fresh=True,
+            require_native=True,
+            max_age_s=MAX_READBACK_AGE_S,
+            max_skew_s=MAX_READBACK_AGE_S,
+        )
+        if protection.verdict is not ProtectionVerdict.CLEAR:
             return None
         return iset, output
 
@@ -313,28 +348,22 @@ async def execute_main_guard_desulfation_return(
     pre_return_guard = guard
     return_checkpoint_guard = None
     try:
-        before = await port.execution_owner.get_all_live()
+        before = await port.read_live()
         before_values = fresh_native(before)
         if before_values is None:
             raise MainGuardExecutionFault("desulfation_return_preflight_stale_native")
         before_i, _ = before_values
         if abs(before_i - guard.hardware_limit_a) > READBACK_TOLERANCE_A:
             raise MainGuardExecutionFault("desulfation_return_preflight_guard_readback_mismatch")
-        before_meta = before.get("_meta", {})
-        before_stamps = [
-            float(before_meta[k]["subscription_timestamp_monotonic"])
-            for k in _REQUIRED_NATIVE_KEYS
-        ]
+        before_stamps = _native_generation(before)
         if not await port.request_verified_off():
             raise MainGuardExecutionFault("desulfation_return_verified_off_failed")
-        off = await port.execution_owner.get_all_live()
+        off = await port.read_live()
         off_values = fresh_native(off)
         if off_values is None:
             raise MainGuardExecutionFault("desulfation_return_post_off_native_unavailable")
         off_i, _ = off_values
-        off_meta = off.get("_meta", {})
-        off_stamps = [float(off_meta[k]["subscription_timestamp_monotonic"])
-                      for k in _REQUIRED_NATIVE_KEYS]
+        off_stamps = _native_generation(off)
         if any(after <= prior for after, prior in zip(off_stamps, before_stamps)):
             raise MainGuardExecutionFault("desulfation_return_post_off_native_not_new")
         if abs(off_i - guard.hardware_limit_a) > READBACK_TOLERANCE_A:
@@ -352,7 +381,7 @@ async def execute_main_guard_desulfation_return(
             raise MainGuardExecutionFault("desulfation_return_voltage_setter_rejected")
         if not await port.program_current(target_i):
             raise MainGuardExecutionFault("desulfation_return_current_setter_rejected")
-        readback = await port.execution_owner.get_all_live()
+        readback = await port.read_live()
         values = fresh_native(readback)
         if values is None:
             raise MainGuardExecutionFault("desulfation_return_setpoint_readback_stale")
@@ -364,15 +393,18 @@ async def execute_main_guard_desulfation_return(
         returned = guard.return_after_verified_desulfation(
             now_s=float(now()), from_stage="DESULFATION", to_stage="MAIN",
             output_off_proven=True, current_readback_a=actual_i,
-            ocp_readback_a=None, readbacks_fresh=True,
+            readbacks_fresh=True,
             segment_id=f"{guard.session_id}:MAIN:{float(now()).hex()}",
         )
         if returned.fault:
             raise MainGuardExecutionFault("desulfation_return_guard_rejected:" + returned.fault)
         return_checkpoint_guard = returned
         controller._main_current_guard = returned
-        controller._device_set_current = actual_i
-        controller._device_set_voltage = target_v
+        set_observed_device_setpoints(
+            controller,
+            voltage_v=target_v,
+            current_a=actual_i,
+        )
         old_revision = getattr(controller, "_main_current_guard_revision", None)
         controller._save_session(battery_v, current, ah)
         if controller._main_current_guard_revision == old_revision:
@@ -381,31 +413,30 @@ async def execute_main_guard_desulfation_return(
         enabled = await port.request_verified_on()
         if not enabled:
             raise MainGuardExecutionFault("desulfation_return_output_enable_failed")
-        final = await port.execution_owner.verify_live_programming(
+        final = await port.verify_live_programming(
             voltage_v=target_v, current_a=target_i,
             recipe_voltage_ceiling_v=recipe_voltage_ceiling_v,
         )
         if not final:
-            await port.request_verified_off()
+            await port.request_emergency_off()
             raise MainGuardExecutionFault("desulfation_return_final_readback_failed")
         return MainGuardExecutionResult(returned, True, "verified_desulfation_return_committed",
                                         hardware_write_invoked=True)
     except asyncio.CancelledError:
         if hardware_write:
-            off_confirmed = await port.request_verified_off()
+            off_confirmed = await port.request_emergency_off()
             if off_confirmed and return_checkpoint_guard is not None:
                 await _compensate_interrupted_return(
                     port, controller,
                     pre_return_guard, return_checkpoint_guard,
                     battery_v, current, ah, now, max_stage_current_a,
-                    ocp_offset_a, stabilize_delay_s,
                 )
         raise
     except Exception as exc:
         off_confirmed = False
         if hardware_write:
             try:
-                off_confirmed = bool(await port.request_verified_off())
+                off_confirmed = bool(await port.request_emergency_off())
             except Exception:
                 pass
         if off_confirmed and return_checkpoint_guard is not None:
@@ -413,7 +444,6 @@ async def execute_main_guard_desulfation_return(
                 await _compensate_interrupted_return(
                     port, controller, pre_return_guard, return_checkpoint_guard,
                     battery_v, current, ah, now, max_stage_current_a,
-                    ocp_offset_a, stabilize_delay_s,
                 )
                 guard = controller._main_current_guard
             except Exception as compensation_error:
@@ -431,8 +461,7 @@ async def execute_main_guard_desulfation_return(
 async def _compensate_interrupted_return(
     port: Any, controller: Any, prior: MainCurrentGuard,
     checkpoint: MainCurrentGuard, battery_v: float, current: float,
-    ah: float, now: Now, max_stage_current_a: float, ocp_offset_a: float,
-    stabilize_delay_s: float,
+    ah: float, now: Now, max_stage_current_a: float,
 ) -> None:
     """Durably retain the interrupted epoch while restoring its old Iset cap.
 
@@ -441,27 +470,29 @@ async def _compensate_interrupted_return(
     raised ceiling that was checkpointed before Output ON.
     """
     from dataclasses import replace
-    before = await port.execution_owner.get_all_live()
+    before = await port.read_live()
     values = None
-    before_meta = before.get("_meta", {}) if isinstance(before, Mapping) else {}
-    before_stamps = {}
+    before_stamps: tuple[float, ...] = ()
     if isinstance(before, Mapping) and _native_freshness(before):
-        if all(isinstance(before_meta.get(key), Mapping)
-               and before_meta[key].get("source") == "esp_native_api"
-               and before_meta[key].get("native_type") in (
-                   {"SensorState", "BinarySensorState"} if key == "protection_code"
-                   else {"SensorState"}) for key in _REQUIRED_NATIVE_KEYS):
-            before_stamps = {
-                key: float(before_meta[key]["subscription_timestamp_monotonic"])
-                for key in _REQUIRED_NATIVE_KEYS
-            }
+        meta = before.get("_meta", {})
+        if all(isinstance(meta.get(key), Mapping)
+               and meta[key].get("source") == "esp_native_api"
+               and meta[key].get("native_type") == "SensorState"
+               for key in _REQUIRED_NATIVE_KEYS):
             output = finite_float(before.get("output_state_code_v2"))
             set_i = canonical_programmed_readback(before, "set_current")
             actual_i = finite_float(before.get("current"))
-            protection = decode_protection_code(before.get("protection_code"))
+            protection = assess_protection(
+                before,
+                require_fresh=True,
+                require_native=True,
+                max_age_s=MAX_READBACK_AGE_S,
+                max_skew_s=MAX_READBACK_AGE_S,
+            )
             if (output == 0 and set_i is not None
-                    and actual_i is not None and abs(actual_i) <= READBACK_TOLERANCE_A
-                    and not protection.unknown and not protection.tripped):
+                    and actual_i is not None and abs(actual_i) <= ZERO_CURRENT_TOLERANCE_A
+                    and protection.verdict is ProtectionVerdict.CLEAR):
+                before_stamps = _native_generation(before)
                 values = (set_i,)
     if values is None:
         raise MainGuardExecutionFault("interrupted_return_compensation_native_readback_unavailable")
@@ -469,29 +500,34 @@ async def _compensate_interrupted_return(
         raise MainGuardExecutionFault("interrupted_return_compensation_outside_envelope")
     if not await port.program_current(prior.hardware_limit_a):
         raise MainGuardExecutionFault("interrupted_return_compensation_setter_rejected")
-    after = await port.execution_owner.get_all_live()
+    after = await port.read_live()
     if not isinstance(after, Mapping) or not _native_freshness(after):
         raise MainGuardExecutionFault("interrupted_return_compensation_readback_stale")
     after_meta = after.get("_meta", {})
     after_i = canonical_programmed_readback(after, "set_current")
-    after_stamps = {}
+    after_stamps: tuple[float, ...] = ()
     if all(isinstance(after_meta.get(key), Mapping)
            and after_meta[key].get("source") == "esp_native_api"
-           and after_meta[key].get("native_type") in (
-               {"SensorState", "BinarySensorState"} if key == "protection_code"
-               else {"SensorState"}) for key in _REQUIRED_NATIVE_KEYS):
-        after_stamps = {
-            key: float(after_meta[key]["subscription_timestamp_monotonic"])
-            for key in _REQUIRED_NATIVE_KEYS
-        }
+           and after_meta[key].get("native_type") == "SensorState"
+           for key in _REQUIRED_NATIVE_KEYS):
+        protection = assess_protection(
+            after,
+            require_fresh=True,
+            require_native=True,
+            max_age_s=MAX_READBACK_AGE_S,
+            max_skew_s=MAX_READBACK_AGE_S,
+        )
+        if protection.verdict is ProtectionVerdict.CLEAR:
+            after_stamps = _native_generation(after)
     measured_after = finite_float(after.get("current"))
     if (finite_float(after.get("output_state_code_v2")) != 0
-            or measured_after is None or abs(measured_after) > READBACK_TOLERANCE_A
+            or measured_after is None or abs(measured_after) > ZERO_CURRENT_TOLERANCE_A
             or after_i is None
             or abs(after_i - prior.hardware_limit_a) > READBACK_TOLERANCE_A
             or not after_stamps
-            or any(after_stamps[key] <= before_stamps[key]
-                   for key in _REQUIRED_NATIVE_KEYS)):
+            or len(after_stamps) != len(before_stamps)
+            or any(after_stamp <= before_stamp
+                   for after_stamp, before_stamp in zip(after_stamps, before_stamps))):
         raise MainGuardExecutionFault("interrupted_return_compensation_readback_mismatch")
     compensated = replace(
         prior, segment_id=checkpoint.segment_id,
@@ -503,14 +539,14 @@ async def _compensate_interrupted_return(
     old_device_current = getattr(controller, "_device_set_current", None)
     old_revision = getattr(controller, "_main_current_guard_revision", None)
     controller._main_current_guard = compensated
-    controller._device_set_current = compensated.hardware_limit_a
+    set_observed_device_current(controller, compensated.hardware_limit_a)
     try:
         controller._save_session(battery_v, current, ah)
         if controller._main_current_guard_revision == old_revision:
             raise MainGuardExecutionFault("interrupted_return_compensation_not_durable")
     except BaseException:
         controller._main_current_guard = checkpoint
-        controller._device_set_current = old_device_current
+        set_observed_device_current(controller, old_device_current)
         raise
 
 

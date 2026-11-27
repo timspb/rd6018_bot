@@ -7,6 +7,8 @@ a release by itself and never removes old backups or changes the device.
 from __future__ import annotations
 
 import os
+import ctypes
+import shutil
 from pathlib import Path
 
 RESERVE_BYTES = 256 * 1024 * 1024
@@ -17,6 +19,35 @@ class CapacityBlocked(RuntimeError):
     pass
 
 
+def _windows_allocated_bytes(path: Path) -> int:
+    """Return Windows' allocated-on-disk size, failing closed on API errors."""
+    if os.name != "nt":
+        raise CapacityBlocked("Windows allocation API unavailable")
+    try:
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        get_size = kernel32.GetCompressedFileSizeW
+        get_size.argtypes = (ctypes.c_wchar_p, ctypes.POINTER(ctypes.c_ulong))
+        get_size.restype = ctypes.c_ulong
+        high = ctypes.c_ulong()
+        ctypes.set_last_error(0)
+        low = get_size(str(path), ctypes.byref(high))
+        error = ctypes.get_last_error()
+        if low == 0xFFFFFFFF and error:
+            raise OSError(error, "GetCompressedFileSizeW failed", str(path))
+        return (high.value << 32) | low
+    except (AttributeError, OSError) as exc:
+        raise CapacityBlocked("cannot reliably determine allocated file size") from exc
+
+
+def _allocated_file_bytes(path: Path) -> int:
+    if os.name == "nt":
+        return _windows_allocated_bytes(path)
+    try:
+        return path.stat().st_blocks * 512
+    except (AttributeError, OSError) as exc:
+        raise CapacityBlocked("cannot reliably determine allocated file size") from exc
+
+
 def allocated_bytes(root: Path) -> int:
     if root.is_symlink() or not root.is_dir():
         raise CapacityBlocked("installed component missing or symlinked")
@@ -25,7 +56,7 @@ def allocated_bytes(root: Path) -> int:
         if path.is_symlink():
             allocated += 4096
         elif path.is_file():
-            allocated += path.stat().st_blocks * 512
+            allocated += _allocated_file_bytes(path)
         elif not path.is_dir():
             raise CapacityBlocked("special entry prevents reliable rollback sizing")
     return allocated
@@ -45,8 +76,7 @@ def assess(root: Path, candidate: Path, *, disk_usage=None) -> dict[str, int | b
     # It is intentionally conservative: no hardlink, sparse file, or CoW
     # saving is assumed. Free capacity is sampled immediately before action.
     if disk_usage is None:
-        stats = os.statvfs(root)
-        free = stats.f_bavail * stats.f_frsize
+        free = shutil.disk_usage(root).free
     else:
         free = int(disk_usage(root).free)
     return {

@@ -5,7 +5,7 @@ import os
 from dataclasses import dataclass
 from typing import Optional
 
-from edge_safety_lease import EdgeLeaseState, EdgeSafetyLease, EdgeSafetyLeaseError, _bool_state
+from runtime.safety.edge_lease import EdgeLeaseState, EdgeSafetyLease, EdgeSafetyLeaseError, _bool_state
 
 
 @dataclass(frozen=True)
@@ -82,30 +82,8 @@ class EdgeAutonomousAuthority:
         return parsed
 
     async def _require_button(self, entity_id: str) -> None:
-        # Native ESPHome buttons provide ButtonInfo identity and command keys,
-        # but no periodic ButtonState. Never infer button presence from a
-        # nonexistent native state callback.
-        inventory = getattr(self.lease.hass, "get_button_info", None)
-        if callable(inventory):
-            info = await inventory(entity_id)
-            if (
-                not isinstance(info, dict)
-                or info.get("status") != "ok"
-                or info.get("native_type") != "ButtonInfo"
-                or not info.get("exists", False)
-            ):
-                raise EdgeSafetyLeaseError(
-                    f"edge autonomous native ButtonInfo missing/invalid: {entity_id}"
-                )
-            return
-
-        # Compatibility for HA-only adapters, where button entity state is
-        # readable. No native->HA fallback if the native inventory is invalid.
-        state = await self.lease._state_value(entity_id)
-        if state is None or str(state).strip().lower() == "unavailable":
-            raise EdgeSafetyLeaseError(
-                f"edge autonomous command entity is missing/unavailable: {entity_id}"
-            )
+        """Delegate button inventory/transport validation to EdgeSafetyLease."""
+        await self.lease.require_button_available(entity_id)
 
     def _assert_unmanaged_healthy(self, state: EdgeLeaseState) -> None:
         if state.armed:

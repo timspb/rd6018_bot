@@ -24,7 +24,6 @@ def verified_off_scenario(operator: str) -> BenchScenario:
         BenchStep("disable_output", "disable"),
         BenchStep("verify_off", "read_output_state", True),
         BenchStep("verify_current", "read_current", True),
-        BenchStep("reset_protection", "reset_protection"),
     ], safety=("safety_decision", "telemetry_fresh", "capability_match", "gate_armed"))
 
 
@@ -40,8 +39,6 @@ def controlled_enable_scenario(operator: str) -> BenchScenario:
         BenchStep("envelope_validation"),
         BenchStep("set_voltage", "set_voltage"),
         BenchStep("set_current", "set_current"),
-        BenchStep("set_ovp", "set_ovp"),
-        BenchStep("set_ocp", "set_ocp"),
         BenchStep("readback_compare", "readback", True),
         BenchStep("enable_output", "enable"),
         BenchStep("verify_on", "read_output_state", True),

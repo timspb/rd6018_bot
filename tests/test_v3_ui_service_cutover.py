@@ -28,8 +28,6 @@ def _view() -> ServiceDetailsView:
         stage="Main Charge",
         v2_analysis="available",
         decision="continue",
-        ovp_v=15.2,
-        ocp_a=2.5,
         protection="NONE",
         regulation="CV",
         heartbeat="fresh",

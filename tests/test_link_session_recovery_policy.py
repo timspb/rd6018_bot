@@ -33,8 +33,6 @@ def auth_input(route, **overrides):
         restored=True,
         auto_enable_authorized=True,
         safe_wait=False,
-        ovp_triggered=False,
-        ocp_triggered=False,
         input_voltage_ok=True,
     )
     values.update(overrides)
@@ -81,8 +79,6 @@ class LinkSessionRecoveryPolicyTests(unittest.TestCase):
         for changes in (
             {"restored": False},
             {"auto_enable_authorized": False},
-            {"ovp_triggered": True},
-            {"ocp_triggered": True},
             {"input_voltage_ok": False},
         ):
             self.assertEqual(
@@ -98,17 +94,22 @@ class LinkSessionRecoveryPolicyTests(unittest.TestCase):
             RecoveryAction.SAFE_WAIT_OFF,
         )
         self.assertEqual(
-            authorize_recovery_action(auth_input(RecoveryRoute.ACTIVE_LINK, ovp_triggered=True)),
-            RecoveryAction.SKIP,
-        )
-        self.assertEqual(
-            authorize_recovery_action(auth_input(RecoveryRoute.ACTIVE_LINK, ocp_triggered=True)),
-            RecoveryAction.SKIP,
-        )
-        self.assertEqual(
             authorize_recovery_action(auth_input(RecoveryRoute.ACTIVE_LINK, input_voltage_ok=False)),
             RecoveryAction.SKIP,
         )
+
+    def test_cold_start_denies_automatic_restore_even_when_other_authority_is_true(self):
+        for route in (RecoveryRoute.IDLE_LINK, RecoveryRoute.IDLE_OUTPUT_ON):
+            self.assertEqual(
+                authorize_recovery_action(auth_input(
+                    route,
+                    restored=True,
+                    auto_enable_authorized=True,
+                    input_voltage_ok=True,
+                    cold_start=True,
+                )),
+                RecoveryAction.SKIP,
+            )
 
 
     def test_combinatorial_parity_with_preexisting_restoration_branches(self):
@@ -116,21 +117,20 @@ class LinkSessionRecoveryPolicyTests(unittest.TestCase):
         from itertools import product
 
         stages = ("IDLE", "DONE", "COOLING", "MAIN", "SAFE_WAIT")
-        for lost, stage, output, current, temp_ok, ovp, ocp, power_ok, restored, allowed in product(
+        for lost, stage, output, current, temp_ok, power_ok, restored, allowed in product(
             (False, True), stages, (False, True), (0.0, 0.05, 0.051),
-            (False, True), (False, True), (False, True),
-            (False, True), (False, True), (False, True),
+            (False, True), (False, True), (False, True), (False, True),
         ):
             # Mirror the three prior production-runtime branches in priority order.
             expected = RecoveryAction.SKIP
             if temp_ok and lost and stage not in ("IDLE", "DONE", "COOLING") and not output:
-                if not ovp and not ocp and power_ok:
+                if power_ok:
                     expected = RecoveryAction.REENABLE_ACTIVE
             elif temp_ok and lost and stage == "IDLE":
-                if restored and allowed and not ovp and not ocp and power_ok:
+                if restored and allowed and power_ok:
                     expected = RecoveryAction.SAFE_WAIT_OFF if stage == "SAFE_WAIT" else RecoveryAction.ENABLE_RESTORED
             elif temp_ok and not lost and stage == "IDLE" and output and current > 0.05:
-                if restored and allowed and not ovp and not ocp and power_ok:
+                if restored and allowed and power_ok:
                     expected = RecoveryAction.PROGRAM_RETAINED_OUTPUT
             route = choose_recovery_route(route_input(
                 was_unavailable=lost, stage=stage, output_on=output,
@@ -138,12 +138,10 @@ class LinkSessionRecoveryPolicyTests(unittest.TestCase):
             ))
             actual = authorize_recovery_action(auth_input(
                 route, restored=restored, auto_enable_authorized=allowed,
-                safe_wait=(stage == "SAFE_WAIT"), ovp_triggered=ovp,
-                ocp_triggered=ocp, input_voltage_ok=power_ok,
+                safe_wait=(stage == "SAFE_WAIT"), input_voltage_ok=power_ok,
             ))
             self.assertEqual(actual, expected, (
-                lost, stage, output, current, temp_ok, ovp, ocp,
-                power_ok, restored, allowed,
+                lost, stage, output, current, temp_ok, power_ok, restored, allowed,
             ))
 
     def test_policy_is_pure_and_production_wires_all_routes(self):
@@ -156,16 +154,20 @@ class LinkSessionRecoveryPolicyTests(unittest.TestCase):
         ]
         imports += [alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names]
         self.assertFalse(imports, "policy must not import clients, logger, or production code")
-        source = Path("runtime/production_runtime.py").read_text(encoding="utf-8")
+        source = Path("application/session_recovery_service.py").read_text(encoding="utf-8")
         self.assertEqual(source.count("choose_recovery_route(RecoveryRouteInput("), 1)
-        self.assertIn("recovery_route is RecoveryRoute.ACTIVE_LINK", source)
-        self.assertIn("recovery_route is RecoveryRoute.IDLE_LINK", source)
-        self.assertIn("recovery_route is RecoveryRoute.IDLE_OUTPUT_ON", source)
+        self.assertIn("route is RecoveryRoute.ACTIVE_LINK", source)
+        self.assertIn("route is RecoveryRoute.IDLE_LINK", source)
+        self.assertIn("route is RecoveryRoute.IDLE_OUTPUT_ON", source)
         self.assertIn("try_restore_session(", source)
         self.assertIn("restore_allows_auto_enable", source)
-        self.assertLess(source.index("if _operator_pause_active():", source.index("# Explicit operator pause")),
-                        source.index("recovery_route = choose_recovery_route"))
-        self.assertIn('output_on = str(output_switch or "").lower() == "on"', source)
+        runtime = Path("runtime/production_runtime.py").read_text(encoding="utf-8")
+        self.assertLess(runtime.index("if _operator_pause_active():", runtime.index("# Explicit operator pause")),
+                        runtime.index("await SessionRecoveryService.run_cycle("))
+        telemetry = Path("runtime/telemetry/source.py").read_text(encoding="utf-8")
+        self.assertIn("observe_data_logger_cycle", runtime)
+        self.assertIn('output_on = str(output_switch or "").lower() == "on"', telemetry)
+        self.assertIn("output_on = observation.output_on", runtime)
         self.assertNotIn("request_verified_on", policy_path.read_text(encoding="utf-8"))
 
 

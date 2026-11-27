@@ -25,8 +25,8 @@ class _Port:
             final_verification_failed=False,
         )
 
-    async def request_verified_off(self):
-        self.calls.append(("off",))
+    async def request_emergency_off(self):
+        self.calls.append(("emergency_off",))
         return self.off_ok
 
 
@@ -44,6 +44,8 @@ class _Controller:
 
     def commit_verified_enable_transition(self, transition, **kwargs):
         self.commits.append((transition, kwargs))
+        if isinstance(self.commit, Exception):
+            raise self.commit
         return self.commit
 
 
@@ -56,9 +58,8 @@ class ApplicationActionExecutionTests(unittest.IsolatedAsyncioTestCase):
             {"switch": "off"},
             execution_port=port, controller=controller,
             battery_v=14.1, current=0.2, temp=24.0, ah=3.0,
-            max_stage_current_a=12.0, ocp_offset_a=0.1,
-            idle_safe_ocp_a=12.0, stabilize_delay_s=2.0,
-            recipe_voltage_ceiling_v=16.6, has_ovp=True, has_ocp=True,
+            max_stage_current_a=12.0,
+            recipe_voltage_ceiling_v=16.6,
             notify=lambda *args, **kwargs: notices.append((args, kwargs)),
             log_event=lambda *args: events.append(args),
             logger=SimpleNamespace(warning=lambda *_: None, error=lambda *_: None),
@@ -81,15 +82,35 @@ class ApplicationActionExecutionTests(unittest.IsolatedAsyncioTestCase):
     async def test_missing_commit_after_enable_requests_verified_off(self):
         result, port, controller, _notices, _events = await self._execute(enabled=True, commit=None)
         self.assertFalse(result)
-        self.assertEqual([call[0] for call in port.calls], ["execute", "off"])
+        self.assertEqual([call[0] for call in port.calls], ["execute", "emergency_off"])
         self.assertFalse(controller._last_known_output_on)
+
+    async def test_storage_commit_exception_forces_immediate_verified_off(self):
+        result, port, controller, notices, events = await self._execute(
+            enabled=True, commit=ValueError("ineligible_charge_stage"),
+            kind="final_safe_wait_to_done", off_ok=True,
+        )
+        self.assertFalse(result)
+        self.assertEqual([call[0] for call in port.calls], ["execute", "emergency_off"])
+        self.assertEqual(controller.stopped, [])
+        self.assertFalse(controller._last_known_output_on)
+        self.assertFalse(events)
+        self.assertEqual(len(notices), 1)
+        self.assertTrue(notices[0][1]["critical"])
+
+    async def test_storage_commit_exception_and_unconfirmed_off_is_not_accepted(self):
+        with self.assertRaisesRegex(RuntimeError, "Output OFF unconfirmed"):
+            await self._execute(
+                enabled=True, commit=ValueError("ineligible_charge_stage"),
+                kind="final_safe_wait_to_done", off_ok=False,
+            )
 
     async def test_failed_recovery_enable_retires_only_after_verified_off(self):
         result, port, controller, _notices, _events = await self._execute(
             enabled=False, commit=None, kind="recovery_safe_wait_to_main", off_ok=True,
         )
         self.assertFalse(result)
-        self.assertEqual([x[0] for x in port.calls], ["execute", "off"])
+        self.assertEqual([x[0] for x in port.calls], ["execute", "emergency_off"])
         self.assertEqual(controller.stopped, [True])
         self.assertEqual(controller.commits, [])
 
@@ -98,7 +119,7 @@ class ApplicationActionExecutionTests(unittest.IsolatedAsyncioTestCase):
             enabled=False, commit=None, kind="recovery_safe_wait_to_main", off_ok=False,
         )
         self.assertFalse(result)
-        self.assertEqual([x[0] for x in port.calls], ["execute", "off"])
+        self.assertEqual([x[0] for x in port.calls], ["execute", "emergency_off"])
         self.assertEqual(controller.stopped, [])
 
     async def test_unrelated_failed_enable_does_not_retire_recovery(self):

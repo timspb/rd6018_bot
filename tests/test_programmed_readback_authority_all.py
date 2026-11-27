@@ -1,7 +1,7 @@
 import unittest
 from datetime import datetime, timedelta, timezone
 
-from safe_output import OutputRequest, SafetySupervisor, snapshot_from_live
+from runtime.safety.output_policy import OutputRequest, SafetySupervisor, snapshot_from_live
 
 
 def _meta(stamp):
@@ -21,8 +21,6 @@ def _live(*, v2_age_s=0.0, include_v2=True):
         "protection_code": 0,
         "set_voltage": 99.0,
         "set_current": 99.0,
-        "ovp": 99.0,
-        "ocp": 99.0,
         "_meta": {
             key: _meta(stamp)
             for key in (
@@ -40,8 +38,6 @@ def _live(*, v2_age_s=0.0, include_v2=True):
             {
                 "set_voltage_readback_v2": 14.4,
                 "set_current_readback_v2": 2.0,
-                "ovp_readback_v2": 14.5,
-                "ocp_readback_v2": 2.1,
             }
         )
         live["_meta"].update(
@@ -50,8 +46,6 @@ def _live(*, v2_age_s=0.0, include_v2=True):
                 for key in (
                     "set_voltage_readback_v2",
                     "set_current_readback_v2",
-                    "ovp_readback_v2",
-                    "ocp_readback_v2",
                 )
             }
         )
@@ -59,7 +53,7 @@ def _live(*, v2_age_s=0.0, include_v2=True):
 
 
 class ProgrammedReadbackAuthorityAllTests(unittest.TestCase):
-    REQUEST = OutputRequest(14.4, 2.0, 14.5, 2.1, 14.4)
+    REQUEST = OutputRequest(14.4, 2.0, 14.4)
 
     def test_fresh_canonical_readbacks_override_legacy_projection(self):
         telemetry = snapshot_from_live(_live(), require_programming_freshness=True)
@@ -83,8 +77,6 @@ class ProgrammedReadbackAuthorityAllTests(unittest.TestCase):
         live = _live(include_v2=False)
         live["set_voltage"] = 14.4
         live["set_current"] = 2.0
-        live["ovp"] = 14.5
-        live["ocp"] = 2.1
         self.assertIsNone(snapshot_from_live(live, require_programming_freshness=True))
 
 

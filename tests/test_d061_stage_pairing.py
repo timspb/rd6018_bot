@@ -2,6 +2,7 @@
 import hashlib
 import io
 import json
+import os
 import shutil
 import subprocess
 import tarfile
@@ -11,7 +12,11 @@ from pathlib import Path
 from unittest.mock import patch
 from tools import d061_transport_windows as staging
 from tools import run_d061_takeover_smoke as runner
-from tools.acceptance_guard import pairing
+
+if os.name == "posix":
+    from tools.acceptance_guard import pairing
+else:
+    pairing = None
 
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -22,8 +27,8 @@ ROOT=Path(__file__).resolve().parents[1]
 # of these tests; a byte-verified release archive must not fail merely because
 # it lacks its repository history or the Git executable.
 @unittest.skipUnless(
-    (ROOT / ".git").exists() and shutil.which("git") is not None,
-    "historical D061 git-archive pairing requires a VCS checkout (runs in CI)",
+    pairing is not None and (ROOT / ".git").exists() and shutil.which("git") is not None,
+    "historical D061 pairing requires POSIX fcntl and a VCS checkout (runs in Linux CI)",
 )
 class D061StagePairingTests(unittest.TestCase):
     @classmethod
@@ -31,7 +36,18 @@ class D061StagePairingTests(unittest.TestCase):
         cls.manifest=runner.read_pinned_manifest(ROOT/'tools/acceptance_guard/source-manifest.json')
         raw=subprocess.check_output(['git','archive','--format=tar',staging.SHA],cwd=ROOT)
         cls.canonical_tar=runner.normalize_git_archive(raw,cls.manifest)
-        cls.overlay_tar=runner.make_takeover_overlay(cls.manifest)
+        # Build the historical, reviewed D061 overlay from the frozen Git
+        # source rather than the evolving WIP modules in this working tree.
+        with tempfile.TemporaryDirectory() as pinned_temp:
+            pinned_root = Path(pinned_temp)
+            for name in runner.TAKEOVER_OVERLAY:
+                raw = (
+                    ROOT / "tests/fixtures/architecture/"
+                    "d061_overlay_3c692554074b27805419a9b0767133a1c8d78150" / name
+                ).read_bytes()
+                (pinned_root / name).write_bytes(raw)
+            with patch.object(staging, "OVERLAY", pinned_root):
+                cls.overlay_tar = runner.make_takeover_overlay(cls.manifest)
 
     def _stage(self,root,overlay=None):
         canonical=root/'.canonical-source'

@@ -55,27 +55,91 @@ def operator_journal_signal_event(
     main_stage: str,
     mix_stage: str,
     previous_current_min_a: float | None,
+    is_cv: bool = False,
+    is_cc: bool = False,
 ) -> str | None:
-    """One recorded Imin/Vmax milestone, without changing charge authority.
-
-    SignalAnalyzer owns the accepted minimum timestamp and resets its age when
-    CURRENT_MINIMUM_UPDATED fires. The journal merely describes that decision.
-    """
+    """Describe analyzer-owned extrema and confirmed Delta; never decide control."""
     metrics = record.analysis.metrics
     events = record.analysis.events
+    mode = "CV" if is_cv else ("CC" if is_cc else "unknown")
+
     if SignalEvent.CURRENT_MINIMUM_UPDATED in events:
         minimum = metrics.current_min_a
         if minimum is None or not math.isfinite(minimum):
             return None
+        age = getattr(metrics, "seconds_since_current_min", None)
+        delta = getattr(metrics, "delta_current_from_min_a", None)
+        threshold = getattr(metrics, "reversal_threshold_a", None)
+        confirmations = getattr(metrics, "reversal_confirmations", None)
+        fields = [f"Imin={minimum:.3f}A"]
+        if age is not None and math.isfinite(age):
+            fields.append(f"age_s={max(0.0, age):.1f}")
+        if delta is not None and math.isfinite(delta):
+            fields.append(f"delta_a={delta:.3f}")
+        if threshold is not None and math.isfinite(threshold):
+            fields.append(f"required_delta_a={threshold:.3f}")
+        if confirmations is not None:
+            fields.append(f"confirmations={int(confirmations)}")
         if stage == main_stage:
             name = "MAIN_HOLD_START" if previous_current_min_a is None else "MAIN_HOLD_RESET"
-            return f"{name} | Imin={minimum:.3f}A"
+            return " | ".join([name, *fields])
         if stage == mix_stage:
-            return f"MIX_IMIN_UPDATED | Imin={minimum:.3f}A"
+            return " | ".join(["MIX_IMIN_UPDATED", f"mode={mode}", *fields])
+
     if stage == mix_stage and SignalEvent.VOLTAGE_MAXIMUM_UPDATED in events:
         maximum = metrics.voltage_max_v
         if maximum is not None and math.isfinite(maximum):
-            return f"MIX_VMAX_UPDATED | Vmax={maximum:.3f}V"
+            age = getattr(metrics, "seconds_since_voltage_max", None)
+            delta = getattr(metrics, "delta_voltage_from_max_v", None)
+            threshold = getattr(metrics, "voltage_reversal_threshold_v", None)
+            confirmations = getattr(metrics, "voltage_reversal_confirmations", None)
+            fields = [f"Vmax={maximum:.3f}V", f"mode={mode}"]
+            if age is not None and math.isfinite(age):
+                fields.append(f"age_s={max(0.0, age):.1f}")
+            if delta is not None and math.isfinite(delta):
+                fields.append(f"delta_v={delta:.3f}")
+            if threshold is not None and math.isfinite(threshold):
+                fields.append(f"required_delta_v={threshold:.3f}")
+            if confirmations is not None:
+                fields.append(f"confirmations={int(confirmations)}")
+            return " | ".join(["MIX_VMAX_UPDATED", *fields])
+
+    if stage == mix_stage and SignalEvent.CURRENT_REVERSAL_CONFIRMED in events and is_cv:
+        minimum = getattr(metrics, "current_min_a", None)
+        delta = getattr(metrics, "delta_current_from_min_a", None)
+        threshold = getattr(metrics, "reversal_threshold_a", None)
+        age = getattr(metrics, "seconds_since_current_min", None)
+        confirmations = getattr(metrics, "reversal_confirmations", None)
+        fields = ["mode=CV"]
+        if minimum is not None and math.isfinite(minimum):
+            fields.append(f"Imin={minimum:.3f}A")
+        if delta is not None and math.isfinite(delta):
+            fields.append(f"delta_a={delta:.3f}")
+        if threshold is not None and math.isfinite(threshold):
+            fields.append(f"required_delta_a={threshold:.3f}")
+        if age is not None and math.isfinite(age):
+            fields.append(f"age_s={max(0.0, age):.1f}")
+        fields.append(f"confirmations={int(confirmations or 0)}")
+        return " | ".join(["MIX_DELTA_CONFIRMED", *fields])
+
+    if stage == mix_stage and SignalEvent.VOLTAGE_REVERSAL_CONFIRMED in events and is_cc:
+        maximum = getattr(metrics, "voltage_max_v", None)
+        delta = getattr(metrics, "delta_voltage_from_max_v", None)
+        threshold = getattr(metrics, "voltage_reversal_threshold_v", None)
+        age = getattr(metrics, "seconds_since_voltage_max", None)
+        confirmations = getattr(metrics, "voltage_reversal_confirmations", None)
+        fields = ["mode=CC"]
+        if maximum is not None and math.isfinite(maximum):
+            fields.append(f"Vmax={maximum:.3f}V")
+        if delta is not None and math.isfinite(delta):
+            fields.append(f"delta_v={delta:.3f}")
+        if threshold is not None and math.isfinite(threshold):
+            fields.append(f"required_delta_v={threshold:.3f}")
+        if age is not None and math.isfinite(age):
+            fields.append(f"age_s={max(0.0, age):.1f}")
+        fields.append(f"confirmations={int(confirmations or 0)}")
+        return " | ".join(["MIX_DELTA_CONFIRMED", *fields])
+
     return None
 
 
@@ -245,7 +309,10 @@ def build_signal_context(sample: SignalContextInput) -> Dict[str, Any]:
             if analyzer is not None and analyzer._current_min_time_s is not None else None
         ),
         "delta_reference_a": metrics.current_min_a,
+        "delta_current_from_min_a": metrics.delta_current_from_min_a,
         "voltage_max_v": metrics.voltage_max_v,
+        "delta_voltage_from_max_v": metrics.delta_voltage_from_max_v,
+        "voltage_reversal_threshold_v": metrics.voltage_reversal_threshold_v,
         "voltage_max_time_s": (
             float(sample.timestamp_s) - float(analyzer._voltage_max_time_s)
             if analyzer is not None and analyzer._voltage_max_time_s is not None else None
@@ -301,6 +368,9 @@ def build_shadow_metadata(
             "d_temp_c_per_min": metrics.d_temp_c_per_min,
             "current_min_a": metrics.current_min_a,
             "seconds_since_current_min": metrics.seconds_since_current_min,
+            "main_stable_hold_s": getattr(metrics, "main_stable_hold_s", None),
+            "main_stable_since_s": getattr(metrics, "main_stable_since_s", None),
+            "main_stability_status": getattr(metrics, "main_stability_status", None),
             "delta_current_from_min_a": metrics.delta_current_from_min_a,
             "reversal_threshold_a": metrics.reversal_threshold_a,
             "reversal_confirmations": metrics.reversal_confirmations,

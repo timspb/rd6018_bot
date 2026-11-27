@@ -1,8 +1,8 @@
 import types
 import unittest
 
-from runtime_safety import RuntimeSafetyError
-from runtime_safety_strict import StrictRuntimeSafetyGuard
+from runtime.safety.runtime_guard import RuntimeSafetyError
+from runtime.safety.strict_guard import StrictRuntimeSafetyGuard
 
 
 def live_state(**overrides):
@@ -14,30 +14,17 @@ def live_state(**overrides):
         "temp_int": 32.0,
         "input_voltage": 64.0,
         "switch": "on",
-        "ovp_triggered": "off",
-        "ocp_triggered": "off",
         "set_voltage": 14.72,
         "set_current": 7.20,
         "set_current_readback_v2": 7.20,
         "set_voltage_readback_v2": 14.72,
-        "ovp": 14.82,
-        "ocp": 7.30,
-        "ovp_readback_v2": 14.82,
-        "ocp_readback_v2": 7.30,
         "_meta": {
             "set_voltage_readback_v2": {"status": "ok", "age_s": 0.0},
             "set_current_readback_v2": {"status": "ok", "age_s": 0.0},
-            "ovp_readback_v2": {"status": "ok", "age_s": 0.0},
-            "ocp_readback_v2": {"status": "ok", "age_s": 0.0},
         },
     }
     base.update(overrides)
-    for source, key in (
-        ("set_voltage_readback_v2", "set_voltage"),
-        ("set_current_readback_v2", "set_current"),
-        ("ovp_readback_v2", "ovp"),
-        ("ocp_readback_v2", "ocp"),
-    ):
+    for source, key in (("set_voltage_readback_v2", "set_voltage"), ("set_current_readback_v2", "set_current")):
         if key in overrides:
             base[source] = float(base[key])
     if "set_current" in overrides and "set_current_readback_v2" not in overrides:
@@ -83,8 +70,6 @@ class FakeHass:
         readback_key = {
             "set_voltage": "set_voltage_readback_v2",
             "set_current": "set_current_readback_v2",
-            "ovp": "ovp_readback_v2",
-            "ocp": "ocp_readback_v2",
         }.get(key)
         if readback_key:
             self.live[readback_key] = float(value)
@@ -102,13 +87,6 @@ class FakeHass:
 
     async def set_current(self, value):
         return await self._set("set_current", "set_current", value)
-
-    async def set_ovp(self, value):
-        return await self._set("set_ovp", "ovp", value)
-
-    async def set_ocp(self, value):
-        return await self._set("set_ocp", "ocp", value)
-
 
 class FakeApp:
     def __init__(
@@ -144,8 +122,6 @@ class LiveTransitionInterlockTests(unittest.IsolatedAsyncioTestCase):
                 set_voltage=14.72,
                 set_current=7.20,
                 current=0.09,
-                ovp=16.60,
-                ocp=7.30,
             ),
             target_v=16.50,
             target_i=2.16,
@@ -167,8 +143,6 @@ class LiveTransitionInterlockTests(unittest.IsolatedAsyncioTestCase):
                 set_voltage=14.20,
                 set_current=2.00,
                 current=1.50,
-                ovp=16.60,
-                ocp=2.20,
             ),
             target_v=16.00,
             target_i=2.00,
@@ -179,85 +153,6 @@ class LiveTransitionInterlockTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(ok)
         self.assertEqual(app.hass.setter_calls, [("set_voltage", 16.00)])
-
-    async def test_temperature_compensation_drop_lowers_voltage_before_ovp(self):
-        app = FakeApp(
-            live=live_state(
-                set_voltage=14.82,
-                voltage=14.82,
-                set_current=7.20,
-                current=0.40,
-                ovp=14.92,
-                ocp=7.30,
-            ),
-            target_v=14.72,
-            target_i=7.20,
-            follow_voltage_setpoint=True,
-        )
-        guard = self._guard(app)
-
-        ok = await guard.set_ovp(14.82)
-
-        self.assertTrue(ok)
-        self.assertEqual(
-            app.hass.setter_calls[:2],
-            [("set_voltage", 14.72), ("set_ovp", 14.82)],
-        )
-        self.assertEqual(app.hass.live["switch"], "on")
-
-    async def test_ocp_tightening_refuses_to_cut_through_unsettled_measured_current(self):
-        app = FakeApp(
-            live=live_state(
-                set_current=2.16,
-                current=3.00,
-                ocp=7.30,
-            )
-        )
-        guard = self._guard(app)
-        guard.TRANSITION_SETTLE_TIMEOUT_S = 0.0
-
-        with self.assertRaises(RuntimeSafetyError):
-            await guard.set_ocp(2.26)
-
-        self.assertFalse(any(name == "set_ocp" for name, _ in app.hass.setter_calls))
-        self.assertEqual(app.hass.turn_off_calls, 1)
-        self.assertEqual(app.hass.live["switch"], "off")
-
-    async def test_ocp_tightening_is_allowed_after_measured_current_is_below_margin(self):
-        app = FakeApp(
-            live=live_state(
-                set_current=2.16,
-                current=2.10,
-                ocp=7.30,
-            )
-        )
-        guard = self._guard(app)
-
-        ok = await guard.set_ocp(2.26)
-
-        self.assertTrue(ok)
-        self.assertIn(("set_ocp", 2.26), app.hass.setter_calls)
-        self.assertEqual(app.hass.live["switch"], "on")
-
-    async def test_ovp_tightening_refuses_to_cut_through_unsettled_voltage(self):
-        app = FakeApp(
-            live=live_state(
-                set_voltage=14.70,
-                voltage=15.20,
-                ovp=16.60,
-            ),
-            target_v=14.70,
-            target_i=7.20,
-        )
-        guard = self._guard(app)
-        guard.TRANSITION_SETTLE_TIMEOUT_S = 0.0
-
-        with self.assertRaises(RuntimeSafetyError):
-            await guard.set_ovp(14.82)
-
-        self.assertFalse(any(name == "set_ovp" for name, _ in app.hass.setter_calls))
-        self.assertEqual(app.hass.turn_off_calls, 1)
-
 
 if __name__ == "__main__":
     unittest.main()

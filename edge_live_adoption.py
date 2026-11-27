@@ -2,17 +2,16 @@ from __future__ import annotations
 
 import math
 import os
-import time
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Any, Optional
+from typing import Optional
 
-from edge_safety_lease import (
+from runtime.safety.edge_lease import (
     EdgeLeaseState,
     EdgeSafetyLease,
     EdgeSafetyLeaseError,
     _bool_state,
 )
+from runtime.safety.protection_boundary import ProtectionVerdict
 
 
 @dataclass(frozen=True)
@@ -30,11 +29,9 @@ class EdgeLiveAdoption:
 
     Normal ``EdgeSafetyLease.arm()`` keeps its verified-Output-OFF invariant. This
     helper uses a distinct edge command whose ESPHome side requires fresh direct
-    register-18 Output-ON readback and otherwise preserves Output/V/I/OVP/OCP.
+    register-18 Output-ON readback and otherwise preserves Output/V/I.
 
-    D061 additionally requires the canonical raw register-16 protection-code entity.
-    Legacy OVP/OCP bit sensors are intentionally insufficient: register value 3 is OPP
-    and must never be flattened into a misleading "no OVP/no OCP" managed preflight.
+    D061 additionally requires a fresh Safety-owned hardware-protection verdict.
 
     Live adoption also proves the edge's configured watchdog TTL *before* pressing the
     ownership command. The deployed pre-D061 firmware used a 30-minute lease while D056
@@ -100,7 +97,7 @@ class EdgeLiveAdoption:
                 autonomous_entity = f"binary_sensor.{base}_safety_autonomous_mode"
         if not protection_entity:
             raise ValueError(
-                "raw protection-code entity is not configured and cannot be derived from renew entity"
+                "hardware protection entity is not configured and cannot be derived from renew entity"
             )
         if not ttl_entity:
             raise ValueError(
@@ -123,28 +120,7 @@ class EdgeLiveAdoption:
         return bool(self._command_may_have_executed)
 
     async def _require_entity(self) -> None:
-        native_button_info = getattr(self.lease.hass, "get_button_info", None)
-        if callable(native_button_info):
-            try:
-                info = await native_button_info(self.config.entity)
-            except Exception as exc:
-                raise EdgeSafetyLeaseError(
-                    "edge live-adoption button inventory is unavailable"
-                ) from exc
-            if (not isinstance(info, dict) or info.get("status") != "ok"
-                    or info.get("exists") is not True
-                    or info.get("native_type") != "ButtonInfo"):
-                raise EdgeSafetyLeaseError(
-                    "edge live-adoption entity is missing/unavailable or not a native button"
-                )
-        else:
-            # HA-only adapters expose button existence as a state. Unknown is
-            # normal for buttons; absent and unavailable states fail closed.
-            state = await self.lease._state_value(self.config.entity)
-            if state is None or str(state).strip().lower() == "unavailable":
-                raise EdgeSafetyLeaseError(
-                    "edge live-adoption entity is missing/unavailable"
-                )
+        await self.lease.require_button_available(self.config.entity)
 
     async def _require_not_autonomous(self) -> None:
         raw = await self.lease._state_value(self.config.autonomous_entity)
@@ -174,110 +150,35 @@ class EdgeLiveAdoption:
                 f"edge live adoption requires {expected:.0f}s lease TTL, got {ttl_s:.0f}s"
             )
 
-    @staticmethod
-    def _timestamp(value: Any) -> Optional[float]:
-        if not isinstance(value, str) or not value.strip():
-            return None
-        text = value.strip()
-        if text.endswith("Z"):
-            text = text[:-1] + "+00:00"
+    async def _require_protection_clear(self) -> None:
+        """Require the Safety-owned hardware-protection verdict to be CLEAR."""
         try:
-            parsed = datetime.fromisoformat(text).timestamp()
-        except (ValueError, OverflowError):
-            return None
-        return parsed if math.isfinite(parsed) else None
-
-    async def _require_raw_protection_normal(self) -> None:
-        """Require fresh authoritative register-16 code == NORMAL (0).
-
-        This is deliberately independent from the legacy OVP/OCP booleans. The target
-        V2 ESPHome telemetry package publishes register 16 as one raw status code:
-        0 normal, 1 OVP, 2 OCP, 3 OPP. Missing/stale/unknown raw telemetry blocks D061.
-        """
-        get_state = getattr(self.lease.hass, "get_state", None)
-        if not callable(get_state):
-            raise EdgeSafetyLeaseError(
-                "Home Assistant adapter cannot read raw RD6018 protection status"
+            assessment = await self.lease.read_protection_assessment(
+                self.config.protection_entity
             )
-        state, attrs = await get_state(self.config.protection_entity)
-        normalized = str(state).strip().lower() if state is not None else ""
-        if state is None or normalized in {"", "unknown", "unavailable"}:
+        except EdgeSafetyLeaseError as exc:
             raise EdgeSafetyLeaseError(
-                "raw RD6018 protection-code entity is missing/unavailable"
-            )
-        try:
-            parsed = float(state)
-        except (TypeError, ValueError) as exc:
-            raise EdgeSafetyLeaseError(
-                "raw RD6018 protection code is invalid"
+                "hardware protection evidence is unavailable"
             ) from exc
-        code = int(round(parsed))
-        if not math.isfinite(parsed) or abs(parsed - code) > 1e-9:
-            raise EdgeSafetyLeaseError("raw RD6018 protection code is invalid")
-        if code != 0:
-            labels = {1: "OVP", 2: "OCP", 3: "OPP"}
-            label = labels.get(code, f"UNKNOWN({code})")
+        if assessment.verdict is ProtectionVerdict.TRIPPED:
+            raise EdgeSafetyLeaseError("hardware protection is tripped")
+        if assessment.verdict is ProtectionVerdict.UNKNOWN:
             raise EdgeSafetyLeaseError(
-                f"raw RD6018 protection status is not normal: {label}"
-            )
-
-        metadata = attrs if isinstance(attrs, dict) else {}
-        if metadata.get("source") == "esp_native_api":
-            actual = str(metadata.get("native_type") or metadata.get("entity_type") or "")
-            if actual != "SensorState":
-                raise EdgeSafetyLeaseError(
-                    f"native ESPHome protection entity type is invalid: {actual}"
-                )
-            native_entity_type = metadata.get("entity_type")
-            if native_entity_type is not None and native_entity_type != "SensorInfo":
-                raise EdgeSafetyLeaseError(
-                    f"native ESPHome protection inventory type is invalid: {native_entity_type}"
-                )
-            age = metadata.get("age_s")
-            if isinstance(age, bool):
-                age = None
-            try:
-                age = float(age)
-            except (TypeError, ValueError, OverflowError):
-                age = math.inf
-            if not math.isfinite(age) or age < 0 or age > float(self.lease.config.max_modbus_age_s):
-                raise EdgeSafetyLeaseError(
-                    f"raw RD6018 protection status is stale ({age:.1f}s)"
-                )
-            return
-        timestamp = self._timestamp(metadata.get("_ha_last_reported"))
-        if timestamp is None:
-            timestamp = self._timestamp(metadata.get("_ha_last_updated"))
-        if timestamp is None:
-            raise EdgeSafetyLeaseError(
-                "raw RD6018 protection freshness timestamp is unavailable"
-            )
-        age = max(0.0, time.time() - timestamp)
-        if age > float(self.lease.config.max_modbus_age_s):
-            raise EdgeSafetyLeaseError(
-                f"raw RD6018 protection status is stale ({age:.1f}s)"
+                "hardware protection state is unavailable/unknown"
             )
 
     def _install_renewal_protection_gate(self) -> None:
-        """Keep authoritative raw protection evidence mandatory after D061 adoption.
-
-        StrictRuntimeSafetyGuard calls ``renew_if_due()`` on every managed live poll,
-        not only when the five-minute heartbeat is due. Wrapping that boundary makes
-        loss/OPP/unknown raw register-16 telemetry fail the managed lease immediately
-        even though the generic runtime still supports legacy OVP/OCP sensors for
-        non-adopted migration paths. Restart does not need to preserve this wrapper:
-        D061 authority itself is never resumed after restart.
-        """
-        if bool(getattr(self.lease, "_d061_raw_protection_gate_installed", False)):
+        """Keep the independent Safety protection gate on every managed poll."""
+        if bool(getattr(self.lease, "_d061_protection_gate_installed", False)):
             return
         original = self.lease.renew_if_due
 
         async def guarded_renew_if_due() -> EdgeLeaseState:
-            await self._require_raw_protection_normal()
+            await self._require_protection_clear()
             return await original()
 
         self.lease.renew_if_due = guarded_renew_if_due
-        self.lease._d061_raw_protection_gate_installed = True
+        self.lease._d061_protection_gate_installed = True
 
     def _assert_adoptable(self, state: EdgeLeaseState) -> None:
         self.lease._assert_armable(state)
@@ -300,7 +201,7 @@ class EdgeLiveAdoption:
             await self._require_entity()
             await self._require_not_autonomous()
             await self._require_target_ttl()
-            await self._require_raw_protection_normal()
+            await self._require_protection_clear()
             state = await self.lease.read_state()
             self._assert_adoptable(state)
             return state
@@ -313,11 +214,10 @@ class EdgeLiveAdoption:
         """Acquire the edge dead-man around an already-ON output.
 
         Positive ACK requires a generation change, armed healthy state, fresh direct
-        Modbus evidence, a replenished 15-minute lease and fresh raw register-16 NORMAL
-        both immediately before the edge command and after its acknowledgement. The
-        ESPHome command itself also requires fresh direct register-18 Output-ON and
-        direct register-16 NORMAL readback; Python never substitutes HA state for those
-        edge-local checks.
+        Modbus evidence, a replenished 15-minute lease and a CLEAR Safety protection
+        verdict both immediately before the edge command and after its acknowledgement.
+        The ESPHome command keeps its own local hardware interlocks; this coordinator
+        does not decode protection registers or bypass the Safety boundary.
         """
         import asyncio
 
@@ -327,7 +227,7 @@ class EdgeLiveAdoption:
             await self._require_entity()
             await self._require_not_autonomous()
             await self._require_target_ttl()
-            await self._require_raw_protection_normal()
+            await self._require_protection_clear()
             before = await self.lease.read_state()
             self._assert_adoptable(before)
             if (
@@ -363,10 +263,10 @@ class EdgeLiveAdoption:
                     and self.lease._fresh_modbus(latest)
                     and self.lease._full_lease_ack(latest)
                 ):
-                    # Do not reopen heartbeat authority until raw protection telemetry
-                    # has independently survived the ownership command/ACK boundary.
+                    # Do not reopen heartbeat authority until the independent Safety
+                    # protection verdict survives the ownership command/ACK boundary.
                     await self._require_target_ttl()
-                    await self._require_raw_protection_normal()
+                    await self._require_protection_clear()
                     self._install_renewal_protection_gate()
                     self.lease._last_ack_monotonic = self.lease._monotonic()
                     self.lease.resume_renewals()

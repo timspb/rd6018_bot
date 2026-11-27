@@ -153,13 +153,20 @@ class MainGuardShadowTests(unittest.TestCase):
                 continue
             calls = [ast.unparse(c.func) for s in node.body for c in ast.walk(s)
                      if isinstance(c, ast.Call)]
-            if "_main_guard_shadow.observe" in calls and "run_charge_session_tick" in calls:
+            if "run_main_guard_cycle" in calls and "run_charge_session_tick" in calls:
                 found = True
         self.assertTrue(found)
-        source = path.read_text(encoding="utf-8")
-        self.assertIn('("output_state_code_v2", "current")', source)
-        self.assertIn("telemetry_freshness(", source)
-        self.assertNotIn("execute_main_current_guard_reduction(", source)
+        owner_path = path.parent.parent / "application" / "main_guard_runtime.py"
+        owner_tree = ast.parse(owner_path.read_text(encoding="utf-8"))
+        cycle = next(n for n in ast.walk(owner_tree)
+                     if isinstance(n, ast.AsyncFunctionDef)
+                     and n.name == "run_main_guard_cycle")
+        cycle_source = ast.unparse(cycle)
+        self.assertIn("output_state_code_v2", cycle_source)
+        self.assertIn("current", cycle_source)
+        self.assertIn("telemetry_freshness(", cycle_source)
+        self.assertIn("read_canonical_session(session_path)", cycle_source)
+        self.assertNotIn("execute_main_current_guard_reduction(", cycle_source)
 
 
 if __name__ == "__main__":

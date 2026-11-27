@@ -11,15 +11,60 @@ import os
 from pathlib import Path
 import stat
 import tempfile
+import threading
+from enum import Enum
 from typing import Any, Mapping
+
+from rd6018_telemetry import CURRENT_SETPOINT_READBACK_TOLERANCE_A
+
+_SESSION_WRITE_LOCK = threading.RLock()
+_PENDING_KEY = "start_transaction_pending_v1"
+
+
+class WriteStatus(str, Enum):
+    COMMITTED = "COMMITTED"
+    NOT_COMMITTED = "NOT_COMMITTED"
+    OUTCOME_UNCERTAIN = "OUTCOME_UNCERTAIN"
+
+
+def _ordinary_write_fence(target: Path) -> None:
+    try:
+        raw = target.read_bytes()
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        raise PermissionError("canonical session cannot be safely inspected") from exc
+    try:
+        current = json.loads(raw.decode("utf-8"))
+    except (UnicodeError, ValueError) as exc:
+        raise PermissionError("malformed canonical session is preserved") from exc
+    if not isinstance(current, dict):
+        raise PermissionError("unknown canonical session envelope is preserved")
+    if any(str(key).startswith("start_transaction_") and key != "start_transaction_generation"
+           for key in current):
+        raise PermissionError("canonical START transaction fence is active or unknown")
 
 
 def atomic_session_write(path: str | Path, document: Mapping[str, Any], *,
-                         allow_nan: bool = True) -> None:
+                         allow_nan: bool = True, _pending_transition: bool = False) -> None:
+    with _SESSION_WRITE_LOCK:
+        target = Path(path)
+        if not _pending_transition:
+            _ordinary_write_fence(target)
+        _atomic_session_write_locked(target, document, allow_nan=allow_nan)
+
+
+def _atomic_session_write_locked(path: str | Path, document: Mapping[str, Any], *,
+                                 allow_nan: bool = True) -> bytes:
     target = Path(path)
     payload = json.dumps(
         dict(document), ensure_ascii=False, indent=2, allow_nan=allow_nan
     ).encode("utf-8")
+    _atomic_bytes_replace_locked(target, payload)
+    return payload
+
+
+def _atomic_bytes_replace_locked(target: Path, payload: bytes) -> None:
     mode = None
     try:
         mode = stat.S_IMODE(target.stat().st_mode)
@@ -29,8 +74,14 @@ def atomic_session_write(path: str | Path, document: Mapping[str, Any], *,
                                dir=str(target.parent))
     try:
         if mode is not None:
-            os.fchmod(fd, mode)
-        with os.fdopen(fd, "wb") as stream:
+            fchmod = getattr(os, "fchmod", None)
+            if fchmod is None:
+                os.chmod(temp, mode)
+            else:
+                fchmod(fd, mode)
+        stream = os.fdopen(fd, "wb")
+        fd = None  # fdopen now owns the descriptor and closes it on exit.
+        with stream:
             stream.write(payload)
             stream.flush()
             os.fsync(stream.fileno())
@@ -47,8 +98,122 @@ def atomic_session_write(path: str | Path, document: Mapping[str, Any], *,
             if os.name == "posix":
                 raise
     finally:
+        if fd is not None:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
         if os.path.exists(temp):
             os.unlink(temp)
+
+
+def compare_replace_session(path: str | Path, expected_bytes: bytes | None,
+                            document: Mapping[str, Any], *,
+                            allow_nan: bool = False,
+                            transaction_id: str | None = None,
+                            generation: int | None = None,
+                            replacement_bytes: bytes | None = None) -> tuple[WriteStatus, bytes | None]:
+    """CAS ordinary bytes, or a pending envelope when identity is supplied."""
+    target = Path(path)
+    payload = (replacement_bytes if replacement_bytes is not None else
+               json.dumps(dict(document), ensure_ascii=False, indent=2,
+                          allow_nan=allow_nan).encode("utf-8"))
+    with _SESSION_WRITE_LOCK:
+        try:
+            current = target.read_bytes()
+        except FileNotFoundError:
+            current = None
+        except OSError:
+            return WriteStatus.OUTCOME_UNCERTAIN, None
+        if current != expected_bytes:
+            return WriteStatus.NOT_COMMITTED, current
+        if transaction_id is None:
+            if current is not None:
+                try:
+                    _ordinary_write_fence(target)
+                except PermissionError:
+                    return WriteStatus.NOT_COMMITTED, current
+        else:
+            try:
+                envelope = json.loads(current.decode("utf-8"))
+                pending = envelope[_PENDING_KEY]
+                valid_identity = (pending.get("transaction_id") == transaction_id
+                                  and pending.get("generation") == generation
+                                  and pending.get("phase") == "START_PENDING")
+            except (UnicodeError, ValueError, KeyError, TypeError, AttributeError):
+                valid_identity = False
+            if not valid_identity:
+                return WriteStatus.NOT_COMMITTED, current
+        if current == payload:
+            # Exact preimage and candidate are the same bytes. The read above
+            # proves both sides of the no-op CAS without touching the file.
+            return WriteStatus.COMMITTED, current
+        try:
+            if replacement_bytes is None:
+                _atomic_session_write_locked(target, document, allow_nan=allow_nan)
+            else:
+                _atomic_bytes_replace_locked(target, replacement_bytes)
+        except OSError:
+            pass
+        try:
+            observed = target.read_bytes()
+        except OSError:
+            return WriteStatus.OUTCOME_UNCERTAIN, None
+        if observed == payload:
+            return WriteStatus.COMMITTED, observed
+        if observed == expected_bytes:
+            return WriteStatus.NOT_COMMITTED, observed
+        return WriteStatus.OUTCOME_UNCERTAIN, observed
+
+
+def compare_delete_session(path: str | Path, expected_bytes: bytes, *,
+                           transaction_id: str | None = None,
+                           generation: int | None = None) -> str:
+    """Unlink only the exact expected canonical bytes under the writer lock."""
+    target = Path(path)
+    with _SESSION_WRITE_LOCK:
+        try:
+            current = target.read_bytes()
+        except FileNotFoundError:
+            return WriteStatus.NOT_COMMITTED.value
+        except OSError:
+            return WriteStatus.OUTCOME_UNCERTAIN.value
+        if current != expected_bytes:
+            return WriteStatus.NOT_COMMITTED.value
+        if transaction_id is not None:
+            try:
+                pending = json.loads(current.decode("utf-8"))[_PENDING_KEY]
+                valid = (pending.get("transaction_id") == transaction_id
+                         and pending.get("generation") == generation
+                         and pending.get("phase") == "START_PENDING")
+            except (UnicodeError, ValueError, KeyError, TypeError, AttributeError):
+                valid = False
+            if not valid:
+                return WriteStatus.NOT_COMMITTED.value
+        else:
+            try:
+                _ordinary_write_fence(target)
+            except PermissionError:
+                return WriteStatus.NOT_COMMITTED.value
+        try:
+            target.unlink()
+        except OSError:
+            try:
+                return (WriteStatus.NOT_COMMITTED.value if target.read_bytes() == expected_bytes
+                        else WriteStatus.OUTCOME_UNCERTAIN.value)
+            except OSError:
+                return WriteStatus.OUTCOME_UNCERTAIN.value
+        try:
+            directory = os.open(str(target.parent), os.O_RDONLY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
+        except OSError:
+            if os.name == "posix":
+                return WriteStatus.OUTCOME_UNCERTAIN.value
+        return (WriteStatus.NOT_COMMITTED.value if target.exists()
+                else WriteStatus.COMMITTED.value)
 
 
 def complete_session_document(host: Any, data: Mapping[str, Any],
@@ -155,10 +320,13 @@ def complete_session_document(host: Any, data: Mapping[str, Any],
             raise GuardJournalError("guarded_main_target_unavailable") from None
         from math import isfinite
         if (not isfinite(target_i) or target_i <= 0
-                or target_i > current.hardware_limit_a + 0.02):
+                or target_i > current.hardware_limit_a + CURRENT_SETPOINT_READBACK_TOLERANCE_A):
             raise GuardJournalError("guarded_main_target_exceeds_ratchet")
     return attach_guard(result, current, now_s=now_s,
                         expected_revision=expected_revision)
 
 
-__all__ = ["atomic_session_write", "complete_session_document"]
+__all__ = [
+    "WriteStatus", "atomic_session_write", "compare_replace_session",
+    "complete_session_document",
+]

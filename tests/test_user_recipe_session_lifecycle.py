@@ -13,6 +13,9 @@ class FakePort:
     def __init__(self):
         self.calls = []
 
+    async def read_live(self):
+        return {"switch": "on"}
+
     async def apply_intent(self, intent, *, identity):
         self.calls.append(("set", intent))
         return SimpleNamespace(accepted=True, verified=True)

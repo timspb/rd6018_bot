@@ -1,6 +1,6 @@
 import types
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -8,15 +8,26 @@ import operator_hmi as hmi
 from runtime import production_runtime
 from operator_managed_stop import _replace_legacy_power_toggle, _stop_exact_session
 from operator_managed_stop import _stop_orphan_main_guard
-from runtime_safety import OutputOffNotConfirmed
+from runtime.ui.components.hmi_action_keyboard import _managed_stop_keyboard
+from runtime.safety.runtime_guard import OutputOffNotConfirmed
 
 
-def _off_live():
-    return {"switch": "off", "current": 0.0}
+def _off_live(timestamp=None):
+    import time
+    now = time.monotonic() if timestamp is None else timestamp
+    meta = {
+        "source": "esp_native_api", "native_type": "SensorState",
+        "status": "ok", "age_s": 0.0,
+        "subscription_timestamp_monotonic": now,
+    }
+    return {
+        "switch": "off", "output_state_code_v2": 0.0, "current": 0.0,
+        "_meta": {"output_state_code_v2": dict(meta), "current": dict(meta)},
+    }
 
 
-async def _off_live_async():
-    return _off_live()
+async def _off_live_async(timestamp=None):
+    return _off_live(timestamp)
 
 
 class FakeManual:
@@ -38,6 +49,63 @@ class FakeManual:
 
 
 class OperatorManagedStopTests(unittest.IsolatedAsyncioTestCase):
+    async def test_registered_stop_confirm_callback_uses_its_own_app(self):
+        from operator_managed_stop import install_operator_managed_stop
+
+        class Router:
+            def __init__(self):
+                self.handlers = {}
+
+            def callback_query(self, _filter):
+                def register(handler):
+                    self.handlers[handler.__name__] = handler
+                    return handler
+                return register
+
+        apps = []
+        for name in ("first", "second"):
+            checked = []
+            app = types.SimpleNamespace(
+                name=name,
+                router=Router(),
+                ParseMode=types.SimpleNamespace(HTML="HTML"),
+                _check_chat_and_respond=AsyncMock(side_effect=lambda _call, n=name, c=checked: c.append(n) or True),
+            )
+            app.checked = checked
+            install_operator_managed_stop(app)
+            apps.append(app)
+
+        self.assertEqual(
+            [len(app.router.handlers) for app in apps],
+            [3, 3],
+        )
+        with patch("operator_managed_stop._active_session_token", side_effect=lambda app: f"auto:{app.name}"), \
+             patch("operator_managed_stop._route_stop_intent", new=AsyncMock(return_value=True)) as route:
+            for index, app in enumerate(apps):
+                call = types.SimpleNamespace(
+                    from_user=types.SimpleNamespace(id=22),
+                    message=types.SimpleNamespace(
+                        chat=types.SimpleNamespace(id=11 + index),
+                        message_id=70 + index,
+                        answer=AsyncMock(),
+                    ),
+                    answer=AsyncMock(),
+                )
+                await app.router.handlers["_managed_stop_confirm"](call)
+                call.message.answer.assert_awaited_once()
+                self.assertEqual(
+                    app._operator_managed_stop_confirmations.consume(
+                        chat_id=11 + index, user_id=22
+                    ),
+                    f"auto:{app.name}",
+                )
+                self.assertEqual(app.checked, [app.name])
+
+        self.assertEqual(
+            [entry.args[0].name for entry in route.await_args_list],
+            ["first", "second"],
+        )
+
     async def test_stale_orphan_stop_after_clearance_is_idempotent_only_for_same_session(self):
         from operator_managed_stop import _orphan_stop_already_retired
         retired = types.SimpleNamespace(_document=lambda: {"owner": "runtime.charge.persistence",
@@ -170,6 +238,70 @@ class OperatorManagedStopTests(unittest.IsolatedAsyncioTestCase):
         result = _replace_legacy_power_toggle(markup, self._state(hmi.HmiAuthority.NONE))
         self.assertEqual(result.inline_keyboard[0][0].callback_data, "power_toggle")
 
+    def test_managed_stop_keyboard_is_app_scoped_for_active_and_orphan_sessions(self):
+        auto, manual = types.SimpleNamespace(_operator_managed_stop_installed=True), types.SimpleNamespace(
+            _operator_managed_stop_installed=True
+        )
+        base = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="Power", callback_data="power_toggle")
+        ]])
+        with patch("operator_managed_stop._active_session_token", side_effect=["auto:A", "manual:B"]), \
+             patch("operator_managed_stop._orphan_stop_token", return_value=None):
+            auto_result = _managed_stop_keyboard(auto, self._state(hmi.HmiAuthority.AUTO), base)
+            manual_result = _managed_stop_keyboard(manual, self._state(hmi.HmiAuthority.MANUAL), base)
+        for result in (auto_result, manual_result):
+            callbacks = [button.callback_data for row in result.inline_keyboard for button in row]
+            self.assertIn("operator_managed_stop", callbacks)
+            self.assertNotIn("power_toggle", callbacks)
+
+        no_binding, orphan = types.SimpleNamespace(_operator_managed_stop_installed=True), types.SimpleNamespace(
+            _operator_managed_stop_installed=True
+        )
+        with patch("operator_managed_stop._active_session_token", return_value=None), \
+             patch("operator_managed_stop._orphan_stop_token", side_effect=[None, "orphan-main:S:B:doc"]):
+            no_binding_result = _managed_stop_keyboard(
+                no_binding, self._state(hmi.HmiAuthority.NONE), base
+            )
+            orphan_result = _managed_stop_keyboard(
+                orphan, self._state(hmi.HmiAuthority.CONTAINMENT), base
+            )
+        no_binding_callbacks = [b.callback_data for row in no_binding_result.inline_keyboard for b in row]
+        orphan_callbacks = [b.callback_data for row in orphan_result.inline_keyboard for b in row]
+        self.assertNotIn("operator_managed_stop", no_binding_callbacks)
+        self.assertEqual(orphan_callbacks[-1], "operator_managed_stop")
+        self.assertEqual(orphan_result.inline_keyboard[-1][0].text, "🛑 Завершить сохранённую сессию")
+
+    def test_managed_stop_actions_and_missing_state_keep_existing_bypass(self):
+        app = types.SimpleNamespace(_operator_managed_stop_installed=True)
+        base = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="Power", callback_data="power_toggle")
+        ]])
+        with patch("operator_managed_stop._active_session_token", return_value=None), \
+             patch("operator_managed_stop._orphan_stop_token", return_value="orphan-main:S:B:doc"):
+            explicit = _managed_stop_keyboard(
+                app, self._state(hmi.HmiAuthority.NONE), base, actions=object()
+            )
+            missing = _managed_stop_keyboard(app, None, base)
+        self.assertEqual(explicit.inline_keyboard[0][0].callback_data, "power_toggle")
+        self.assertEqual(missing, base)
+
+    def test_uninstalled_app_does_not_inherit_another_apps_stop_control(self):
+        installed = types.SimpleNamespace(_operator_managed_stop_installed=True)
+        uninstalled = types.SimpleNamespace()
+        state = self._state(hmi.HmiAuthority.CONTAINMENT)
+        markup = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
+            text="Continue", callback_data="operator_refresh"
+        )]])
+        with patch("operator_managed_stop._active_session_token", return_value=None), \
+             patch("operator_managed_stop._orphan_stop_token", return_value="orphan-main:S:B:doc"):
+            installed_result = _managed_stop_keyboard(installed, state, markup)
+            uninstalled_result = _managed_stop_keyboard(uninstalled, state, markup)
+        self.assertIn(
+            "operator_managed_stop",
+            [b.callback_data for row in installed_result.inline_keyboard for b in row],
+        )
+        self.assertEqual(uninstalled_result, markup)
+
     async def test_exact_auto_stop_uses_existing_hard_stop_and_never_toggle_path(self):
         controller = types.SimpleNamespace(
             is_active=True,
@@ -241,12 +373,96 @@ class OperatorManagedStopTests(unittest.IsolatedAsyncioTestCase):
                 get_all_live=_off_live_async,
             ),
         )
-        ok, detail = await _stop_exact_session(app, "auto:auto-1")
+        async def ordered_native_off():
+            return await _off_live_async(300.001)
+        app.hass.get_all_live = ordered_native_off
+        with patch("operator_managed_stop.time", types.SimpleNamespace(
+                monotonic=Mock(side_effect=[300.0, 300.002] + [300.003] * 20))):
+            ok, detail = await _stop_exact_session(app, "auto:auto-1")
 
         self.assertTrue(ok)
-        self.assertIn("AUTO-сессия завершена программно", detail)
-        self.assertIn("readback OFF", detail)
+        self.assertIn("AUTO-сессия завершена по свежим Native", detail)
+        self.assertIn("R18/OFF", detail)
         self.assertEqual(controller.stop_calls, [True])
+
+    async def test_runtime_false_off_receipt_retires_on_new_native_off_sample(self):
+        controller = types.SimpleNamespace(
+            is_active=True, recovery_trace_context={"session_id": "auto-1"},
+            total_start_time=1.0, stop_calls=[],
+        )
+
+        def stop(*, clear_session):
+            controller.stop_calls.append(clear_session)
+            controller.is_active = False
+
+        controller.stop = stop
+
+        async def hard_stop():
+            raise RuntimeError("STOP refused: physical Output OFF not verified")
+
+        app = types.SimpleNamespace(
+            charge_controller=controller,
+            manual_session_manager=types.SimpleNamespace(is_active=False),
+            _hard_stop_charge=hard_stop,
+            hass=types.SimpleNamespace(get_all_live=_off_live_async),
+        )
+        async def ordered_native_off():
+            return await _off_live_async(400.001)
+        app.hass.get_all_live = ordered_native_off
+        with patch("operator_managed_stop.time", types.SimpleNamespace(
+                monotonic=Mock(side_effect=[400.0, 400.002] + [400.003] * 20))):
+            ok, detail = await _stop_exact_session(app, "auto:auto-1")
+        self.assertTrue(ok, detail)
+        self.assertIn("Native", detail)
+        self.assertEqual(controller.stop_calls, [True])
+
+    async def test_stale_or_non_native_off_cannot_retire_auto_session(self):
+        cases = ("missing_meta", "ha_source", "stale_callback", "before_stop",
+                 "output_on", "negative_current", "changed_session")
+        for case in cases:
+            with self.subTest(case=case):
+                controller = types.SimpleNamespace(
+                    is_active=True, recovery_trace_context={"session_id": "auto-1"},
+                    total_start_time=1.0, stop_calls=[],
+                )
+
+                def stop(*, clear_session):
+                    controller.stop_calls.append(clear_session)
+                    controller.is_active = False
+
+                controller.stop = stop
+
+                async def hard_stop():
+                    raise OutputOffNotConfirmed("no fresh post-OFF confirmation")
+
+                async def live():
+                    sample = _off_live()
+                    if case == "missing_meta":
+                        sample.pop("_meta")
+                    elif case == "ha_source":
+                        sample["_meta"]["current"]["source"] = "ha102_rest"
+                    elif case == "stale_callback":
+                        sample["_meta"]["current"]["age_s"] = 50.0
+                    elif case == "before_stop":
+                        sample["_meta"]["output_state_code_v2"]["subscription_timestamp_monotonic"] -= 20
+                    elif case == "output_on":
+                        sample["output_state_code_v2"] = 1.0
+                    elif case == "negative_current":
+                        sample["current"] = -0.9
+                    elif case == "changed_session":
+                        controller.recovery_trace_context = {"session_id": "replacement"}
+                    return sample
+
+                app = types.SimpleNamespace(
+                    charge_controller=controller,
+                    manual_session_manager=types.SimpleNamespace(is_active=False),
+                    _hard_stop_charge=hard_stop,
+                    hass=types.SimpleNamespace(get_all_live=live),
+                )
+                ok, _ = await _stop_exact_session(app, "auto:auto-1")
+                self.assertFalse(ok)
+                self.assertTrue(controller.is_active)
+                self.assertEqual(controller.stop_calls, [])
 
     async def test_unconfirmed_off_with_nonzero_current_keeps_auto_session(self):
         controller = types.SimpleNamespace(

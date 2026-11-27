@@ -2,8 +2,8 @@ import types
 import unittest
 
 from hass_api import HassClient
-from runtime_safety import RuntimeSafetyError
-from runtime_safety_strict import install_strict_runtime_safety
+from runtime.safety.runtime_guard import RuntimeSafetyError
+from runtime.safety.strict_guard import install_strict_runtime_safety
 
 
 def live_state(**overrides):

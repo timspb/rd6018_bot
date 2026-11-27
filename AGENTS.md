@@ -1,3 +1,28 @@
+<!-- RD6018-MODULARIZATION-RUNBOOK-MANDATORY v1 -->
+> **!!! ВЕДЕНИЕ РАНБУКА ОБЯЗАТЕЛЬНО. БЕЗ ОБНОВЛЕНИЯ РАНБУКА ЭТАП НЕ ЗАКРЫТ !!!**
+> **!!! ГЛАВНАЯ ЦЕЛЬ — ПОЛНАЯ ДЕКОМПОЗИЦИЯ И ПОЛНАЯ МОДУЛЬНОСТЬ RD6018 !!!**
+> Обязательный новый канон: docs/RD6018_MODULARIZATION_HANDOFF_CANON.md. Единый утверждённый план P0–P9 и полный чеклист: docs/RD6018_MODULARIZATION_EXECUTION_PLAN_P0-P9_2026-11-17.md; его идентичный статусный блок обязан совпадать в HANDOFF CANON, MASTER PLAN, RUNBOOK и CURRENT CHECKPOINT. Открыть в начале каждого следующего чата этот план, канон, AGENTS.md, docs/RD6018_MODULARIZATION_MASTER_PLAN_2026-11-12.md, docs/V3_PROJECT_RUNBOOK.md и последнюю запись docs/assistant/RD6018_CURRENT_CHECKPOINT.md.
+> После КАЖДОГО фактического этапа обновлять docs/V3_PROJECT_RUNBOOK.md + docs/assistant/RD6018_CURRENT_CHECKPOINT.md; архитектурные решения и чеклист — также мастер-план и handoff canon. Регистрировать owner, diff/HEAD, проверенные тесты, R7.2 execution и ACK, риски, HOLD, следующий исполнимый этап. Обязательность ведения ранбука передавать в каждый новый чат.
+> ChatGPT — архитектор и независимый приёмщик. Codex CLI GPT-6 Luna (не более 2) — только руки через свой R7.2 route. Запустив Codex, не ждать в чате: R7.2 completion hook разбудит; на новом ходе принять результат и продолжить. node104 production не трогать до полного релизного допуска. После завершения модульности RD6018 — отдельно исследовать BW600 и интегрировать его модулями.
+
+# !!! RD6018 PRIMARY OBJECTIVE — ПОЛНАЯ ДЕКОМПОЗИЦИЯ И МОДУЛЬНОСТЬ !!!
+> **УТВЕРЖДЕНО 2026-11-12: ГЛАВНАЯ ЗАДАЧА ПРОЕКТА — ПОЛНАЯ ДЕКОМПОЗИЦИЯ / ПОЛНАЯ МОДУЛЬНОСТЬ.**
+> **ВСЕ ЧАСТНЫЕ РЕЛИЗЫ/OVP-OCP ИСПРАВЛЕНИЯ ПОДЧИНЕНЫ ЭТОЙ ЗАДАЧЕ.**
+> **ChatGPT = ЕДИНСТВЕННЫЙ АРХИТЕКТОР И ПРИЁМЩИК. Codex CLI GPT-6 Luna = ТОЛЬКО РУКИ, ДО 2 ПАРАЛЛЕЛЬНО ЧЕРЕЗ R7.2.**
+> **НОВЫЙ ЧАТ ОБЯЗАН ЧИТАТЬ docs/RD6018_MODULARIZATION_MASTER_PLAN_2026-11-12.md, ЭТОТ РАНБУК, CURRENT_CHECKPOINT И ИНСПЕКТИРОВАТЬ СОБСТВЕННЫЙ R7.2 ROUTE.**
+> **P0/P1 = CANON, BASELINE, ПОЛНЫЙ АУДИТ ГРАФА/ПРАВ ВЛАДЕНИЯ; P2–P9 = ПОЭТАПНАЯ КОНТРАКТНАЯ ДЕКОМПОЗИЦИЯ. НЕ ПЕРЕНОСИТЬ ФАЙЛЫ БЕЗ АРХИТЕКТУРНОГО РЕШЕНИЯ.**
+
+
+## Owner directive — simplify first (2026-11-17)
+
+- Do not introduce digital signatures, signing keys, PKI, attestation systems, or new cryptographic fingerprints/digest-pinned acceptance records. No SHA-256/SHA-512 pinning as a new authorization or release gate.
+- Do not add tiny artificial time windows or nanosecond/microsecond timeout rules. Reuse the existing duration owner and ordinary operational bounds; add a timeout only for a demonstrated external operation that otherwise can hang.
+- Prefer removing duplication and extracting one existing responsibility into one cohesive module. Preserve the existing owner and public behavior.
+- Do not add another manager, store, lock, queue, timer, observer, proof layer, or gate when an existing owner can perform the job.
+- Retain only checks that directly protect an existing transaction or physical invariant. If an existing digest/check/guard appears redundant, audit its purpose and simplify it; do not expand it into a security or authorization subsystem.
+- Codex implements only the bounded change approved by ChatGPT. No architecture redesign, no unrelated cleanup, and no production/physical action under a source-only task.
+
+
 # AGENTS.md
 
 ## ОБЯЗАТЕЛЬНО: актуальные физические данные — напрямую с ESP Native API
@@ -11,7 +36,7 @@ Output, START, STOP, lease, аварии, деплоя и физической �
 Доступность TCP-порта сама по себе **не является** физическим readback.
 
 Каждый раз заново читать с ESP: физический Output **R18**, измеренные U/I,
-напряжение АКБ, уставки Vset/Iset, OVP/OCP и защиту R16, lease
+напряжение АКБ, уставки Vset/Iset, raw-код R16, lease
 armed/generation/remaining/Modbus age, trip/quarantine/autonomous. Проверять
 идентичность ESP, типы полей, источник `esp_native_api`, временные метки
 подписки и фактическую свежесть; для post-STOP доказательства применять
@@ -36,14 +61,48 @@ This repository controls a physical RD6018 power supply and lead-acid batteries.
 
 ## Non-negotiable modularity and configuration canon (2026-11-07)
 
+## OVP/OCP: monitoring and operator management, NOT software protection (owner canon)
+
+Standing operator policy reconfirmed 2026-11-26: **OVP/OCP are excluded from
+the bot's software protection and charge-admission policy.** Preserve the
+register 82/83 telemetry, status/readback, diagnostics, and ability to manage
+these thresholds explicitly via the existing authorized physical owner.
+Readability and controllability do NOT make them protection conditions.
+
+Never require OVP/OCP setpoints, a protective margin or OVP/OCP readback to
+authorize or reconcile START, MAIN/MIX, MAIN Guard, recovery, pre-ON, lease,
+or charging stages. Do not use OVP/OCP as software trip, managed-session
+stop, quarantine or emergency-off triggers. Do not add
+`PROTECTION_OCP_MARGIN_A`, `PROTECTION_OVP_MARGIN_V`, or new mandatory
+`ocp_readback_v2` / `ovp_readback_v2` Guard checks. No automatic threshold
+programming in charge strategies. Explicit operator management remains
+separate from automatic charge control.
+
+Keep independent safety paths for actual R18 Output state, measured V/I,
+Native provenance where required, **R16=3 OPP and unknown nonzero R16**, internal
+overtemperature and the existing ESP-local 900-second lease, with one
+ExecutionPort. The ESPHome local `rd6018_intrinsic_safety.yaml` OFF predicate
+must NOT trip on R16=1 (OVP) or R16=2 (OCP); those codes are observable only.
+Retain local OFF on R16=3, unknown nonzero R16 and overtemperature. This
+changes the ESP firmware source policy only: NEVER flash/deploy without the
+separate accepted hardware release. Do not disable RD6018 built-in intrinsic
+hardware mechanisms. HANDS_OFF/AUTONOMOUS stays read-only.
+
+The earlier 2026-11-14 AGENTS.md assertion requiring managed OVP/OCP
+software-trip enforcement was an incorrect statement of the standing owner
+policy, and is superseded. Do not reintroduce it from old B987/B990 source,
+historical test assertions, logs, or handoff text.
+
 **No new monoliths.** This applies to all RD6018 changes, including operator HMI, charging algorithms, recovery, telemetry, logging, and release tooling. An existing oversized file is not a license to add another feature branch to it.
 
 - One module owns each capability, state transition, clock, renderer, configuration value, and side effect. Separate read models, pure policy/formatting, orchestration, Telegram adapter, hardware execution, and persistence. Composition wires them; it must not reimplement their rules.
 - Every user-tunable duration, threshold, limit, recipe parameter, choice, and policy belongs in the owning module's declared typed `variables.py` / `config.py` (or the canonical existing recipe/spec registry). Define units, default, range, provenance, override policy, and change effect. All consumers read that same definition; no scattered literals, shadow settings, duplicate copies, or hidden environment overrides.
+- All meaningful hard-coded numeric and semantic values must have one declared owner: charge thresholds, intervals, limits, mode/reason enums, switches, and display labels. UI text belongs to focused label catalogs; behavioral values belong to the existing owner typed config or recipe spec. Do not create redundant settings files or turn protocol constants and trivial math into arbitrary knobs.
+- When touching an existing monolith, incrementally extract the affected responsibility into cohesive modules, remove the moved logic from the monolith, and protect interfaces and behavior with tests. No wrappers that leave duplicated ownership.
 - Presentational countdowns **derive** from the existing SignalAnalyzer/MAIN authority timestamps and configured hold duration. They never establish their own timer, storage, charge transition authority, or additional polling process. Different chemistry/intent must not be inferred from ad-hoc UI constants.
 - Preserve exactly one Telegram panel lifecycle owner, one 60-second refresh task, and in-place edits. New UI features belong in focused read-model/presenter/component modules; the Telegram adapter stays transport-only. Do not expand `operator_hmi.py`, `runtime/production_runtime.py`, or `bot.py` with new cross-layer policy.
 - Before each change: identify existing canonical owner and config source, perform the smallest source modification that implements the requirement, and remove superseded code rather than adding shims. Do not construct a parallel abstraction, extra proof/authorization, new service, duplicate observer, or alternative rollback path.
-- Acceptance: focused module tests + existing architecture/UI regressions + actual entrypoint behavior where relevant. Record evidence and exact SHA in the runbook. Keep the deployed known-good baseline untouched until an explicit safe D145/D144 installation is authorized; never confuse source acceptance with live hardware/UI acceptance.
+- Acceptance: focused module tests + existing architecture/UI regressions + actual entrypoint behavior where relevant. Record evidence, exact changed paths, branch/HEAD, diff and test outcomes in the runbook. Do not create file-hash, digest-pinned, signature-based or other cryptographic authorization/release gates. Keep the deployed known-good baseline untouched until an explicit safe D145/D144 installation is authorized; never confuse source acceptance with live hardware/UI acceptance.
 - If requested work needs a new setting or subsystem, extend the original semantic owner rather than opening an independent control plane. Reject any design that makes two modules authoritative for the same state.
 
 ## Production entrypoint
@@ -122,11 +181,11 @@ If code and these current documents disagree, resolve the inconsistency against 
 - Once durable `HANDS_OFF` has been committed, loss of the edge release acknowledgement must not silently restore `PB_MANAGED`: the release command may already have reached the edge. Preserve conservative HANDS_OFF containment and surface the uncertainty.
 - Returning from `HANDS_OFF` to Pb control requires confirmed Output OFF and never silently resumes an old AUTO session.
 - D061 managed live adoption and D062 `MIX_ADOPTED` are distinct authorities. D061 Adopted Manual grants no chemistry transition authority; D062 may own only an already-running high-voltage Mix after explicit battery/chemistry and prior-age confirmation.
-- D062 takeover must not write Output/V/I/OVP/OCP. It reuses the D061 live-adoption edge primitive, starts Delta evidence from fresh post-adoption source reports only, and cannot re-energize Output after it becomes OFF.
+- D062 takeover must not write Output/V/I. It reuses the D061 live-adoption edge primitive, starts Delta evidence from fresh post-adoption source reports only, and cannot re-energize Output after it becomes OFF.
 - D063 prior external Mix age is conservative authority: Recorder is authoritative only with a proven uninterrupted `OFF -> ON -> ... -> current ON` edge; otherwise an explicit operator declaration is required. An already-accepted preview age is a floor that ages forward and can never be reduced by a later Recorder snapshot or Recorder outage.
 - D062 chemistry budget is prior active age plus post-adoption active time. A Delta hold started before the Ca20/EFB24/AGM10 boundary may finish its sticky 2 h after the boundary; without a started hold, boundary expiry is `MIX_TIMEOUT -> verified OFF + diagnose`.
 - D062 edge-command uncertainty is local to the current transaction. Failures before a new edge command may have executed are read-only and must leave the external HANDS_OFF program untouched; only an actually ambiguous edge-command invocation may enter verified-OFF containment.
-- D062 software implementation is not physical validation. Do not rely on managed live takeover until the exact D061/D062 ESPHome live-adoption/900 s lease/raw-protection contract has been compiled, flashed and bench-validated on the target node.
+- D062 software implementation is not physical validation. Do not rely on managed live takeover until the exact D061/D062 ESPHome live-adoption/900 s lease/raw-OPP contract has been compiled, flashed and bench-validated on the target node.
 
 ## Deployment-only tasks
 
@@ -160,3 +219,19 @@ For ownership/watchdog changes, fake Python lease tests are not sufficient by th
 ## Scope discipline
 
 For narrow operational tasks, make only the requested operational changes. Do not redesign charging thresholds, recipes, Telegram UX or database schema unless the task explicitly asks for it.
+
+## Current autonomous new-chat handoff (2026-11-08)
+For source-only autonomous continuation read docs/assistant/RD6018_AUTONOMOUS_HANDOFF_2026-11-08.md after this AGENTS.md and the latest docs/assistant/RD6018_CURRENT_CHECKPOINT.md. Its ready prompt is docs/assistant/RD6018_NEW_CHAT_PROMPT_2026-11-08.md. It does not authorize production node104 deployment, restart or hardware acts; the receiving chat owner sets wake schedule separately.
+
+
+## 2026-11-18 P0–P9 batch handoff
+
+The owner-approved HOME-PC batch `rd6018-mod-p0p9-batch-luna-20261118-01` is documented at `.recipe-studio-local/REPORT_RD6018_P0P9_BATCH_LUNA_20261118_01.md`. It records the accepted-versus-HOLD ownership evidence, reviewed production call graph, exact modified paths, test-environment limitations, and next executable stage. P1/P2/P6/P7 remain open at their documented scopes; P8 release/physical acceptance remains HOLD. This batch did not run a separate R7.2/Codex CLI executor, commit, push, or touch node104/ESP/HA/hardware. The five canonical P0–P9 status blocks in the execution plan, master plan, handoff canon, runbook, and current checkpoint are synchronized.
+
+## B1040 — необязательные модули и демонтаж AI (2026-11-27)
+
+- Единственная точка подключения необязательных модулей — существующая `bot.ProductionComposition`, использующая allowlisted `runtime.optional_modules.ModuleManager`. Core Charge Engine, Safety, ExecutionPort, persistence, recovery, 900 s ESP lease и Physical Execution не регистрируются как отключаемые модули.
+- Новый необязательный модуль получает отдельный пакет, явный `ModuleSpec`, `install(app)`, при необходимости `shutdown(app)`; отсутствие пакета не должно ломать импорт/композицию ядра. Не добавлять новый общий bootstrap, сканирующий произвольный Python-код plugin framework или второй цикл зарядки.
+- AI можно отключить `RD6018_MODULE_AI=0` с последующим обычным перезапуском. Когда `integrations/ai` физически отсутствует в новой сборке, основное приложение обязано стартовать без него, не регистрируя AI routes/Telegram commands и не вызывая AI из зарядной политики. Удаление файлов действующего процесса, hot-unload и прямые действия менеджера по оборудованию запрещены.
+- Перед приёмкой нового необязательного модуля: source/fake enabled/disabled/physically-missing tests, shutdown, зависимости на уровне явных интерфейсов, UI отсутствие при disable и Guard/ExecutionPort regression. Полный релиз/бенч node104 остаётся отдельным P3/P8 HOLD.
+- Единственный актуальный P0–P9 чеклист содержит 104 пункта, 99 отмечены после source/fake B1040. Канонический блок синхронизирован в execution plan, master plan, handoff canon, runbook и current checkpoint. Принятая политика R16: OVP/OCP 1/2 — диагностические, 3/unknown nonzero fail-closed.

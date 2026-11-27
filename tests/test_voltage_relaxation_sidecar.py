@@ -6,6 +6,11 @@ import unittest
 from unittest.mock import AsyncMock
 
 import aiosqlite
+
+if os.name != "posix":
+    raise unittest.SkipTest(
+        "D063 sidecar contract uses POSIX fcntl locking; exercised on Linux"
+    )
 from tools.voltage_relaxation_sidecar import (
     PassiveCollector, read_session, validated_session, SAFE_WAIT_STAGE,
 )

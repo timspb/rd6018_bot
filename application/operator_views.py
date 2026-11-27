@@ -42,8 +42,6 @@ class ServiceDetailsView:
     stage: str = "—"
     v2_analysis: str = "unavailable"
     decision: str = "—"
-    ovp_v: float | None = None
-    ocp_a: float | None = None
     protection: str = "—"
     regulation: str = "—"
     heartbeat: str = "—"

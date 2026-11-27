@@ -157,6 +157,36 @@ class RecoveryQuarantineJournal:
             },
         }, allow_nan=False)
 
+    def retirement_binding(self) -> dict[str, Any]:
+        """Return strict schema-2 retirement identity owned by this journal."""
+        try:
+            with self.path.open("r", encoding="utf-8") as stream:
+                document = json.load(stream)
+            if (not isinstance(document, dict) or document.get("owner") != OWNER
+                    or set(document) != {"owner", "schema_version", "state", "quarantined", "retirement"}
+                    or document.get("schema_version") != RETIREMENT_SCHEMA_VERSION
+                    or document.get("state") != "retired"
+                    or document.get("quarantined") is not False
+                    or not isinstance(document.get("retirement"), dict)):
+                raise ValueError("invalid quarantine retirement record")
+            retirement = document["retirement"]
+            required = {
+                "operator_id", "session_id", "confirmed_off_evidence", "retired_utc",
+                "incident_id", "incident_reason", "battery_id",
+            }
+            if set(retirement) != required:
+                raise ValueError("invalid quarantine retirement provenance")
+            if any(not isinstance(retirement.get(key), str) or not retirement[key].strip()
+                   for key in required - {"battery_id"}):
+                raise ValueError("incomplete quarantine retirement record")
+            battery_id = retirement.get("battery_id")
+            if battery_id is not None and (
+                    not isinstance(battery_id, str) or not battery_id.strip()):
+                raise ValueError("invalid quarantine retirement battery binding")
+            return dict(retirement)
+        except (OSError, UnicodeError, json.JSONDecodeError, TypeError) as exc:
+            raise ValueError("retirement tombstone unavailable or invalid") from exc
+
     def incident_binding(self) -> dict[str, Any]:
         """Return strict active incident identity for pre-actuation admission."""
         incident = self._read_incident()

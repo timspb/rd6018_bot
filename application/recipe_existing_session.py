@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from application.execution_intent.models import SafetyContext
-from application.recipe_restart_limits import existing_start_limits
 from application.recipe_execution_adapter import RecipeExecutionIdentity
 from runtime.charge.programs.recipe_preflight import inspect_recipe
 from application.recipe_session_lifecycle import (
@@ -33,6 +32,7 @@ def prepare_existing_recipe_binding(*, catalog, recipe_id: str, version: int,
                                     port: Any, identity: RecipeExecutionIdentity,
                                     safety_context: SafetyContext, voltage_ceiling_v: float,
                                     state_path: str | Path,
+                                    recipe: Any | None = None,
                                     journal_path: str | Path | None = None,
                                     measurement_path: str | Path | None = None) -> ExistingRecipeBinding:
     """Resolve immutable version under an already-successful START owner.
@@ -40,7 +40,9 @@ def prepare_existing_recipe_binding(*, catalog, recipe_id: str, version: int,
     Only prepares a binding. Caller decides when it becomes authoritative;
     this operation never enables hardware or changes active stages.
     """
-    recipe = catalog.library.load(recipe_id, version)
+    recipe = recipe if recipe is not None else catalog.library.load(recipe_id, version)
+    if (recipe.recipe_id, recipe.version) != (recipe_id, version):
+        raise ValueError("selected recipe identity mismatch")
     report = inspect_recipe(recipe)
     if not report.admissible_structure:
         raise ValueError('; '.join(report.problems))
@@ -67,7 +69,7 @@ async def advance_in_existing_session(
     state_path: str | Path, journal_path: str | Path | None = None,
     measurement_path: str | Path | None = None,
 ):
-    """Use production START offsets for SET, with caller's actual envelope.
+    """Use production V/I caps for SET, with caller's actual recipe envelope.
 
     The existing session owner must provide identity, safety context, and
     voltage ceiling. Pending actions cannot be replayed on invocation.
@@ -78,17 +80,19 @@ async def advance_in_existing_session(
         raise RuntimeError("pending hardware action requires reconciliation")
     proposal = tick(session.recipe, session.state, now_s=now_s,
                     measurements=measurements).command
-    limits = None
     if proposal is not None and proposal.operation == "set":
-        limits = existing_start_limits(
-            host,
-            voltage_v=proposal.parameters["voltage_v"],
-            current_a=proposal.parameters["current_a"],
-            voltage_ceiling_v=voltage_ceiling_v,
-        )
+        requested_voltage = float(proposal.parameters["voltage_v"])
+        if requested_voltage > float(voltage_ceiling_v):
+            raise ValueError("recipe target exceeds active session voltage ceiling")
+    requested_current = (float(proposal.parameters["current_a"])
+                         if proposal is not None and proposal.operation == "set" else None)
+    if requested_current is not None:
+        capped = float(host._cap_current(requested_current))
+        if capped <= 0 or capped < requested_current:
+            raise ValueError("recipe target exceeds existing current cap")
     return await advance_durable_recipe_session(
         session, port=port, now_s=now_s, measurements=measurements,
-        safety_context=safety_context, restart_limits=limits,
+        safety_context=safety_context, recipe_voltage_ceiling_v=float(voltage_ceiling_v),
         state_path=state_path, journal_path=journal_path,
         measurement_path=measurement_path,
     )

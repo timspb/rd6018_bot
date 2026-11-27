@@ -2,6 +2,7 @@ import tempfile
 import unittest
 import os
 from pathlib import Path
+from unittest.mock import patch
 
 from runtime.config import load_config, load_yaml
 from runtime.config.validation import validate_rd
@@ -9,10 +10,12 @@ from runtime.config.validation import validate_rd
 
 class V3ConfigurationTests(unittest.TestCase):
     def test_repository_config_loads_without_secrets(self):
-        os.environ.setdefault("HA_URL", "http://127.0.0.1:8123")
-        os.environ.setdefault("ESPHOME_API_HOST", "127.0.0.1")
-        os.environ.setdefault("ESPHOME_API_PORT", "6053")
-        bundle = load_config(Path("config"))
+        with patch.dict(os.environ, {
+            "HA_URL": "http://127.0.0.1:8123",
+            "ESPHOME_API_HOST": "127.0.0.1",
+            "ESPHOME_API_PORT": "6053",
+        }):
+            bundle = load_config(Path("config"))
         self.assertEqual(bundle.transports["ha102"].connection.host, "127.0.0.1")
         self.assertEqual(bundle.transports["esp128"].connection.host, "127.0.0.1")
         self.assertEqual(bundle.transports["esp128"].connection.port, 6053)

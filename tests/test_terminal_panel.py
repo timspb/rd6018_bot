@@ -1,4 +1,5 @@
 import unittest
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -84,6 +85,169 @@ class FakeEventManager:
 
 
 class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
+    async def test_publish_graph_adopts_only_after_send_then_starts_existing_refresh(self):
+        app = FakeApp()
+        app.user_graph_dashboard = {}
+        app.chat_graph_dashboard = {}
+        manager = TerminalPanelManager(app)
+        order = []
+
+        async def send():
+            order.append("send")
+            return SimpleNamespace(message_id=88)
+
+        def after_publish():
+            order.append("cache")
+
+        refresh = object()
+        result = await manager.publish_graph_workspace(10, 20, send, after_publish, refresh)
+
+        self.assertEqual(result, 88)
+        self.assertEqual(order, ["send", "cache"])
+        self.assertEqual(manager.graph_id(10, 20), 88)
+        self.assertEqual(manager.panel_id(10), 88)
+        self.assertIs(manager._graph_refresh_callback, refresh)
+        self.assertIsNotNone(manager._graph_refresh_task)
+        manager._graph_refresh_task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await manager._graph_refresh_task
+
+    async def test_ensure_last_graph_publication_uses_existing_chat_lock_without_deadlock(self):
+        app = FakeApp()
+        app.user_graph_dashboard = {}
+        app.chat_graph_dashboard = {}
+        manager = TerminalPanelManager(app)
+        events = []
+
+        async def nested_dashboard(**kwargs):
+            async def send():
+                events.append("send")
+                return SimpleNamespace(message_id=111)
+
+            return await manager.publish_graph_workspace(
+                kwargs["chat_id"], kwargs["user_id"], send,
+                lambda: events.append("cache"), lambda *_args: None,
+            )
+
+        app._build_and_send_dashboard = nested_dashboard
+        try:
+            # ensure_last owns the chat lock. Nested graph publication must not
+            # acquire the same non-reentrant asyncio.Lock a second time.
+            result = await asyncio.wait_for(manager.ensure_last(10, 20), timeout=0.5)
+            self.assertEqual(result, 111)
+            self.assertEqual(events, ["send", "cache"])
+            self.assertEqual(manager.graph_id(10, 20), 111)
+            self.assertEqual(manager.panel_id(10), 111)
+        finally:
+            if manager._graph_refresh_task is not None:
+                manager._graph_refresh_task.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await manager._graph_refresh_task
+
+    async def test_failed_graph_send_does_not_adopt_cache_or_schedule(self):
+        app = FakeApp()
+        app.user_graph_dashboard = {}
+        app.chat_graph_dashboard = {}
+        manager = TerminalPanelManager(app)
+        cache = []
+
+        async def send():
+            raise RuntimeError("Telegram unavailable")
+
+        with self.assertRaisesRegex(RuntimeError, "Telegram unavailable"):
+            await manager.publish_graph_workspace(10, 20, send, lambda: cache.append(True), object())
+
+        self.assertEqual(manager.graph_id(10, 20), None)
+        self.assertEqual(manager.panel_id(10), None)
+        self.assertEqual(cache, [])
+        self.assertIsNone(manager._graph_refresh_task)
+
+    async def test_old_graph_callback_cannot_replace_current_message(self):
+        from unittest.mock import AsyncMock
+        app = FakeApp()
+        app.user_graph_dashboard = {}
+        app.chat_graph_dashboard = {}
+        manager = TerminalPanelManager(app)
+        manager.adopt_graph(10, 20, 99)
+        call = SimpleNamespace(
+            message=SimpleNamespace(chat=SimpleNamespace(id=10), message_id=77)
+        )
+        edit = AsyncMock()
+        send = AsyncMock(return_value=SimpleNamespace(message_id=100))
+
+        async def render():
+            await manager.replace_graph_workspace(
+                call, 20, edit, send, lambda: None,
+                lambda sent: manager.adopt_graph(10, 20, sent.message_id),
+            )
+
+        await manager.render_graph(10, 20, render, source_message_id=77)
+
+        edit.assert_not_awaited()
+        send.assert_not_awaited()
+        self.assertEqual(manager.graph_id(10, 20), 99)
+
+    async def test_retired_graph_callback_cannot_replace_new_text_panel(self):
+        from unittest.mock import AsyncMock
+        app = FakeApp()
+        app.user_graph_dashboard = {}
+        app.chat_graph_dashboard = {}
+        app.user_dashboard = {20: 99}
+        app.chat_dashboard = {10: 99}
+        manager = TerminalPanelManager(app)
+        call = SimpleNamespace(
+            message=SimpleNamespace(chat=SimpleNamespace(id=10), message_id=77)
+        )
+        edit = AsyncMock()
+        send = AsyncMock(return_value=SimpleNamespace(message_id=100))
+
+        async def render():
+            await manager.replace_graph_workspace(
+                call, 20, edit, send, lambda: None,
+                lambda sent: manager.adopt_graph(10, 20, sent.message_id),
+            )
+
+        await manager.render_graph(10, 20, render, source_message_id=77)
+
+        edit.assert_not_awaited()
+        send.assert_not_awaited()
+        self.assertIsNone(manager.graph_id(10, 20))
+        self.assertEqual(app.user_dashboard[20], 99)
+
+    async def test_graph_replacement_retires_then_adopts_fresh_id(self):
+        from unittest.mock import AsyncMock
+        app = FakeApp()
+        app.user_graph_dashboard = {}
+        app.chat_graph_dashboard = {}
+        manager = TerminalPanelManager(app)
+        manager.adopt_graph(10, 20, 77)
+        call = SimpleNamespace(
+            message=SimpleNamespace(chat=SimpleNamespace(id=10), message_id=77)
+        )
+        order = []
+        async def edit():
+            order.append("edit")
+            raise RuntimeError("message to edit not found")
+        async def send():
+            order.append("send")
+            return SimpleNamespace(message_id=88)
+        async def delete(*, chat_id, message_id):
+            order.append(("delete", chat_id, message_id))
+        app.bot.delete_message = delete
+
+        await manager.render_graph(
+            10,
+            20,
+            lambda: manager.replace_graph_workspace(
+                call, 20, edit, send, lambda: None,
+                lambda sent: (order.append("adopt"), manager.adopt_graph(10, 20, sent.message_id)),
+            ),
+            source_message_id=77,
+        )
+
+        self.assertEqual(order, ["edit", ("delete", 10, 77), "send", "adopt"])
+        self.assertEqual(manager.graph_id(10, 20), 88)
+
     async def test_ensure_last_replaces_previous_owned_panel_in_place(self):
         app = FakeApp()
         manager = TerminalPanelManager(app)
@@ -274,6 +438,34 @@ class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(manager.graph_id(10, 20))
         self.assertIsNone(manager.panel_id(10))
 
+    async def test_graph_open_closes_workspace_and_preserves_periodic_refresh(self):
+        app = FakeApp()
+        app.user_graph_dashboard = {}
+        app.chat_graph_dashboard = {}
+        manager = TerminalPanelManager(app)
+        manager.adopt_graph(10, 20, 77)
+        manager.enter_workspace(10)
+
+        class FakeCallback:
+            def __init__(self):
+                self.data = "operator_graph"
+                self.from_user = SimpleNamespace(id=20)
+                self.message = SimpleNamespace(chat=SimpleNamespace(id=10), message_id=77)
+
+        with patch("runtime.ui.telegram.panel_lifecycle.CallbackQuery", FakeCallback):
+            await manager.after_event(FakeCallback())
+        edits = []
+
+        async def refresh(chat_id, user_id, *, force=False):
+            edits.append((chat_id, user_id))
+
+        await manager.refresh_graph(10, 20, refresh)
+        self.assertFalse(manager.in_workspace(10))
+        self.assertEqual(edits, [(10, 20)])
+        self.assertEqual(manager.panel_id(10), 77)
+        self.assertEqual(app.render_calls, [])
+        self.assertEqual(app.refresh_calls, [])
+
     async def test_graph_range_closes_workspace_without_publishing_second_panel(self):
         app = FakeApp()
         app.user_graph_dashboard = {}
@@ -395,7 +587,6 @@ class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
             "rd_managed_mix_status",
             "rd_hands_off_release_confirm",
             "operator_details",
-            "operator_graph",
             "operator_more",
             "operator_adopted_stop",
             "operator_managed_mix_stop",
@@ -420,6 +611,7 @@ class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
             "dash_back",
             "charge_back",
             "operator_done",
+            "operator_graph",
             "operator_graph_2h",
             "v2_manual_unbound",
             "v2_battery_start",
@@ -492,6 +684,27 @@ class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(app.render_calls, [(10, 20, None, None)])
         self.assertEqual(manager.panel_id(10), 101)
 
+    async def test_scheduled_notification_panel_uses_captured_chat_not_latest_chat(self):
+        app = FakeApp()
+        captured = []
+
+        async def send_with_recipient(
+            msg, critical=True, recipient_chat_id=None, recipient_user_id=None
+        ):
+            captured.append((msg, critical, recipient_chat_id, recipient_user_id))
+
+        app._send_notify_safe = send_with_recipient
+        manager = install_panel_last(app)
+        app.last_chat_id = 99
+        app.last_user_id = 99
+
+        await app._send_notify_safe("scheduled event", True, 10, 20)
+
+        self.assertEqual(captured, [("scheduled event", True, 10, 20)])
+        self.assertEqual(app.render_calls, [(10, 20, None, None)])
+        self.assertEqual(manager.panel_id(10), 101)
+        self.assertIsNone(manager.panel_id(99))
+
     async def test_notification_does_not_push_panel_under_active_workspace(self):
         app = FakeApp()
         manager = install_panel_last(app)
@@ -542,6 +755,59 @@ class TerminalPanelTests(unittest.IsolatedAsyncioTestCase):
             await middleware(handler, event, {})
 
         self.assertEqual(manager.events, [event])
+
+
+class TerminalTextFallbackReadPortTests(unittest.IsolatedAsyncioTestCase):
+    """Failed /start text fallback must not bypass Application's read source."""
+
+    async def _case(self, *, read_error=None):
+        from unittest.mock import AsyncMock
+
+        app = FakeApp()
+        app.ParseMode = SimpleNamespace(HTML="HTML")
+        # Absence of app.hass is intentional: the Telegram publication owner
+        # must depend only on the already-authorized read port.
+        async def send_message(**kwargs):
+            self.sent = kwargs
+            return SimpleNamespace(message_id=125)
+        app.bot.send_message = send_message
+
+        manager = TerminalPanelManager(app)
+        manager.adopt(10, 20, 77)
+        fake_port = SimpleNamespace(read_live=AsyncMock(
+            side_effect=read_error,
+            return_value={"battery_voltage": 12.3},
+        ))
+        with patch(
+            "application.operator_read_source.OperatorReadSource",
+            return_value=fake_port,
+        ) as constructor, patch(
+            "operator_hmi.build_operator_hmi_state",
+            return_value="hmi-state",
+        ) as build_state, patch(
+            "operator_hmi.render_operator_panel", return_value="Degraded panel",
+        ), patch(
+            "operator_hmi.build_operator_keyboard", return_value="buttons",
+        ):
+            new_id = await manager.ensure_text_last(10, 20)
+
+        constructor.assert_called_once_with(app)
+        fake_port.read_live.assert_awaited_once()
+        build_state.assert_called_once_with(
+            app, {} if read_error else {"battery_voltage": 12.3},
+        )
+        self.assertEqual(new_id, 125)
+        self.assertEqual(self.sent["text"], "Degraded panel")
+        self.assertEqual(self.sent["reply_markup"], "buttons")
+        self.assertEqual(self.sent["parse_mode"], "HTML")
+        self.assertEqual(manager.panel_id(10), 125)
+        self.assertEqual(app.bot.deleted, [(10, 77)])
+
+    async def test_recovery_uses_application_read_port_before_telegram_publication(self):
+        await self._case()
+
+    async def test_read_failure_degrades_panel_without_fabricating_live_evidence(self):
+        await self._case(read_error=ConnectionError("unavailable"))
 
 
 if __name__ == "__main__":

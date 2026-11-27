@@ -25,11 +25,12 @@ class _Hass:
             "temp_int": 30.0,
             "input_voltage": 60.0,
             "switch": "off",
+            "protection_code": 0,
             "ovp_triggered": "off",
             "ocp_triggered": "off",
             "_freshness": {key: 0.0 for key in (
                 "battery_voltage", "current", "temp_ext", "temp_int", "switch",
-                "ovp_triggered", "ocp_triggered",
+                "protection_code", "ovp_triggered", "ocp_triggered",
             )},
         }
 
@@ -108,6 +109,56 @@ class ProductionStartRouteTests(unittest.TestCase):
     def test_active_route_is_available_after_preflight(self):
         adapter = ProductionStartRouteAdapter(_App(), mode=ProductionStartMode.ACTIVE)
         self.assertEqual(adapter.mode, ProductionStartMode.ACTIVE)
+
+    def test_active_route_unexpected_port_exception_propagates_without_rejection_result(self):
+        class FakePort:
+            def __init__(self):
+                self.active_calls = []
+                self.sync_calls = []
+
+            async def submit_active(self, plan, *, trace_id, execution_metadata):
+                self.active_calls.append((plan, trace_id, execution_metadata))
+                raise RuntimeError("synthetic uncertain START execution")
+
+            def submit(self, *args, **kwargs):
+                self.sync_calls.append((args, kwargs))
+                raise AssertionError("active route must not fall back to sync submit")
+
+        port = FakePort()
+        adapter = ProductionStartRouteAdapter(
+            _App(), port=port, mode=ProductionStartMode.ACTIVE
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "synthetic uncertain START execution"):
+            asyncio.run(adapter.submit(_intent()))
+
+        self.assertEqual(len(port.active_calls), 1)
+        self.assertEqual(port.sync_calls, [])
+
+    def test_active_route_port_cancellation_propagates_without_normalization(self):
+        class FakePort:
+            def __init__(self):
+                self.active_calls = []
+                self.sync_calls = []
+
+            async def submit_active(self, plan, *, trace_id, execution_metadata):
+                self.active_calls.append((plan, trace_id, execution_metadata))
+                raise asyncio.CancelledError
+
+            def submit(self, *args, **kwargs):
+                self.sync_calls.append((args, kwargs))
+                raise AssertionError("active route must not fall back to sync submit")
+
+        port = FakePort()
+        adapter = ProductionStartRouteAdapter(
+            _App(), port=port, mode=ProductionStartMode.ACTIVE
+        )
+
+        with self.assertRaises(asyncio.CancelledError):
+            asyncio.run(adapter.submit(_intent()))
+
+        self.assertEqual(len(port.active_calls), 1)
+        self.assertEqual(port.sync_calls, [])
 
     def test_denied_preflight_does_not_create_plan(self):
         app = _App()

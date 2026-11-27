@@ -1,4 +1,6 @@
 import unittest
+import os
+from unittest.mock import patch
 from pathlib import Path
 
 from runtime.config import load_config
@@ -12,7 +14,9 @@ from runtime.physical.transports import (
 class V3MultiTransportTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.config = load_config(Path("config"))
+        # Offline fixture: keep strict ESP host validation, no network I/O.
+        with patch.dict(os.environ, {"ESPHOME_API_HOST": "127.0.0.1", "ESPHOME_API_PORT": "6053"}):
+            cls.config = load_config(Path("config"))
 
     def test_factory_uses_configured_profiles(self):
         factory = PhysicalTransportFactory(self.config)

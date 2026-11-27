@@ -1,4 +1,5 @@
 import ast
+from source_audit_inventory import source_inventory
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 import unittest
@@ -157,9 +158,14 @@ class TraceContextEvidenceTests(unittest.TestCase):
         self.assertTrue({"_persist_shadow_trace_if_ready", "_log_shadow_disagreement"}.isdisjoint(names))
         self.assertNotIn("_v2_last_disagreement", source)
         self.assertNotIn("_v2_disagreement_repeat_count", source)
+        # Separate Git worktrees (e.g. .worktrees/dryrun_virtual) are not
+        # production source owners in this checkout. Scan tracked files only.
         definitions = []
-        for path in ROOT.rglob("*.py"):
-            module = ast.parse(path.read_text(encoding="utf-8"))
+        for relative in source_inventory(ROOT):
+            if relative.suffix != ".py":
+                continue
+            path = ROOT / relative
+            module = ast.parse(path.read_text(encoding="utf-8-sig"))
             definitions.extend((path.name, node.name) for node in ast.walk(module)
                                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
                                and node.name == "record_shadow_trace")
@@ -171,12 +177,50 @@ class TraceContextEvidenceTests(unittest.TestCase):
         method = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
                       and node.name == "signal_analyzer_diagnostic_snapshot")
         self.assertIn("non-authoritative analyzer diagnostic snapshot", ast.get_docstring(method))
-        self.assertNotIn("signal_analyzer_diagnostic_snapshot", {
-            node.id for node in ast.walk(method) if isinstance(node, ast.Name)
-        })
-        self.assertFalse({"set_output", "safe_enable_output", "turn_on"} & {
-            node.id for node in ast.walk(method) if isinstance(node, ast.Name)
-        })
+        # The public compatibility method now delegates to the established
+        # read-only diagnostics owner; this is not recursion or controller
+        # decision logic.
+        self.assertEqual(
+            ast.unparse(method.body[-1]),
+            "return signal_analyzer_diagnostic_snapshot(self)",
+        )
+        diagnostics = ast.parse(
+            (ROOT / "runtime" / "charge" / "diagnostics.py").read_text(encoding="utf-8")
+        )
+        projection_module = ast.parse(
+            (ROOT / "runtime" / "charge" / "evidence" / "signal_diagnostic_snapshot.py")
+            .read_text(encoding="utf-8")
+        )
+        projection = next(
+            node for node in projection_module.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "signal_analyzer_diagnostic_snapshot"
+        )
+        self.assertTrue(any(
+            isinstance(node, ast.ImportFrom)
+            and node.module == "runtime.charge.evidence.signal_diagnostic_snapshot"
+            and any(alias.name == "signal_analyzer_diagnostic_snapshot"
+                    and alias.asname is None for alias in node.names)
+            for node in diagnostics.body
+        ))
+        from runtime.charge import diagnostics
+        from runtime.charge.evidence import signal_diagnostic_snapshot
+        self.assertIs(
+            diagnostics.signal_analyzer_diagnostic_snapshot,
+            signal_diagnostic_snapshot.signal_analyzer_diagnostic_snapshot,
+        )
+        self.assertIs(
+            diagnostics.ui_support_snapshot,
+            signal_diagnostic_snapshot.ui_support_snapshot,
+        )
+        self.assertIn(
+            "non-authoritative analyzer diagnostic snapshot",
+            ast.get_docstring(projection),
+        )
+        for node in (method, projection):
+            self.assertFalse({"set_output", "safe_enable_output", "turn_on"} & {
+                name.id for name in ast.walk(node) if isinstance(name, ast.Name)
+            })
 
     def test_disagreement_throttle_logs_once_then_every_twentieth_repeat(self):
         from unittest.mock import patch

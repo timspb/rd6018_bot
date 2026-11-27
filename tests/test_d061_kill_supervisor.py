@@ -2,7 +2,6 @@
 import hashlib
 import os
 from pathlib import Path
-import subprocess
 import sys
 import tempfile
 import time
@@ -10,6 +9,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from tools.acceptance_guard.independent_off import independent_output_off
+import tools.acceptance_guard.kill_supervisor as kill_supervisor_module
 from tools.acceptance_guard.kill_supervisor import (
     ADOPTION_CHECKS, ChildIdentity, GlobalLock, KillSupervisor, Stage,
     adopted_proof_is_full, verify_child,
@@ -91,14 +91,7 @@ class SupervisorTests(unittest.TestCase):
         (proc / "cgroup").write_text(self.cgroup)
         self.identity = ChildIdentity(self.pid, self.args, self.start, self.cgroup,
                                       hashlib.sha256(self.stage_file.read_bytes()).hexdigest())
-        self.children = []
-
-    def tearDown(self):
-        for child in self.children:
-            if child.poll() is None:
-                child.kill()
-                child.wait()
-        self.temp.cleanup()
+        self.addCleanup(self.temp.cleanup)
 
     def test_identity_mismatch_pid_reuse_and_production_bot_rejected(self):
         verify_child(self.identity, proc_root=self.proc, stage_file=self.stage_file)
@@ -117,15 +110,16 @@ class SupervisorTests(unittest.TestCase):
             verify_child(ChildIdentity(os.getpid(), self.args, self.start, self.cgroup,
                           self.identity.stage_sha256), proc_root=self.proc, stage_file=self.stage_file)
 
-    def test_proof_requires_exact_canonical_nineteen_predicates(self):
+    def test_proof_requires_exact_canonical_seventeen_predicates(self):
         full = {name: True for name in ADOPTION_CHECKS}
-        self.assertEqual(len(full), 19)
+        self.assertEqual(len(full), 17)
         self.assertFalse(adopted_proof_is_full({'checks': dict(list(full.items())[:-1]), 'failed_predicates': []}))
         self.assertFalse(adopted_proof_is_full({'checks': full | {'extra': True}, 'failed_predicates': []}))
         self.assertFalse(adopted_proof_is_full({'checks': full, 'failed_predicates': ['guard_fresh']}))
         self.assertFalse(adopted_proof_is_full({'checks': full}))
         self.assertTrue(adopted_proof_is_full({'checks': full, 'failed_predicates': []}))
 
+    @unittest.skipIf(os.name == "nt", "GlobalLock uses POSIX fcntl.flock")
     def test_lock_is_nonblocking_and_never_unlinked(self):
         path = self.root / "lock"
         path.touch(mode=0o600)
@@ -140,6 +134,7 @@ class SupervisorTests(unittest.TestCase):
             one.close()
         self.assertTrue(path.exists())
 
+    @unittest.skipIf(os.name == "nt", "GlobalLock relies on POSIX symlink metadata")
     def test_lock_rejects_symlink(self):
         target = self.root / "target"
         target.touch(mode=0o600)
@@ -149,21 +144,22 @@ class SupervisorTests(unittest.TestCase):
             GlobalLock(path, euid=lambda: 0, owner_uid=os.getuid()).acquire()
 
     def _supervisor(self, **kw):
-        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
-        self.children.append(child)
-        proc_identity = __import__("tools.acceptance_guard.kill_supervisor", fromlist=["_proc_identity"])._proc_identity
-        # /proc/<pid>/cmdline is legitimately empty until execve finishes.
-        # Wait for the test child to become identifiable, never skip its attestation.
-        deadline = time.monotonic() + 2.0
-        while True:
-            try:
-                args, start, cgroup = proc_identity(child.pid)
-                break
-            except RuntimeError as exc:
-                if str(exc) != "child cmdline unavailable" or time.monotonic() >= deadline:
-                    raise
-                time.sleep(.01)
-        identity = ChildIdentity(child.pid, args, start, cgroup, self.identity.stage_sha256)
+        # The lifecycle assertions below are callback/ordering contracts. Use
+        # deterministic identity evidence so these admission tests remain active
+        # on Windows without pretending that Windows implements Linux procfs.
+        child_alive = [True]
+
+        def proc_identity(pid, proc_root=Path("/proc")):
+            if pid != self.identity.pid or not child_alive[0]:
+                raise FileNotFoundError(pid)
+            return self.identity.cmdline, self.identity.start_time, self.identity.cgroup
+
+        identity_patch = patch.object(kill_supervisor_module, "_proc_identity", side_effect=proc_identity)
+        identity_patch.start()
+        self.addCleanup(identity_patch.stop)
+        sigkill_patch = patch.object(kill_supervisor_module.signal, "SIGKILL", 9, create=True)
+        sigkill_patch.start()
+        self.addCleanup(sigkill_patch.stop)
         events = kw.pop("events", [])
         now = time.time()
         ticks = [10.0]
@@ -174,15 +170,17 @@ class SupervisorTests(unittest.TestCase):
             ticks[0] += seconds
         def kill(pid, sig):
             events.append("kill")
-            os.kill(pid, sig)
+            child_alive[0] = False
         native_readback = kw.pop("native_readback", lambda: report(now + .001))
         return KillSupervisor(lock=kw.pop("lock", Mock(acquire=lambda: None, close=lambda: None)),
-            child=identity, stage_file=self.stage_file,
+            child=self.identity, stage_file=self.stage_file,
             proof_provider=kw.pop("proof_provider", lambda: {'checks': {name: True for name in ADOPTION_CHECKS}, 'failed_predicates': []}),
             ha_off_command=lambda: events.append("ha-off"), native_off_command=lambda: events.append("native-off"),
             ha_readback=lambda: report(now), native_readback=native_readback,
-            disarm_lease=lambda: True, lease_readback=lambda: dict(timestamp=now + .002, armed=False, generation=7),
-            retire_ownership=lambda: True, retire_poller=lambda: True,
+            disarm_lease=lambda: events.append("disarm") or True,
+            lease_readback=lambda: dict(timestamp=now + .002, armed=False, generation=7),
+            retire_ownership=lambda: events.append("retire-ownership") or True,
+            retire_poller=lambda: events.append("retire-poller") or True,
             restore_production=kw.pop("restore_production", lambda: events.append("restore") or True),
             expected_generation=7, kill=kw.pop("kill", kill),
             clock=lambda: now + .003, monotonic=monotonic, sleep=sleep,
@@ -193,8 +191,8 @@ class SupervisorTests(unittest.TestCase):
         sup = self._supervisor(events=events)
         self.assertEqual(sup.run(), "PASS")
         self.assertEqual(sup.stage, Stage.RESTORE_ALLOWED)
-        self.assertEqual(events[0], "kill")
-        self.assertEqual(events[-1], "restore")
+        self.assertEqual(events, ["kill", "ha-off", "native-off", "disarm",
+                                  "retire-ownership", "retire-poller", "restore"])
 
     def test_empty_cmdline_live_pid_does_not_count_as_dead(self):
         # An unreadable/empty cmdline is not proof of SIGKILL: the matching

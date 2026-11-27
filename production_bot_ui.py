@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import html
-import hashlib
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from aiogram import F
 from aiogram.exceptions import TelegramBadRequest
@@ -29,9 +28,24 @@ from ui_support import (
     profile_for_chemistry,
 )
 from application.intents import OperatorIntent, OperatorIntentKind
+from application.operator_read_source import OperatorReadSource
 from runtime.charge.profiles.manual import has_manual_profile
-from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
+from runtime.ui.telegram.charge import (
+    CHARGE_CALLBACK_DATA,
+    PendingStart,
+    _clear_pending_program_state,
+    _pending_intent,
+    _pending_profile,
+    _pending_start,
+    legacy_profile_from_callback as _profile_from_callback,
+    selected_program_for_user,
+)
 from runtime.ui.telegram.details import HOME_CALLBACK_DATA
+from runtime.ui.telegram.recipe_buttons import (
+    _preview_keyboard,
+    _recipe_preview_keyboard,
+    install_start_recipe_selection_routes,
+)
 
 async def _ack_callback(call: Any, *args: Any, **kwargs: Any) -> None:
     """Expired Telegram callback acknowledgement must not abort navigation."""
@@ -46,115 +60,24 @@ async def _ack_callback(call: Any, *args: Any, **kwargs: Any) -> None:
 MANUAL_PROFILE_PATH = Path(__file__).resolve().parent / "config" / "charge" / "manual.yaml"
 
 
-@dataclass(frozen=True)
-class PendingStart:
-    profile: str
-    capacity_ah: float
-    intent: ChargeIntent
-    battery_id: str
-    condition: BatteryCondition
-    recipe_id: str | None = None
-    recipe_version: int | None = None
-    native_recipe_name: str | None = None
-    native_recipe_version: int | None = None
-
-
-_pending_profile: Dict[int, str] = {}
-_pending_intent: Dict[int, ChargeIntent] = {}
-_pending_start: Dict[int, PendingStart] = {}
-_battery_pages: Dict[int, list[BatteryRecord]] = {}
-_selected_battery: Dict[int, BatteryRecord] = {}
 _new_battery_input: set[int] = set()
 _installed = False
 
 
-def _battery_callback_token(battery_id: str) -> str:
-    """Return a short deterministic identity token safe for Telegram callbacks."""
-    return hashlib.sha256(str(battery_id).encode("utf-8")).hexdigest()[:12]
+# Compatibility exports for existing callback users; presentation-only implementation.
+from runtime.ui.telegram.battery_selection import (
+    _battery_callback_token,
+    _battery_callback_data,
+    _battery_rows,
+    _battery_pages,
+    _selected_battery,
+    resolve_battery_callback as _resolve_battery_callback,
+    selected_battery_for_user,
+)
 
 
-def _battery_callback_data(record: BatteryRecord) -> str:
-    return f"v2_battery_id_{_battery_callback_token(record.identity.battery_id)}"
-
-
-def _battery_rows(records: list[BatteryRecord]) -> list[list[InlineKeyboardButton]]:
-    return [
-        [InlineKeyboardButton(text=battery_button_label(record), callback_data=_battery_callback_data(record))]
-        for record in records
-    ]
-
-
-async def _resolve_battery_callback(raw: str, user_id: int) -> Optional[BatteryRecord]:
-    """Resolve durable callbacks first; retain old page indexes for compatibility."""
-    if raw.startswith("id_"):
-        token = raw[3:]
-        records = await list_batteries(limit=200)
-        return next(
-            (
-                record
-                for record in records
-                if profile_for_chemistry(record.identity.chemistry)
-                and _battery_callback_token(record.identity.battery_id) == token
-            ),
-            None,
-        )
-    if not raw.isdigit():
-        return None
-    idx = int(raw)
-    records = _battery_pages.get(user_id) or []
-    if idx < 0 or idx >= len(records):
-        records = [r for r in await list_batteries(limit=200) if profile_for_chemistry(r.identity.chemistry)]
-        _battery_pages[user_id] = records
-    return records[idx] if 0 <= idx < len(records) else None
-
-
-def selected_battery_for_user(user_id: int) -> Optional[BatteryRecord]:
-    return _selected_battery.get(int(user_id))
-
-
-def selected_program_for_user(user_id: int) -> Optional[str]:
-    """Return the process-local pending selection for operator presentation."""
-    user_id = int(user_id)
-    pending = _pending_start.get(user_id)
-    if pending is not None:
-        return f"{pending.profile} {pending.capacity_ah:g} Ah · {intent_label(pending.intent)}"
-    profile = _pending_profile.get(user_id)
-    if profile:
-        return f"{profile} · ожидается ёмкость АКБ"
-    record = _selected_battery.get(user_id)
-    if record is not None:
-        return f"{record.identity.chemistry.value} {record.identity.nominal_capacity_ah:g} Ah · выбрана АКБ"
-    return None
-
-
-def _clear_pending_program_state(app: Any, user_id: int) -> None:
-    """Drop only the selection wizard state after START was accepted."""
-    user_id = int(user_id)
-    _pending_start.pop(user_id, None)
-    _pending_profile.pop(user_id, None)
-    _pending_intent.pop(user_id, None)
-    awaiting = getattr(app, "awaiting_ah", None)
-    if isinstance(awaiting, dict):
-        awaiting.pop(user_id, None)
-
-
-def format_start_feedback(result: Any) -> str:
-    """Describe the route result without confusing ACTIVE with DRY_RUN."""
-    trace = str(getattr(result, "trace_id", ""))[:8]
-    if not bool(getattr(result, "accepted", False)):
-        return f"START отклонён: {getattr(result, 'reason', 'unknown')}"
-
-    port_result = getattr(result, "port_result", None)
-    mode = getattr(getattr(port_result, "mode", None), "value", "")
-    if mode == "active":
-        execution = getattr(port_result, "execution_result", None)
-        status = getattr(getattr(execution, "status", None), "value", "accepted")
-        return f"✅ ACTIVE START {status}: {getattr(result, 'reason', 'accepted')} ({trace})"
-    if mode == "dry_run":
-        return f"✅ START preflight PASS; DRY_RUN, заряд не запускался ({trace})"
-    if mode:
-        return f"✅ START {mode.upper()}: {getattr(result, 'reason', 'accepted')} ({trace})"
-    return f"✅ START принят: {getattr(result, 'reason', 'accepted')} ({trace})"
+# Compatibility export: START result formatting is presentation only.
+from runtime.ui.components.hmi_values import format_start_feedback
 
 
 def _intent_keyboard(prefix: str) -> InlineKeyboardMarkup:
@@ -173,105 +96,16 @@ def _intent_keyboard(prefix: str) -> InlineKeyboardMarkup:
     )
 
 
-def _preview_keyboard(start_callback: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="▶️ Запустить", callback_data=start_callback)],
-            [InlineKeyboardButton(text="⬅️ Режимы", callback_data=CHARGE_CALLBACK_DATA)],
-        ]
-    )
-
-
-def _recipe_preview_keyboard(app: Any, start_callback: str) -> InlineKeyboardMarkup:
-    original = _preview_keyboard(start_callback)
-    catalog = getattr(app, '_user_recipe_catalog', None)
-    if catalog is None:
-        return original
-    rows = list(original.inline_keyboard)
-    choices = []
-    for name in catalog.active_recipes():
-        versions = catalog.library.versions(name)
-        if not versions:
-            continue
-        version = versions[-1]
-        data = f'v2_recipe_pick:{name}:{version}'
-        if len(data.encode('utf-8')) <= 64:
-            choices.append(InlineKeyboardButton(text=f'Рецепт {name} v{version}', callback_data=data))
-    # Saved native recipe copies reuse the same pending START transaction.
-    from runtime.charge.programs.native_recipe_draft_library import NativeRecipeDraftLibrary
-    native_store = NativeRecipeDraftLibrary(catalog.library.root.parent / "native_recipe_drafts")
-    for name in native_store.list_drafts():
-        versions = native_store.versions(name)
-        if not versions:
-            continue
-        version = versions[-1]
-        data = f"v2_native_pick:{name}:{version}"
-        if len(data.encode("utf-8")) <= 64:
-            choices.append(InlineKeyboardButton(
-                text=f"Штатная копия {name} v{version}", callback_data=data,
-            ))
-    if choices:
-        rows[1:1] = [[choice] for choice in choices[:24]]
-    else:
-        rows.insert(1, [InlineKeyboardButton(text='Создать рецепт', callback_data='recipes:create')])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
-
-
 def _parse_intent(value: str) -> ChargeIntent:
     return ChargeIntent(str(value).strip().lower())
 
 
-def _parse_chemistry(value: str) -> BatteryChemistry:
-    raw = str(value).strip().lower().replace(" ", "").replace("-", "_")
-    aliases = {
-        "agm": BatteryChemistry.AGM,
-        "efb": BatteryChemistry.EFB,
-        "ca": BatteryChemistry.CA_CA,
-        "caca": BatteryChemistry.CA_CA,
-        "ca/ca": BatteryChemistry.CA_CA,
-        "ca_ca": BatteryChemistry.CA_CA,
-        "flooded": BatteryChemistry.FLOODED,
-        "liquid": BatteryChemistry.FLOODED,
-    }
-    try:
-        return aliases[raw]
-    except KeyError as exc:
-        raise ValueError("тип должен быть AGM, EFB, Ca/Ca или Flooded") from exc
-
-
-def parse_battery_spec(text: str) -> tuple[BatteryIdentity, BatteryLifecycle]:
-    """Parse one-line registry input: ID | chemistry | Ah | manufacturer | model."""
-    parts = [part.strip() for part in str(text or "").split("|")]
-    if len(parts) < 3:
-        raise ValueError("формат: ID | AGM/EFB/Ca/Ca | Ah | производитель | модель")
-    battery_id = parts[0]
-    if not battery_id or len(battery_id) > 64:
-        raise ValueError("ID обязателен и должен быть короче 65 символов")
-    chemistry = _parse_chemistry(parts[1])
-    try:
-        capacity = float(parts[2].replace(",", "."))
-    except ValueError as exc:
-        raise ValueError("ёмкость Ah должна быть числом") from exc
-    if capacity <= 0 or capacity > 1000:
-        raise ValueError("ёмкость должна быть в диапазоне 0..1000 Ah")
-    manufacturer = parts[3] if len(parts) >= 4 else ""
-    model = parts[4] if len(parts) >= 5 else ""
-    identity = BatteryIdentity(
-        battery_id=battery_id,
-        chemistry=chemistry,
-        nominal_capacity_ah=capacity,
-        manufacturer=manufacturer,
-        model=model,
-    )
-    return identity, BatteryLifecycle(condition=BatteryCondition.UNKNOWN)
-
-
-def _profile_from_callback(data: str) -> Optional[str]:
-    return {
-        "v2_profile_caca": "Ca/Ca",
-        "v2_profile_efb": "EFB",
-        "v2_profile_agm": "AGM",
-    }.get(data)
+# Compatibility exports for the legacy pipe-only Telegram form.
+# All battery input parsing is owned by battery_input.
+from battery_input import (
+    _parse_chemistry,
+    parse_legacy_pipe_battery_spec as parse_battery_spec,
+)
 
 
 async def _safe_answer(event: Any, text: str, *, reply_markup=None) -> None:
@@ -294,13 +128,35 @@ async def _route_profile_intent(app: Any, call: Any, profile: str) -> bool:
     return True
 
 
-def install_ui_support(app: Any) -> None:
+def install_ui_support(
+    app: Any,
+    *,
+    pending_intent_state=None,
+    battery_upsert=None,
+    battery_spec_parser=None,
+    safe_answer=None,
+    intent_keyboard=None,
+    preview_keyboard=None,
+    active_evidence_formatter=None,
+    start_route=None,
+) -> None:
     """Install the Telegram operator presentation/workflow over the runtime substrate.
 
     This installer owns presentation and callback composition only. Physical execution
     is submitted through the canonical production start route.
     """
     global _installed
+    save_battery = battery_upsert or upsert_battery
+    parse_battery = battery_spec_parser or parse_battery_spec
+    answer = safe_answer or _safe_answer
+    build_intent_keyboard = intent_keyboard or _intent_keyboard
+    build_preview_keyboard = preview_keyboard or _preview_keyboard
+    pending_intents = pending_intent_state if pending_intent_state is not None else _pending_intent
+    format_evidence = active_evidence_formatter or format_active_evidence
+    production_start_route = (
+        start_route if start_route is not None
+        else getattr(app, "_v3_production_start_route", None)
+    )
     if _installed:
         return
     _installed = True
@@ -353,7 +209,7 @@ def install_ui_support(app: Any) -> None:
         }:
             try:
                 snap = app.charge_controller.ui_support_snapshot()
-                compact = format_active_evidence(
+                compact = format_evidence(
                     snap,
                     voltage_v=app._safe_float(live.get("battery_voltage")),
                     current_a=app._safe_float(live.get("current")),
@@ -365,7 +221,7 @@ def install_ui_support(app: Any) -> None:
         return original_progress(live)
 
     async def handle_ah_input(message: Any, profile: str, user_id: int) -> None:
-        intent = _pending_intent.pop(user_id, ChargeIntent.RECOVERY)
+        intent = pending_intents.pop(user_id, ChargeIntent.RECOVERY)
         try:
             capacity = float((message.text or "").strip().replace(",", "."))
         except ValueError:
@@ -393,42 +249,7 @@ def install_ui_support(app: Any) -> None:
         await message.answer(
             preview.text,
             parse_mode=ParseMode.HTML,
-            reply_markup=_preview_keyboard("v2_quick_start"),
-        )
-
-    async def handle_dialog_mode(message: Any) -> None:
-        user_id = message.from_user.id if message.from_user else 0
-        if user_id not in _new_battery_input:
-            await original_handle_dialog(message)
-            return
-        try:
-            identity, lifecycle = parse_battery_spec(message.text or "")
-            await upsert_battery(identity, lifecycle)
-        except Exception as exc:
-            await message.answer(
-                f"❌ {html.escape(str(exc))}\n\n"
-                "Формат: <code>ID | AGM/EFB/Ca/Ca | Ah | Производитель | Модель</code>",
-                parse_mode=ParseMode.HTML,
-            )
-            return
-        _new_battery_input.discard(user_id)
-        records = await list_batteries(limit=50)
-        created = next((item for item in records if item.identity.battery_id == identity.battery_id), None)
-        visible_records = [
-            item for item in records if profile_for_chemistry(item.identity.chemistry)
-        ]
-        _battery_pages[user_id] = visible_records
-        rows = _battery_rows(visible_records)
-        rows.append([InlineKeyboardButton(text="➕ Добавить АКБ", callback_data="v2_battery_add")])
-        rows.append([InlineKeyboardButton(text="⬅️ Режимы", callback_data=CHARGE_CALLBACK_DATA)])
-        text = (
-            (format_battery_card(created) if created else f"✅ АКБ <code>{html.escape(identity.battery_id)}</code> сохранена.")
-            + "\n\n<b>Выберите сохранённую АКБ:</b>"
-        )
-        await message.answer(
-            text,
-            parse_mode=ParseMode.HTML,
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+            reply_markup=build_preview_keyboard("v2_quick_start"),
         )
 
     app._build_dashboard_keyboard = build_dashboard_keyboard
@@ -436,22 +257,37 @@ def install_ui_support(app: Any) -> None:
     app._build_charge_modes_keyboard = build_charge_modes_keyboard
     app._format_stage_progress_line = format_stage_progress_line
     app.handle_ah_input = handle_ah_input
-    app.handle_dialog_mode = handle_dialog_mode
+    from runtime.ui.telegram.battery_selection import install_battery_add_route
+
+    install_battery_add_route(
+        app,
+        new_battery_input=_new_battery_input,
+        acknowledge=_ack_callback,
+        answer=answer,
+        fallback_handler=original_handle_dialog,
+        parse_battery=parse_battery,
+        save_battery=save_battery,
+        list_saved_batteries=list_batteries,
+        format_battery_card=format_battery_card,
+        battery_rows=_battery_rows,
+        charge_callback_data=CHARGE_CALLBACK_DATA,
+    )
+    app.handle_dialog_mode = app.handle_battery_add_input
 
     @app.router.callback_query(F.data == "v2_status")
     async def status_handler(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
             return
         await _ack_callback(call, )
-        live = await app.hass.get_all_live()
+        live = await OperatorReadSource(app).read_live()
         snap = app.charge_controller.ui_support_snapshot()
-        text = format_active_evidence(
+        text = format_evidence(
             snap,
             voltage_v=app._safe_float(live.get("battery_voltage")),
             current_a=app._safe_float(live.get("current")),
             temp_c=app._safe_float(live.get("temp_ext")),
         )
-        await _safe_answer(
+        await answer(
             call,
             f"<b>🧭 Контроллер заряда</b>\n\n{text}\n\n"
             f"Stage: <code>{html.escape(app.charge_controller.current_stage)}</code>",
@@ -469,7 +305,7 @@ def install_ui_support(app: Any) -> None:
         records = [r for r in await list_batteries(limit=20) if profile_for_chemistry(r.identity.chemistry)]
         _battery_pages[user_id] = records
         if not records:
-            await _safe_answer(
+            await answer(
                 call,
                 "<b>🔋 Реестр АКБ пуст.</b>\nДобавьте физическую батарею или используйте быстрый профиль.",
                 reply_markup=InlineKeyboardMarkup(
@@ -483,30 +319,13 @@ def install_ui_support(app: Any) -> None:
         rows = _battery_rows(records)
         rows.append([InlineKeyboardButton(text="➕ Добавить АКБ", callback_data="v2_battery_add")])
         rows.append([InlineKeyboardButton(text="⬅️ Режимы", callback_data=CHARGE_CALLBACK_DATA)])
-        await _safe_answer(
+        await answer(
             call,
             "<b>🔋 Физические аккумуляторы</b>\nВыберите батарею:",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
         )
 
     app._batteries_handler = batteries_handler
-
-    @app.router.callback_query(F.data == "v2_battery_add")
-    async def battery_add_handler(call: Any) -> None:
-        if not await app._check_chat_and_respond(call):
-            return
-        await _ack_callback(call, )
-        user_id = call.from_user.id if call.from_user else 0
-        _new_battery_input.add(user_id)
-        await _safe_answer(
-            call,
-            "<b>➕ Добавление АКБ</b>\n\n"
-            "Одним сообщением:\n"
-            "<code>ID | AGM/EFB/Ca/Ca | Ah | Производитель | Модель</code>\n\n"
-            "Например:\n<code>varta70 | AGM | 70 | Varta | Silver Dynamic AGM</code>",
-        )
-
-    app._battery_add_handler = battery_add_handler
 
     @app.router.callback_query(
         F.data.startswith("v2_battery_")
@@ -521,7 +340,7 @@ def install_ui_support(app: Any) -> None:
         if raw.startswith("id_"):
             record = await _resolve_battery_callback(raw, user_id)
             if record is None:
-                await _safe_answer(
+                await answer(
                     call,
                     "<b>Список АКБ устарел.</b> Откройте раздел АКБ заново.",
                     reply_markup=InlineKeyboardMarkup(
@@ -543,7 +362,7 @@ def install_ui_support(app: Any) -> None:
         else:
             return
         if idx < 0 or idx >= len(records):
-            await _safe_answer(
+            await answer(
                 call,
                 "<b>Список АКБ устарел.</b> Откройте раздел АКБ заново.",
                 reply_markup=InlineKeyboardMarkup(
@@ -562,11 +381,11 @@ def install_ui_support(app: Any) -> None:
                 text="▶️ Запустить сохранённый Manual",
                 callback_data="v2_battery_manual",
             )]]
-        await _safe_answer(
+        await answer(
             call,
             f"{format_battery_card(record)}\n\n<b>Что делаем?</b>",
             reply_markup=InlineKeyboardMarkup(
-                inline_keyboard=manual_button + _intent_keyboard("v2_bat_intent").inline_keyboard
+                inline_keyboard=manual_button + build_intent_keyboard("v2_bat_intent").inline_keyboard
             ),
         )
     async def _select_quick_profile(call: Any, profile: str) -> None:
@@ -580,10 +399,10 @@ def install_ui_support(app: Any) -> None:
             return
         user_id = call.from_user.id if call.from_user else 0
         _pending_profile[user_id] = profile
-        await _safe_answer(
+        await answer(
             call,
             f"<b>{html.escape(profile)}</b>\nВыберите intent. Normal — полный штатный AUTO; стандартный Recovery/Mix используется только по критериям стратегии.",
-            reply_markup=_intent_keyboard("v2_quick_intent"),
+            reply_markup=build_intent_keyboard("v2_quick_intent"),
         )
 
     app._select_quick_profile = _select_quick_profile
@@ -608,7 +427,7 @@ def install_ui_support(app: Any) -> None:
         intent = _parse_intent((call.data or "").replace("v2_quick_intent_", "", 1))
         _pending_intent[user_id] = intent
         app.awaiting_ah[user_id] = profile
-        await _safe_answer(
+        await answer(
             call,
             f"{html.escape(intent_label(intent))} · <b>{html.escape(profile)}</b>\n\nВведите ёмкость АКБ в Ah. После ввода покажу программу перед запуском.",
         )
@@ -644,7 +463,7 @@ def install_ui_support(app: Any) -> None:
         if pending is None:
             await _ack_callback(call, "Preview устарел — выберите режим заново", show_alert=True)
             return
-        route = getattr(app, "_v3_production_start_route", None)
+        route = production_start_route
         if trace is not None:
             trace.info("QUICK_START_TRACE route=%s", "FOUND" if route is not None else "MISSING")
         if route is None:
@@ -705,75 +524,18 @@ def install_ui_support(app: Any) -> None:
         if trace is not None:
             trace.info("QUICK_START_TRACE response=ACCEPTED")
 
-    @app.router.callback_query(F.data.startswith("v2_native_pick:"))
-    async def pick_native_recipe_handler(call: Any) -> None:
-        if not await app._check_chat_and_respond(call):
-            return
-        user_id = call.from_user.id if call.from_user else 0
-        pending = _pending_start.get(user_id)
-        catalog = getattr(app, "_user_recipe_catalog", None)
-        if pending is None or catalog is None:
-            await _ack_callback(call, "Нет ожидающего START", show_alert=True)
-            return
-        try:
-            _, name, version_text = str(call.data).split(":")
-            version = int(version_text)
-            from runtime.charge.programs.native_recipe_draft_library import NativeRecipeDraftLibrary
-            from runtime.charge.programs.native_recipe_session import select_native_recipe_version
-            library = NativeRecipeDraftLibrary(catalog.library.root.parent / "native_recipe_drafts")
-            selected = select_native_recipe_version(
-                library, name, version, profile=pending.profile, intent=pending.intent,
-            )
-        except (ValueError, KeyError, OSError, FileNotFoundError) as exc:
-            await _ack_callback(call, str(exc)[:180], show_alert=True)
-            return
-        _pending_start[user_id] = replace(
-            pending, recipe_id=None, recipe_version=None,
-            native_recipe_name=name, native_recipe_version=version,
-        )
-        await _ack_callback(call)
-        await _safe_answer(
-            call, f"Выбрана копия {name} v{version} ({selected.profile} · {selected.intent}). "
-                  "START применит закреплённую версию.",
-            reply_markup=_preview_keyboard("v2_battery_start"),
-        )
-
-    @app.router.callback_query(F.data.startswith("v2_recipe_pick:"))
-    async def pick_recipe_handler(call: Any) -> None:
-        if not await app._check_chat_and_respond(call):
-            return
-        user_id = call.from_user.id if call.from_user else 0
-        pending = _pending_start.get(user_id)
-        catalog = getattr(app, "_user_recipe_catalog", None)
-        if pending is None or catalog is None:
-            await _ack_callback(call, "Сначала выберите АКБ и режим", show_alert=True)
-            return
-        try:
-            _, name, version_text = str(call.data).split(":")
-            version = int(version_text)
-            if name not in catalog.active_recipes():
-                raise ValueError("Рецепт архивирован")
-            recipe = catalog.library.load(name, version)
-            from runtime.charge.programs.recipe_preflight import inspect_recipe
-            report = inspect_recipe(recipe)
-            if not report.admissible_structure:
-                raise ValueError("; ".join(report.problems))
-        except (ValueError, OSError) as exc:
-            await _ack_callback(call, str(exc)[:180], show_alert=True)
-            return
-        _pending_start[user_id] = replace(
-            pending, recipe_id=name, recipe_version=version,
-            native_recipe_name=None, native_recipe_version=None,
-        )
-        await _ack_callback(call)
-        await _safe_answer(call, f"Выбран {name} v{version}. START запустит этот рецепт.",
-                           reply_markup=_preview_keyboard("v2_battery_start"))
+    install_start_recipe_selection_routes(
+        app,
+        pending_start=_pending_start,
+        acknowledge=_ack_callback,
+        answer=answer,
+        preview_keyboard=build_preview_keyboard,
+    )
 
     @app.router.callback_query(F.data.startswith("v2_bat_intent_"))
     async def battery_intent_handler(call: Any) -> None:
         if not await app._check_chat_and_respond(call):
             return
-        await _ack_callback(call, )
         user_id = call.from_user.id if call.from_user else 0
         record = _selected_battery.get(user_id)
         if record is None:
@@ -783,6 +545,7 @@ def install_ui_support(app: Any) -> None:
         if profile is None:
             await _ack_callback(call, "Для этой химии пока нет auto-profile", show_alert=True)
             return
+        await _ack_callback(call)
         intent = _parse_intent((call.data or "").replace("v2_bat_intent_", "", 1))
         pending = PendingStart(
             profile=profile,
@@ -799,7 +562,7 @@ def install_ui_support(app: Any) -> None:
             condition=pending.condition,
             battery_id=pending.battery_id,
         )
-        await _safe_answer(
+        await answer(
             call,
             f"{format_battery_card(record)}\n\n{preview.text}",
             reply_markup=_recipe_preview_keyboard(app, "v2_battery_start"),

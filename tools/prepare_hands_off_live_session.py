@@ -88,7 +88,7 @@ async def run(args: argparse.Namespace) -> int:
                 "refusing live-session HANDS_OFF bootstrap: current RD6018 Output is not positively ON"
             )
 
-        required = ("set_voltage", "set_current", "ovp", "ocp")
+        required = ("set_voltage", "set_current")
         missing = [key for key in required if live.get(key) in (None, "", "unknown", "unavailable")]
         if missing:
             raise RuntimeError(
@@ -116,8 +116,6 @@ async def run(args: argparse.Namespace) -> int:
             "temp_ext": live.get("temp_ext_v2", live.get("temp_ext")),
             "set_voltage": live.get("set_voltage"),
             "set_current": live.get("set_current"),
-            "ovp": live.get("ovp"),
-            "ocp": live.get("ocp"),
             "history": history_payload,
             "history_error": history_error,
             "state_file": os.path.abspath(args.state_file),

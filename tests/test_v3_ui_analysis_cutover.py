@@ -111,11 +111,14 @@ class V3AnalysisUICutoverTests(unittest.TestCase):
         self.assertIn("ANALYSIS_CALLBACK_DATA", operator_source)
         self.assertIn("ANALYSIS_CALLBACK_DATA", panel_source)
 
-    def test_composition_installs_analysis_with_injected_provider(self):
+    def test_composition_installs_analysis_through_optional_module_manager(self):
         source = (ROOT / "bot.py").read_text(encoding="utf-8")
-        self.assertIn("install_analysis_screen(", source)
-        self.assertIn("analysis_provider=app._build_ai_analysis_text", source)
-        self.assertIn("home_handler=app._operator_home_handler", source)
+        adapter = (ROOT / "integrations/ai/module.py").read_text(encoding="utf-8")
+        self.assertIn("self.modules.install_all(app", source)
+        self.assertNotIn("from integrations.ai.telegram_screen import", source)
+        self.assertIn("install_analysis_screen(", adapter)
+        self.assertIn("analysis_provider=app._build_ai_analysis_text", adapter)
+        self.assertIn("home_handler=app._operator_home_handler", adapter)
 
 
 class V3AnalysisTelegramRouteTests(unittest.IsolatedAsyncioTestCase):

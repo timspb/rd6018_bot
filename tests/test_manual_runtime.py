@@ -4,7 +4,10 @@ import tempfile
 import time
 import unittest
 from types import SimpleNamespace
+from unittest import mock
 
+import manual_mode
+import manual_runtime
 from manual_mode import ManualChargeRequest, ManualSessionState
 from manual_runtime import ProductionManualSessionManager
 
@@ -98,6 +101,122 @@ class ManualRuntimeV2Tests(unittest.IsolatedAsyncioTestCase):
         manager = ProductionManualSessionManager(self.app, session_file=self.session_file)
         self.app.manual_session_manager = manager
         return manager
+
+    def test_restart_reach_read_uses_manual_session_store_owner(self):
+        manager = self._manager()
+        manager.request = ManualChargeRequest(14.7, 2.0)
+        manager.state = ManualSessionState.ACTIVE
+        manager.started_at = time.time()
+        manager.reach_voltage_v = 15.2
+        manager.reach_current_a = 0.8
+        manager._persist()
+
+        original_reader = manual_runtime.read_manual_session_document
+        original_base_reader = manual_mode.read_manual_session_document
+        original_writer = manual_mode.write_manual_session_document
+        with mock.patch.object(
+            manual_runtime,
+            "read_manual_session_document",
+            wraps=original_reader,
+        ) as reader, mock.patch.object(
+            manual_mode,
+            "read_manual_session_document",
+            wraps=original_base_reader,
+        ) as base_reader, mock.patch.object(
+            manual_mode,
+            "write_manual_session_document",
+            wraps=original_writer,
+        ) as writer:
+            restored = ProductionManualSessionManager(
+                self.app,
+                session_file=self.session_file,
+            )
+
+        reader.assert_called_once_with(self.session_file)
+        base_reader.assert_not_called()
+        writer.assert_called_once()
+        self.assertEqual(restored.state, ManualSessionState.INTERRUPTED)
+        self.assertEqual(restored.reach_voltage_v, 15.2)
+        self.assertEqual(restored.reach_current_a, 0.8)
+
+    def test_restart_corrupt_document_uses_one_store_read_without_write_or_enable(self):
+        from pathlib import Path
+        Path(self.session_file).write_text('{"state":', encoding="utf-8")
+        with mock.patch.object(
+            manual_runtime, "read_manual_session_document",
+            wraps=manual_runtime.read_manual_session_document,
+        ) as reader, mock.patch.object(
+            manual_mode, "read_manual_session_document",
+            side_effect=AssertionError("base restore must not reread"),
+        ) as base_reader, mock.patch.object(
+            manual_mode, "write_manual_session_document",
+            side_effect=AssertionError("invalid source must not be rewritten"),
+        ) as writer:
+            restored = self._manager()
+        reader.assert_called_once_with(self.session_file)
+        base_reader.assert_not_called()
+        writer.assert_not_called()
+        self.assertEqual(restored.state, ManualSessionState.IDLE)
+        self.assertIsNone(restored.reach_voltage_v)
+        self.assertIsNone(restored.reach_current_a)
+        self.assertEqual(self.hass.enable_requests, [])
+        self.assertEqual(Path(self.session_file).read_text(encoding="utf-8"), '{"state":')
+
+    def test_restart_stopped_document_reads_once_without_terminal_rewrite(self):
+        from pathlib import Path
+        import json
+        document = {
+            "version": 2, "state": "stopped",
+            "request": None, "reach_voltage_v": 15.0, "reach_current_a": 1.25,
+        }
+        Path(self.session_file).write_text(json.dumps(document), encoding="utf-8")
+        with mock.patch.object(
+            manual_runtime, "read_manual_session_document",
+            wraps=manual_runtime.read_manual_session_document,
+        ) as reader, mock.patch.object(
+            manual_mode, "read_manual_session_document",
+            side_effect=AssertionError("unexpected base read"),
+        ) as base_reader, mock.patch.object(
+            manual_mode, "write_manual_session_document",
+            side_effect=AssertionError("stopped state is not re-committed"),
+        ) as writer:
+            restored = self._manager()
+        reader.assert_called_once_with(self.session_file)
+        base_reader.assert_not_called()
+        writer.assert_not_called()
+        self.assertEqual(restored.state, ManualSessionState.IDLE)
+        self.assertEqual(restored.reach_voltage_v, 15.0)
+        self.assertEqual(restored.reach_current_a, 1.25)
+        self.assertEqual(self.hass.enable_requests, [])
+
+    async def test_manual_observer_reads_through_managed_safety_owner(self):
+        live = {
+            "battery_voltage": 14.0,
+            "current": 1.0,
+            "temp_ext": 25.0,
+            "temp_int": 30.0,
+            "switch": "on",
+            "is_cv": True,
+            "is_cc": False,
+        }
+        safety_owner = SimpleNamespace(
+            get_all_live=mock.AsyncMock(return_value=dict(live)),
+        )
+        self.app.runtime_safety_guard = safety_owner
+        self.hass.get_all_live = mock.AsyncMock(
+            side_effect=AssertionError("Manual must not bypass ManagedRuntimeSafetyGuard")
+        )
+        manager = self._manager()
+        manager.request = ManualChargeRequest(14.7, 2.0)
+        manager.state = ManualSessionState.ACTIVE
+        manager.started_at = time.time()
+
+        await manager.observe_once()
+
+        self.assertIs(manager.execution_port._execution_owner, safety_owner)
+        self.assertIs(manager.execution_boundary.execution_port, manager.execution_port)
+        self.assertEqual(safety_owner.get_all_live.await_count, 2)
+        self.hass.get_all_live.assert_not_awaited()
 
     async def test_active_manual_reconfiguration_is_verified_off_then_fresh_enable(self):
         manager = self._manager()

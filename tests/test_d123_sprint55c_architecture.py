@@ -15,9 +15,22 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class Sprint55CArchitectureTests(unittest.TestCase):
     def test_no_production_controller_classes_or_active_subclasses_remain(self):
-        for relative in ("production_controller.py", "auto_strategy.py", "diagnostic_controller.py"):
+        self.assertFalse((ROOT / "auto_strategy.py").exists())
+        self.assertFalse((ROOT / "diagnostic_controller.py").exists())
+        for relative in ("production_controller.py",):
             tree = ast.parse((ROOT / relative).read_text())
             self.assertFalse(any(isinstance(node, ast.ClassDef) for node in tree.body), relative)
+        forbidden_writers = {
+            "safe_enable_output", "turn_on", "turn_off", "set_voltage", "set_current",
+            "set_ovp", "set_ocp", "execute_controller_actions",
+        }
+        for relative in ("production_controller.py", "runtime/production_runtime.py"):
+            tree = ast.parse((ROOT / relative).read_text())
+            calls = {
+                node.func.attr for node in ast.walk(tree)
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+            }
+            self.assertTrue(forbidden_writers.isdisjoint(calls), relative)
         for path in (ROOT / "runtime").rglob("*.py"):
             tree = ast.parse(path.read_text())
             self.assertFalse(any(
@@ -56,12 +69,20 @@ class Sprint55CArchitectureTests(unittest.TestCase):
     def test_restore_and_writer_owners_remain_single_and_ordered(self):
         source = (ROOT / "runtime/charge/session_continuation_restore.py").read_text()
         persistence = (ROOT / "runtime/charge/persistence.py").read_text()
-        guard = persistence.index("if GUARD_KEY in data:")
+        restore_owner = (ROOT / "runtime/charge/session_restore.py").read_text()
+        finalization = (ROOT / "runtime/charge/restore_finalization.py").read_text()
+        from runtime.charge import persistence as persistence_api, session_restore
+        self.assertIn("from runtime.charge.session_restore import (", persistence)
+        self.assertIs(persistence_api.restore_session, session_restore.restore_session)
+        restore = restore_owner.split("def restore_session(", 1)[1]
+        guard = restore.index("if GUARD_KEY in data:")
         extension = source.index("restore_production_session_state(")
-        self.assertIn("return False", persistence[guard:persistence.index("saved_at =", guard)])
+        self.assertIn("return False", restore[guard:restore.index("saved_at =", guard)])
+        self.assertGreater(extension, 0)
         controller = (ROOT / "charge_controller.py").read_text()
-        self.assertIn("RestoredSessionDocument.capture(data)", persistence)
-        self.assertNotIn("_session_restore_document", persistence + controller + source)
+        self.assertIn("RestoredSessionDocument.capture(document)", finalization)
+        self.assertNotIn("_session_restore_document",
+                         persistence + restore_owner + controller + source + finalization)
         self.assertNotIn("safe_enable_output(", source)
         self.assertNotIn("turn_on(", source)
         atomic = ast.parse((ROOT / "runtime/charge/session_atomic.py").read_text())

@@ -143,15 +143,17 @@ class UIActuallyDispatchedAcceptanceTests(unittest.IsolatedAsyncioTestCase):
         )
         rejected = SimpleNamespace(accepted=False, reason="safety_preflight_rejected", port_result=None)
         submit = AsyncMock(return_value=rejected)
-        route = SimpleNamespace(submit=submit)
+        route = app._v3_production_start_route
         start = _Call("v2_battery_start")
         safe_enable = AsyncMock()
-        with patch.object(app, "_v3_production_start_route", route), patch.object(
+        with patch.object(route, "submit", new=submit), patch.object(
             app.hass, "safe_enable_output", new=safe_enable
         ):
             await (await _handler_for(start.data))(start)
         submit.assert_awaited_once()
         self.assertTrue(start.answers)
+        self.assertTrue(start.message.answers)
+        self.assertIn("START отклонён: safety_preflight_rejected", start.message.answers[-1][0])
         # The callback only submits the typed route; no RD/HASS actuator was touched.
         safe_enable.assert_not_awaited()
 

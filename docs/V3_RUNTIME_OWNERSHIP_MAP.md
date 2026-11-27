@@ -68,7 +68,8 @@ legacy globals и module functions. `bot.py` затем aliases `sys.modules[__n
 |---|---|---|---|---|
 | `current_stage`, active flags, chemistry/counters | legacy controller methods | `charge_logic.py` / `ChargeController.start`, `stop`, `process` | `ChargeController` base | `ChargeState` + controller |
 | V2 transition evidence/decision state | V2 controller | `charge_controller_v2.py`, `production_controller.py` | subclass fields and decision helpers | `ChargeController` |
-| diagnostic context/assessment | diagnostic controller | `diagnostic_controller.py` / `update_diagnostic_context` | `DiagnosticProductionChargeControllerV2` | `DiagnosticState` |
+| diagnostic context/assessment | runtime charge diagnostics | `runtime/charge/diagnostics.py` / `update_diagnostic_context` | `ManagedChargeController` host projection | `DiagnosticState` |
+| SignalAnalyzer diagnostic snapshot | charge evidence diagnostics | `runtime/charge/evidence/signal_diagnostic_snapshot.py` / `signal_analyzer_diagnostic_snapshot` | `runtime/charge/diagnostics.py` direct compatibility re-export; controller delegate | diagnostic only; no charge authority |
 | manual lifecycle/timers | Manual manager | `manual_mode.py`, `manual_runtime_v2.py` / `start`, `stop`, `_run` | Manual manager | `ManualState` under app |
 | setpoint cache | controller + polling | `charge_logic.py` fields and `bot_legacy.py` telemetry path | split controller/legacy globals | `ChargeState` snapshot |
 | operator pause | legacy globals/file | `bot_legacy.py` pause helpers and JSON persistence | legacy module | `SessionPersistence` |

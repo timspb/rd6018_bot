@@ -1,25 +1,40 @@
 import unittest
 
-from protection_utils import should_delay_current_ramp
-from protection_utils import should_use_startup_settle
+from runtime.safety.output_policy import (
+    OutputRequest, SafetySupervisor, TelemetrySnapshot, ProtectionStatus,
+)
 
 
-class ProtectionUtilsTests(unittest.TestCase):
-    def test_delay_when_current_rises_and_ocp_exists(self):
-        self.assertTrue(should_delay_current_ramp(1.6, 0.22, 2.1, True))
+class IndependentOutputSafeguardTests(unittest.TestCase):
+    def setUp(self):
+        self.request = OutputRequest(14.4, 2.0, 14.4)
+        self.supervisor = SafetySupervisor()
 
-    def test_no_delay_when_current_does_not_rise(self):
-        self.assertFalse(should_delay_current_ramp(0.2, 0.22, 2.1, True))
+    def test_measured_voltage_above_recipe_ceiling_is_rejected(self):
+        telemetry = TelemetrySnapshot(
+            battery_voltage_v=12.6, current_a=0.5, temp_ext_c=25.0,
+            temp_int_c=30.0, output_on=True, output_voltage_v=15.0,
+            set_voltage_v=14.4, set_current_a=2.0,
+        )
+        decision = self.supervisor.verify_live_output(self.request, telemetry)
+        self.assertFalse(decision.allowed)
+        self.assertIn("measured_output_over_limit", {v.value for v in decision.violations})
 
-    def test_no_delay_without_ocp(self):
-        self.assertFalse(should_delay_current_ramp(1.6, 0.22, None, False))
+    def test_missing_programmed_v_i_readback_fails_closed(self):
+        telemetry = TelemetrySnapshot(
+            battery_voltage_v=12.6, current_a=0.5, temp_ext_c=25.0,
+            temp_int_c=30.0, output_on=True, output_voltage_v=14.0,
+        )
+        decision = self.supervisor.verify_programmed(self.request, telemetry)
+        self.assertFalse(decision.allowed)
 
-    def test_startup_settle_on_turn_on_and_current_rise(self):
-        self.assertTrue(should_use_startup_settle(1.6, 0.22, 2.6, True, True))
-
-    def test_no_startup_settle_without_turn_on(self):
-        self.assertFalse(should_use_startup_settle(1.6, 0.22, 2.6, True, False))
-
-
-if __name__ == "__main__":
-    unittest.main()
+    def test_raw_opp_remains_a_separate_trip(self):
+        telemetry = TelemetrySnapshot(
+            battery_voltage_v=12.6, current_a=0.5, temp_ext_c=25.0,
+            temp_int_c=30.0, output_on=True, output_voltage_v=14.0,
+            set_voltage_v=14.4, set_current_a=2.0,
+            protection_status=ProtectionStatus.OPP,
+        )
+        decision = self.supervisor.verify_live_output(self.request, telemetry)
+        self.assertFalse(decision.allowed)
+        self.assertIn("protection_already_tripped", {v.value for v in decision.violations})

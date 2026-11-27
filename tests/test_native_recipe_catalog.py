@@ -32,6 +32,27 @@ class NativeRecipeCatalogTests(unittest.TestCase):
             else:
                 self.assertIn("MAIN", entry.stages)
 
+    def test_final_safe_wait_catalog_owner_matches_production_dispatch(self):
+        from runtime.charge.programs.native_recipe_catalog import STAGE_OWNERS
+        import inspect
+        from runtime.charge.runtime import stage_authority
+        from runtime.charge.runtime.final_safe_wait_authority import apply_final_safe_wait_authority
+
+        owners = dict(STAGE_OWNERS)
+        self.assertEqual(
+            owners["FINAL_SAFE_WAIT"],
+            "runtime.charge.runtime.final_safe_wait_authority",
+        )
+        self.assertTrue(callable(apply_final_safe_wait_authority))
+        route_source = inspect.getsource(stage_authority.apply_authoritative_stage_tick)
+        self.assertIn("from runtime.charge.runtime.final_safe_wait_authority import apply_final_safe_wait_authority", route_source)
+        self.assertIn("return apply_final_safe_wait_authority(", route_source)
+        for entry in native_recipes():
+            if entry.intent != "diagnostic":
+                self.assertIn(owners["FINAL_SAFE_WAIT"], entry.owner_modules)
+            else:
+                self.assertNotIn(owners["FINAL_SAFE_WAIT"], entry.owner_modules)
+
     def test_unknown_native_id_rejected(self):
         with self.assertRaises(KeyError):
             get_native_recipe("native_unknown")

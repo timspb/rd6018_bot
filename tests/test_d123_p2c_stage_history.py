@@ -49,7 +49,11 @@ class StageHistoryConvergenceTests(unittest.TestCase):
                               for dec in node.decorator_list))
         self.assertEqual(sum(isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
                              and n.func.id == "set_current_stage" for n in ast.walk(setter)), 1)
-        source = (ROOT / "runtime/charge/persistence.py").read_text(encoding="utf-8")
+        source = (ROOT / "runtime/charge/session_restore.py").read_text(encoding="utf-8")
+        persistence = (ROOT / "runtime/charge/persistence.py").read_text(encoding="utf-8")
+        from runtime.charge import persistence as persistence_api, session_restore
+        self.assertIn("from runtime.charge.session_restore import (", persistence)
+        self.assertIs(persistence_api.restore_session, session_restore.restore_session)
         self.assertIn("restore_stage_history(\n", source)
         self.assertNotIn('host._stage_history.append(\n', source)
 

@@ -20,8 +20,6 @@ class AiTempSemanticsTests(unittest.TestCase):
             "hold": None,
             "safety": {
                 "current_limit_a": 12,
-                "ovp_offset_v": 0.1,
-                "ocp_offset_a": 0.1,
                 "temp_warning_c": 35,
                 "temp_pause_c": 40,
                 "temp_critical_c": 45,
@@ -57,8 +55,6 @@ class AiTempSemanticsTests(unittest.TestCase):
             "hold": None,
             "safety": {
                 "current_limit_a": 12,
-                "ovp_offset_v": 0.1,
-                "ocp_offset_a": 0.1,
                 "temp_warning_c": 35,
                 "temp_pause_c": 40,
                 "temp_critical_c": 45,

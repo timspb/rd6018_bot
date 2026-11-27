@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import os
 from pathlib import Path
 
 from tools.d139_offline_transaction import OfflineTransition, D139Error, SENTINEL
@@ -21,6 +22,13 @@ class FakeService:
 
 
 class D139Tests(unittest.TestCase):
+    # These exercise crash recovery after durable directory metadata updates.
+    # The production helper intentionally uses POSIX directory fsync; do not
+    # replace it with a Windows no-op or weaken these Linux durability checks.
+    posix_directory_durability = unittest.skipUnless(
+        os.name == "posix", "requires POSIX directory fsync semantics"
+    )
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="d139-fixture-")
         self.addCleanup(self.temp.cleanup)
@@ -42,6 +50,7 @@ class D139Tests(unittest.TestCase):
         self.assertEqual((self.root / "D090_TRANSACTION.json").read_text(), "STARTED-without-inventory")
         self.assertEqual((self.root / ".deploy_sha").read_text(), "legacy marker")
 
+    @posix_directory_durability
     def test_success_fixture_then_recover_exact_old_bytes(self):
         t = OfflineTransition(self.root, self.service)
         result = t.activate_fixture()
@@ -55,6 +64,7 @@ class D139Tests(unittest.TestCase):
         self.assertTrue(self.service.active)
         self.assert_legacy_untouched()
 
+    @posix_directory_durability
     def test_crash_boundaries_preserve_state_and_restore(self):
         for point in ("BACKUP_DURABLE", "STOPPED",
                       "AFTER_OLD_APP_RENAME_BEFORE_JOURNAL", "OLD_APP_RENAMED",
@@ -77,6 +87,7 @@ class D139Tests(unittest.TestCase):
                 self.assertEqual((self.root / "venv/version").read_text(), "old environment")
                 self.assert_legacy_untouched()
 
+    @posix_directory_durability
     def test_prepared_without_backup_never_stops_service_for_recovery(self):
         def fail(name):
             if name == "PREPARED":
@@ -90,6 +101,7 @@ class D139Tests(unittest.TestCase):
         self.assertEqual(stop_before, self.service.stops)
         self.assert_legacy_untouched()
 
+    @posix_directory_durability
     def test_corrupt_backup_refuses_before_stop(self):
         t = OfflineTransition(self.root, self.service)
         t.activate_fixture()
@@ -100,6 +112,7 @@ class D139Tests(unittest.TestCase):
         self.assertEqual(self.service.stops, stops_before)
         self.assert_legacy_untouched()
 
+    @posix_directory_durability
     def test_recovery_preserves_new_session_data(self):
         t = OfflineTransition(self.root, self.service)
         t.activate_fixture()

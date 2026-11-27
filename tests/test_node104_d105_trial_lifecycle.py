@@ -5,6 +5,7 @@ import hashlib
 import io
 import json
 import math
+import os
 from pathlib import Path
 import sys
 import tarfile
@@ -32,7 +33,7 @@ class TrialLifecycleTests(unittest.TestCase):
 
     def edge(self):
         return TX.TrialOffProof(time.time(), False, False, 0.0, 900, 0,
-                                3.0, 13.57, 0.10, 14.07, 0.20, uuid4().hex)
+                                3.0, 13.57, 0.10, uuid4().hex)
 
     def _stage_pin(self):
         rows=[]
@@ -82,6 +83,10 @@ class TrialLifecycleTests(unittest.TestCase):
         if backups:
             self.assertTrue((self.root/"backups").is_dir())
 
+    @unittest.skipUnless(
+        os.name == "posix",
+        "D105 trial lifecycle requires D090 POSIX fcntl.flock cross-process locking",
+    )
     def test_full_trial_and_restore_is_never_production_commit(self):
         began=self.trial()
         self.assertEqual("TRIAL_RUNNING",began["phase"])
@@ -94,6 +99,10 @@ class TrialLifecycleTests(unittest.TestCase):
         self.assert_old()
         self.assertEqual("TRIAL_RESTORED",self.recover()["phase"])
 
+    @unittest.skipUnless(
+        os.name == "posix",
+        "D105 trial lifecycle requires D090 POSIX fcntl.flock cross-process locking",
+    )
     def test_trial_fault_matrix_recovers_at_all_swaps(self):
         faults=(
             "trial-after-journal-prepared",
@@ -123,6 +132,10 @@ class TrialLifecycleTests(unittest.TestCase):
                 self.assert_old()
                 self.assertEqual("TRIAL_RESTORED",self.recover()["phase"])
 
+    @unittest.skipUnless(
+        os.name == "posix",
+        "D105 trial lifecycle requires D090 POSIX fcntl.flock cross-process locking",
+    )
     def test_unsealed_backup_is_never_trusted_and_terminal_is_idempotent(self):
         point="trial-after-backup-copy-before-journal"
         with self.assertRaisesRegex(RuntimeError,"injected:"):
@@ -135,30 +148,50 @@ class TrialLifecycleTests(unittest.TestCase):
         self.assert_old()
         self.assertEqual("TRIAL_RESTORED",self.recover()["phase"])
 
+    @unittest.skipUnless(
+        os.name == "posix",
+        "D105 trial lifecycle requires D090 POSIX fcntl.flock cross-process locking",
+    )
     def test_failed_edge_observer_fails_before_any_stop(self):
         self.tx.trial_edge_proof = None
         with self.assertRaisesRegex(TX.TransactionError,"edge proof"):
             self.trial()
         self.assertEqual(0,self.service.stops)
 
+    @unittest.skipUnless(
+        os.name == "posix",
+        "D105 trial lifecycle requires D090 POSIX fcntl.flock cross-process locking",
+    )
     def test_no_socket_fails_after_reversible_start(self):
         self.tx.trial_socket_ready=lambda:False
         with self.assertRaisesRegex(TX.TransactionError,"socket"):
             self.trial()
         self.assert_old()
 
+    @unittest.skipUnless(
+        os.name == "posix",
+        "D105 trial lifecycle requires D090 POSIX fcntl.flock cross-process locking",
+    )
     def test_live_owner_denied_even_with_fake_root(self):
         self.tx.offline=False
         with self.assertRaisesRegex(TX.TransactionError,"not authorized"):
             self.trial()
         self.assertEqual(0,self.service.stops)
 
+    @unittest.skipUnless(
+        os.name == "posix",
+        "D105 trial lifecycle requires D090 POSIX fcntl.flock cross-process locking",
+    )
     def test_wrong_release_stage_never_stops_old_bot(self):
         (self.staged/"tree/version").write_text("tampered")
         with self.assertRaisesRegex(TX.d102.AdmissionError,"extracted tree"):
             self.trial()
         self.assertEqual(0,self.service.stops)
 
+    @unittest.skipUnless(
+        os.name == "posix",
+        "D105 trial lifecycle requires D090 POSIX fcntl.flock cross-process locking",
+    )
     def test_stale_autonomous_or_armed_edge_denies_trial(self):
         for changes in (
             {"captured_at_epoch":time.time()-45},
@@ -178,6 +211,10 @@ class TrialLifecycleTests(unittest.TestCase):
                     self.trial()
                 self.assertEqual(0,self.service.stops)
 
+    @unittest.skipUnless(
+        os.name == "posix",
+        "D105 trial lifecycle requires D090 POSIX fcntl.flock cross-process locking",
+    )
     def test_unsafe_edge_after_start_blocks_rollback(self):
         self.trial()
         self.tx.trial_edge_proof=lambda:self.edge()._replace(autonomous=True)
@@ -192,6 +229,10 @@ class TrialLifecycleTests(unittest.TestCase):
         self.finish()
         self.assert_old()
 
+    @unittest.skipUnless(
+        os.name == "posix",
+        "D105 trial lifecycle requires D090 POSIX fcntl.flock cross-process locking",
+    )
     def test_recovery_requires_fresh_edge_after_candidate_was_started(self):
         self.trial()
         self.tx.trial_edge_proof = lambda: self.edge()._replace(captured_at_epoch=time.time()-50)
@@ -204,6 +245,10 @@ class TrialLifecycleTests(unittest.TestCase):
         self.assertEqual("TRIAL_RESTORED",self.finish()["phase"])
         self.assert_old()
 
+    @unittest.skipUnless(
+        os.name == "posix",
+        "D105 trial lifecycle requires D090 POSIX fcntl.flock cross-process locking",
+    )
     def test_truncated_backup_before_journal_never_gets_used_for_restore(self):
         self.tx.failpoint=lambda name: (_ for _ in ()).throw(RuntimeError(name)) if name=="after-journal-stopped" else None
         self.tx.trial_edge_proof=self.edge
@@ -213,6 +258,10 @@ class TrialLifecycleTests(unittest.TestCase):
         self.assert_old()
         self.assertTrue(json.loads(self.tx.journal.read_text())["rollback_without_backup"])
 
+    @unittest.skipUnless(
+        os.name == "posix",
+        "D105 trial lifecycle requires D090 POSIX fcntl.flock cross-process locking",
+    )
     def test_prebackup_modified_preimage_prevents_recovery(self):
         def fault(name):
             if name=="after-journal-stopped":
@@ -225,6 +274,10 @@ class TrialLifecycleTests(unittest.TestCase):
         self.assertEqual(0,self.service.starts)
         self.assertEqual("STOPPED",json.loads(self.tx.journal.read_text())["phase"])
 
+    @unittest.skipUnless(
+        os.name == "posix",
+        "D105 trial lifecycle requires D090 POSIX fcntl.flock cross-process locking",
+    )
     def test_trial_source_setpoints_must_remain_unchanged_during_exit(self):
         self.trial()
         self.tx.trial_edge_proof=lambda:self.edge()._replace(set_voltage_v=13.70)
@@ -234,6 +287,10 @@ class TrialLifecycleTests(unittest.TestCase):
         self.tx.trial_edge_proof=self.edge
         self.assertEqual("TRIAL_RESTORED",self.finish()["phase"])
 
+    @unittest.skipUnless(
+        os.name == "posix",
+        "D105 trial lifecycle requires D090 POSIX fcntl.flock cross-process locking",
+    )
     def test_corrupt_backup_prevents_trial_recovery(self):
         record=self.trial()
         backup=self.root/"backups"/record["backup"]/"app/version"
@@ -242,6 +299,10 @@ class TrialLifecycleTests(unittest.TestCase):
             self.finish()
         self.assertEqual(TX.TRIAL_SOURCE_SHA,(self.root/".deploy_sha").read_text().strip())
 
+    @unittest.skipUnless(
+        os.name == "posix",
+        "D105 trial lifecycle requires D090 POSIX fcntl.flock cross-process locking",
+    )
     def test_invalid_journal_source_rejected_and_no_process_stop(self):
         record=self.trial()
         record["source_sha"]="0"*40
@@ -251,6 +312,10 @@ class TrialLifecycleTests(unittest.TestCase):
             self.recover()
         self.assertEqual(stops,self.service.stops)
 
+    @unittest.skipUnless(
+        os.name == "posix",
+        "D105 trial lifecycle requires D090 POSIX fcntl.flock cross-process locking",
+    )
     def test_restore_fault_is_reentrant_and_idempotent(self):
         self.trial()
         self.tx.failpoint=lambda name: (_ for _ in ()).throw(RuntimeError(name)) if name=="trial-restore-app" else None

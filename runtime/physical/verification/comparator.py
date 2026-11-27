@@ -32,7 +32,7 @@ class PhysicalStateComparator:
                 differences.append(f"missing:{name}")
         fields = set(require_fields)
         for name in ("output_state", "measured_voltage", "measured_current", "configured_voltage",
-                     "configured_current", "ovp", "ocp", "temperature"):
+                     "configured_current", "temperature"):
             expected_value = getattr(expected, name, None)
             observed_value = getattr(observed, name, None)
             if expected_value is None:
@@ -45,7 +45,7 @@ class PhysicalStateComparator:
                 if expected_value != observed_value:
                     differences.append(name)
                 continue
-            tolerance = self.current_tolerance if "current" in name else self.protection_tolerance if name in {"ovp", "ocp"} else self.voltage_tolerance if "voltage" in name else 0.0
+            tolerance = self.current_tolerance if "current" in name else self.voltage_tolerance if "voltage" in name else 0.0
             if abs(float(expected_value) - float(observed_value)) > tolerance:
                 differences.append(name)
         return (VerificationResult.MATCH if not differences else VerificationResult.MISMATCH), tuple(differences)

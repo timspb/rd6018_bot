@@ -4,9 +4,9 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
-from external_temp_integrity import ExternalTempIntegrityMonitor, ExternalTempIntegrityPolicy
-from runtime_safety import OutputOffNotConfirmed, RuntimeSafetyError
-from managed_runtime_safety import ManagedRuntimeSafetyGuard
+from runtime.safety.temperature_integrity import ExternalTempIntegrityMonitor, ExternalTempIntegrityPolicy
+from runtime.safety.runtime_guard import OutputOffNotConfirmed, RuntimeSafetyError
+from runtime.safety.managed_guard import ManagedRuntimeSafetyGuard
 
 
 def _live(temp=25.0, *, when=None, switch="on"):
@@ -242,13 +242,13 @@ class ExternalTempRuntimeIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_trip_forces_verified_off_and_retires_auto_session(self):
         with tempfile.TemporaryDirectory() as tmp:
-            t0 = datetime.now(timezone.utc)
+            t0 = datetime.now(timezone.utc) - timedelta(seconds=7)
             guard, controller, hass = self._guard(tmp, when=t0)
 
             await guard.get_all_live()
-            hass.live = _live(31.0, when=datetime.now(timezone.utc))
+            hass.live = _live(31.0, when=t0 + timedelta(seconds=1))
             await guard.get_all_live()
-            hass.live = _live(37.0, when=datetime.now(timezone.utc))
+            hass.live = _live(37.0, when=t0 + timedelta(seconds=2))
             with self.assertRaisesRegex(RuntimeSafetyError, "external temperature sensor integrity"):
                 await guard.get_all_live()
 
@@ -260,12 +260,12 @@ class ExternalTempRuntimeIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_trip_with_unconfirmed_off_keeps_controller_authority(self):
         with tempfile.TemporaryDirectory() as tmp:
-            t0 = datetime.now(timezone.utc)
+            t0 = datetime.now(timezone.utc) - timedelta(seconds=7)
             guard, controller, hass = self._guard(tmp, when=t0)
             await guard.get_all_live()
-            hass.live = _live(31.0, when=datetime.now(timezone.utc))
+            hass.live = _live(31.0, when=t0 + timedelta(seconds=1))
             await guard.get_all_live()
-            hass.live = _live(37.0, when=datetime.now(timezone.utc))
+            hass.live = _live(37.0, when=t0 + timedelta(seconds=2))
             hass.off_confirms = False
 
             with self.assertRaises(OutputOffNotConfirmed):
@@ -307,22 +307,22 @@ class ExternalTempRuntimeIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_clean_recovery_reports_accumulate_while_off_but_do_not_clear_latch(self):
         with tempfile.TemporaryDirectory() as tmp:
-            t0 = datetime.now(timezone.utc)
+            t0 = datetime.now(timezone.utc) - timedelta(seconds=7)
             guard, controller, hass = self._guard(tmp, when=t0)
             await guard.get_all_live()
-            hass.live = _live(31.0, when=datetime.now(timezone.utc))
+            hass.live = _live(31.0, when=t0 + timedelta(seconds=1))
             await guard.get_all_live()
-            hass.live = _live(37.0, when=datetime.now(timezone.utc))
+            hass.live = _live(37.0, when=t0 + timedelta(seconds=2))
             with self.assertRaises(RuntimeSafetyError):
                 await guard.get_all_live()
 
             self.assertFalse(controller.is_active)
-            hass.live = _live(25.0, when=datetime.now(timezone.utc), switch="off")
+            hass.live = _live(25.0, when=t0 + timedelta(seconds=3), switch="off")
             await guard.get_all_live()
             self.assertFalse(guard.external_temp_integrity.rearm_ready)
             self.assertTrue(guard.external_temp_integrity.latched)
 
-            hass.live = _live(25.5, when=datetime.now(timezone.utc), switch="off")
+            hass.live = _live(25.5, when=t0 + timedelta(seconds=4), switch="off")
             await guard.get_all_live()
             self.assertTrue(guard.external_temp_integrity.rearm_ready)
             self.assertTrue(guard.external_temp_integrity.latched)

@@ -7,8 +7,6 @@ from rd_adopted_hands_off_release import install_adopted_hands_off_release_retir
 
 
 _SUPPRESSED_NOTIFY_FRAGMENTS = (
-    "Сработала защита OVP",
-    "Сработала защита OCP",
     "Температура блока",
     "Выключено по условию",
     "Связь потеряна во время активного заряда",
@@ -17,8 +15,6 @@ _SUPPRESSED_NOTIFY_FRAGMENTS = (
 )
 
 _SUPPRESSED_EVENT_PREFIXES = (
-    "OVP_TRIGGERED",
-    "OCP_TRIGGERED",
     "TEMP_INT_PRECRITICAL_",
     "MANUAL_OFF_",
     "WATCHDOG_",

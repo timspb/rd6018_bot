@@ -6,7 +6,6 @@ It is an engineering foundation; it is not physical authorization.
 from __future__ import annotations
 
 import errno
-import fcntl
 import hashlib
 import os
 from pathlib import Path
@@ -18,6 +17,15 @@ from enum import Enum
 from typing import Any, Callable
 
 from .independent_off import independent_output_off
+
+
+def _effective_uid() -> int:
+    """Resolve the POSIX effective UID only when root is actually required."""
+    try:
+        geteuid = os.geteuid
+    except AttributeError as exc:
+        raise RuntimeError("acceptance supervisor requires POSIX root support") from exc
+    return geteuid()
 
 
 class Stage(str, Enum):
@@ -69,7 +77,7 @@ def verify_child(identity: ChildIdentity, *, proc_root: Path = Path("/proc"),
 
 class GlobalLock:
     """Lock one pre-created root-owned 0600 regular inode; never creates/unlinks it."""
-    def __init__(self, path: Path, *, euid: Callable[[], int] = os.geteuid,
+    def __init__(self, path: Path, *, euid: Callable[[], int] = _effective_uid,
                  owner_uid: int = 0):
         self.path = Path(path)
         self.fd: int | None = None
@@ -77,6 +85,8 @@ class GlobalLock:
         self.owner_uid = owner_uid
 
     def acquire(self) -> None:
+        import fcntl
+
         if self.euid() != 0:
             raise RuntimeError("acceptance supervisor requires root")
         before = self.path.lstat()
@@ -116,9 +126,9 @@ ADOPTION_CHECKS = frozenset({
     'lease_not_tripped', 'lease_not_quarantined', 'lease_modbus_fresh',
     'lease_remaining_fresh', 'raw_protection_normal',
     'setpoint_readback_voltage_v', 'setpoint_readback_current_a',
-    'setpoint_readback_ovp_v', 'setpoint_readback_ocp_a', 'safe_temperature',
+    'safe_temperature',
 })
-assert len(ADOPTION_CHECKS) == 19
+assert len(ADOPTION_CHECKS) == 17
 
 
 def adopted_proof_is_full(proof: Any) -> bool:

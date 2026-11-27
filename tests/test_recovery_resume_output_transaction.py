@@ -9,7 +9,7 @@ os.environ.setdefault("TG_TOKEN", "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZ123456789")
 
 from runtime import production_runtime as runtime
 from application.controller_action_execution import execute_controller_action_batch
-from application.execution_port import get_or_create_execution_port
+from application.execution_port import ExecutionPort, get_or_create_execution_port
 from production_controller import create_production_charge_host
 from pb_domain import ChargeIntent
 from runtime.charge.strategy.main_current_guard import MainCurrentGuard
@@ -21,29 +21,61 @@ class FakeHass:
         self.enable = enable
         self.final_verify = final_verify
         self.calls = []
+        self.output = False
+        self.set_v = 14.8
+        self.set_i = 1.8
+        self.stamp = 1.0
 
-    async def set_ovp(self, value):
-        self.calls.append(("set_ovp", float(value)))
-        return True
+    def _live(self):
+        self.stamp += 1.0
+        readback_i = (
+            self.set_i if (not self.output or self.final_verify) else self.set_i + 1.0
+        )
+        values = {
+            "battery_voltage": 14.3,
+            "voltage": self.set_v if self.output else 0.0,
+            "current": 0.0,
+            "temp_ext": 25.0,
+            "temp_int": 30.0,
+            "input_voltage": 230.0,
+            "switch": "on" if self.output else "off",
+            "protection_code": 0,
+            "set_voltage_readback_v2": self.set_v,
+            "set_current_readback_v2": readback_i,
+        }
+        values["_meta"] = {
+            key: {
+                "source": "esp_native_api",
+                "native_type": "SensorState",
+                "subscription_timestamp_monotonic": self.stamp,
+                "age_s": 0.0,
+            }
+            for key in values
+        }
+        return values
+
+    async def get_all_live(self):
+        return self._live()
 
     async def set_voltage(self, value):
         self.calls.append(("set_voltage", float(value)))
-        return True
-
-    async def set_ocp(self, value):
-        self.calls.append(("set_ocp", float(value)))
+        self.set_v = float(value)
         return True
 
     async def set_current(self, value):
         self.calls.append(("set_current", float(value)))
+        self.set_i = float(value)
         return True
 
     async def turn_on(self, *_args):
         self.calls.append(("turn_on",))
+        if self.enable:
+            self.output = True
         return self.enable
 
     async def turn_off(self, *_args):
         self.calls.append(("turn_off",))
+        self.output = False
         return True
 
     async def verify_live_programming(self, **kwargs):
@@ -77,8 +109,6 @@ class RecoveryResumeOutputTransactionTests(unittest.IsolatedAsyncioTestCase):
         return {
             "set_voltage": 14.8,
             "set_current": 9.0,
-            "set_ovp": 14.9,
-            "set_ocp": 9.1,
             "turn_on": True,
             "verified_enable_transition": {
                 "kind": "recovery_safe_wait_to_main",
@@ -93,9 +123,12 @@ class RecoveryResumeOutputTransactionTests(unittest.IsolatedAsyncioTestCase):
         events = []
         notices = []
         live = {"set_current": 1.8}
+        port = ExecutionPort(hass, app=None)
         with patch.object(runtime, "hass", hass), patch.object(
             runtime, "charge_controller", controller
-        ), patch.object(runtime.asyncio, "sleep", new=AsyncMock()), patch.object(
+        ), patch.object(runtime, "_runtime_execution_port", return_value=port), patch.object(
+            runtime.asyncio, "sleep", new=AsyncMock()
+        ), patch.object(
             runtime, "log_event", side_effect=lambda *args: events.append(args)
         ), patch.object(
             runtime, "_charge_notify", side_effect=lambda *args, **kwargs: notices.append((args, kwargs))
@@ -110,32 +143,18 @@ class RecoveryResumeOutputTransactionTests(unittest.IsolatedAsyncioTestCase):
             )
         return result, controller, events, notices
 
-    async def test_agm_resume_orders_ovp_ocp_and_commits_only_after_final_readback(self):
+    async def test_agm_resume_orders_vi_and_commits_only_after_final_readback(self):
         hass = FakeHass(enable=True, final_verify=True)
         enabled, controller, events, notices = await self._run(hass)
         self.assertTrue(enabled)
         self.assertEqual(
             [call[0] for call in hass.calls],
-            [
-                "set_ovp",
-                "set_voltage",
-                "set_ocp",
-                "set_current",
-                "turn_on",
-                "set_ocp",
-                "verify_live_programming",
-            ],
+            ["set_voltage", "set_current", "turn_on"],
         )
-        self.assertEqual(hass.calls[0][1], 14.9)
-        self.assertEqual(hass.calls[1][1], 14.8)
-        self.assertEqual(hass.calls[2][1], runtime.IDLE_SAFE_OCP)
-        self.assertEqual(hass.calls[3][1], 9.0)
-        self.assertEqual(hass.calls[5][1], 9.1)
-        verify = hass.calls[6][1]
-        self.assertEqual(verify["voltage_v"], 14.8)
-        self.assertEqual(verify["current_a"], 9.0)
-        self.assertEqual(verify["ovp_v"], 14.9)
-        self.assertEqual(verify["ocp_a"], 9.1)
+        self.assertEqual(hass.calls[0][1], 14.8)
+        self.assertEqual(hass.calls[1][1], 9.0)
+        self.assertEqual(hass.set_v, 14.8)
+        self.assertEqual(hass.set_i, 9.0)
         self.assertEqual(len(controller.commits), 1)
         self.assertTrue(controller._last_known_output_on)
         self.assertEqual(len(events), 1)
@@ -150,20 +169,17 @@ class RecoveryResumeOutputTransactionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events, [])
         self.assertEqual(notices, [])
         self.assertNotIn("verify_live_programming", [call[0] for call in hass.calls])
-        # Final OCP is still restored while Output remains OFF so the next attempt
-        # starts from the intended protection envelope rather than the wide settle OCP.
-        self.assertIn(("set_ocp", 9.1), hass.calls)
         self.assertEqual(hass.calls[-1], ("turn_off",))
         self.assertEqual(controller.stopped, [True])
 
-    async def test_failed_final_ocp_readback_forces_off_and_withholds_stage_commit(self):
+    async def test_failed_final_vi_readback_forces_off_and_withholds_stage_commit(self):
         hass = FakeHass(enable=True, final_verify=False)
         enabled, controller, events, notices = await self._run(hass)
         self.assertFalse(enabled)
         self.assertEqual(controller.commits, [])
         self.assertFalse(controller._last_known_output_on)
         names = [call[0] for call in hass.calls]
-        self.assertEqual(names[-3:], ["verify_live_programming", "turn_off", "turn_off"])
+        self.assertEqual(names[-3:], ["turn_on", "turn_off", "turn_off"])
         self.assertEqual(controller.stopped, [True])
         self.assertEqual(events, [])
         self.assertEqual(notices, [])
@@ -174,37 +190,39 @@ class RecoveryResumeOutputTransactionTests(unittest.IsolatedAsyncioTestCase):
                 self.output = 0
                 self.v = 14.8
                 self.i = 5.0
-                self.ovp = 14.9
-                self.ocp = 5.1
                 self.stamp = 1.0
                 self.calls = []
 
             def snapshot(self):
                 self.stamp += 1
                 vals = {
-                    "output_state_code_v2": self.output, "current": 0.0,
-                    "set_current_readback_v2": self.i, "ocp_readback_v2": self.ocp,
+                    "battery_voltage": 14.3,
+                    "voltage": self.v if self.output else 0.0,
+                    "current": 0.0,
+                    "temp_ext": 25.0,
+                    "temp_int": 30.0,
+                    "input_voltage": 230.0,
+                    "switch": "on" if self.output else "off",
+                    "output_state_code_v2": self.output,
+                    "set_voltage_readback_v2": self.v,
+                    "set_current_readback_v2": self.i,
                     "protection_code": 0,
                 }
                 vals["_meta"] = {
                     key: {"source": "esp_native_api", "native_type": "SensorState",
                           "subscription_timestamp_monotonic": self.stamp, "age_s": 0}
-                    for key in ("output_state_code_v2", "current", "set_current_readback_v2",
-                                "ocp_readback_v2", "protection_code")
+                    for key in vals
                 }
                 return vals
 
             async def get_all_live(self): return self.snapshot()
             async def turn_off(self): self.calls.append(("off",)); self.output = 0; return True
             async def turn_on(self): self.calls.append(("on",)); self.output = 1; return True
-            async def set_ovp(self, value): self.calls.append(("ovp", value)); self.ovp = value; return True
             async def set_voltage(self, value): self.calls.append(("voltage", value)); self.v = value; return True
-            async def set_ocp(self, value): self.calls.append(("ocp", value)); self.ocp = value; return True
             async def set_current(self, value): self.calls.append(("current", value)); self.i = value; return True
             async def verify_live_programming(self, **kwargs):
                 self.calls.append(("verify", kwargs))
-                return (self.v == kwargs["voltage_v"] and self.i == kwargs["current_a"]
-                        and self.ovp == kwargs["ovp_v"] and self.ocp == kwargs["ocp_a"])
+                return self.v == kwargs["voltage_v"] and self.i == kwargs["current_a"]
 
         owner = NativeOwner()
         controller = create_production_charge_host(owner)
@@ -238,8 +256,7 @@ class RecoveryResumeOutputTransactionTests(unittest.IsolatedAsyncioTestCase):
         ):
             controller._save_session(14.3, 0.0, 12.0)
             actions = {
-                "set_voltage": 14.8, "set_current": 7.2, "set_ovp": 14.9,
-                "set_ocp": 7.3, "turn_on": True,
+                "set_voltage": 14.8, "set_current": 7.2, "turn_on": True,
                 "verified_enable_transition": {
                     "kind": "recovery_safe_wait_to_main",
                     "session_id": controller._v2_trace_session_id,
@@ -250,17 +267,14 @@ class RecoveryResumeOutputTransactionTests(unittest.IsolatedAsyncioTestCase):
             result = await execute_controller_action_batch(
                 actions, owner.snapshot(), execution_port=port, controller=controller,
                 battery_v=14.3, current=0.0, temp=25.0, ah=12.0,
-                max_stage_current_a=12.0, ocp_offset_a=0.1, idle_safe_ocp_a=12.0,
-                stabilize_delay_s=0.0, recipe_voltage_ceiling_v=17.5,
-                has_ovp=True, has_ocp=True, notify=lambda *a, **k: None,
+                max_stage_current_a=12.0,
+                recipe_voltage_ceiling_v=17.5, notify=lambda *a, **k: None,
                 log_event=lambda *a: None, logger=__import__("logging").getLogger("test"),
             )
             self.assertTrue(result)
             names = [call[0] for call in owner.calls]
             self.assertIn(("current", 7.2), owner.calls)
-            self.assertIn(("ocp", 7.3), owner.calls)
             self.assertLess(names.index("off"), names.index("current"))
-            self.assertLess(names.index("ocp"), names.index("current"))
             self.assertEqual(controller.current_stage, controller.STAGE_MAIN)
             self.assertEqual(controller._main_current_guard.hardware_limit_a, 7.2)
             self.assertEqual(controller._main_current_guard.accrued_output_on_s, 0.0)
@@ -276,17 +290,15 @@ class RecoveryResumeOutputTransactionTests(unittest.IsolatedAsyncioTestCase):
             async def get_all_live(self):
                 return {
                     "output_state_code_v2": 1, "current": 1.0,
-                    "set_current_readback_v2": 5.0, "ocp_readback_v2": 5.1,
+                    "set_current_readback_v2": 5.0,
                     "protection_code": 0,
                     "_meta": {key: {"source": "esp_native_api", "native_type": "SensorState",
                                    "subscription_timestamp_monotonic": float(i), "age_s": 0}
                               for i, key in enumerate(("output_state_code_v2", "current",
-                                  "set_current_readback_v2", "ocp_readback_v2", "protection_code"), 1)},
+                                  "set_current_readback_v2", "protection_code"), 1)},
                 }
             async def turn_off(self): self.calls.append(("off",)); return True
-            async def set_ovp(self, value): self.calls.append(("ovp", value)); return True
             async def set_voltage(self, value): self.calls.append(("voltage", value)); return True
-            async def set_ocp(self, value): self.calls.append(("ocp", value)); return True
             async def set_current(self, value): self.calls.append(("current", value)); return True
 
         owner = Owner()
@@ -314,33 +326,46 @@ class RecoveryResumeOutputTransactionTests(unittest.IsolatedAsyncioTestCase):
         result = await execute_controller_action_batch(
             actions, {}, execution_port=port, controller=controller,
             battery_v=14.3, current=1.0, temp=25.0, ah=12.0,
-            max_stage_current_a=12.0, ocp_offset_a=0.1, idle_safe_ocp_a=12.0,
-            stabilize_delay_s=0.0, recipe_voltage_ceiling_v=17.5,
-            has_ovp=True, has_ocp=True, notify=lambda *a, **k: None,
+            max_stage_current_a=12.0,
+            recipe_voltage_ceiling_v=17.5, notify=lambda *a, **k: None,
             log_event=lambda *a: None, logger=__import__("logging").getLogger("test"),
         )
         self.assertFalse(result)
-        self.assertFalse(any(call[0] in {"ovp", "voltage", "ocp", "current", "on"}
+        self.assertFalse(any(call[0] in {"voltage", "current", "on"}
                              for call in owner.calls))
 
     async def test_desulfation_return_failures_durably_compensate_and_allow_retry(self):
         class NativeOwner:
             def __init__(self, failure):
                 self.failure = failure
-                self.output, self.v, self.i, self.ovp, self.ocp = 0, 14.8, 5.0, 14.9, 5.1
+                self.output, self.v, self.i = 0, 14.8, 5.0
                 self.stamp = 1.0
                 self.calls = []
 
             def snapshot(self):
                 self.stamp += 1
-                values = {"output_state_code_v2": self.output, "current": 0.0,
-                          "set_current_readback_v2": self.i, "ocp_readback_v2": self.ocp,
-                          "protection_code": 0}
+                readback_i = (
+                    self.i + 1.0
+                    if self.output and self.failure == "final"
+                    else self.i
+                )
+                values = {
+                    "battery_voltage": 14.3,
+                    "voltage": self.v if self.output else 0.0,
+                    "current": 0.0,
+                    "temp_ext": 25.0,
+                    "temp_int": 30.0,
+                    "input_voltage": 230.0,
+                    "switch": "on" if self.output else "off",
+                    "output_state_code_v2": self.output,
+                    "set_voltage_readback_v2": self.v,
+                    "set_current_readback_v2": readback_i,
+                    "protection_code": 0,
+                }
                 values["_meta"] = {key: {
                     "source": "esp_native_api", "native_type": "SensorState",
                     "subscription_timestamp_monotonic": self.stamp, "age_s": 0,
-                } for key in ("output_state_code_v2", "current", "set_current_readback_v2",
-                              "ocp_readback_v2", "protection_code")}
+                } for key in values}
                 return values
 
             async def get_all_live(self): return self.snapshot()
@@ -350,16 +375,13 @@ class RecoveryResumeOutputTransactionTests(unittest.IsolatedAsyncioTestCase):
                 if self.failure == "enable": return False
                 self.output = 1
                 return True
-            async def set_ovp(self, value): self.ovp = value; return True
             async def set_voltage(self, value): self.v = value; return True
-            async def set_ocp(self, value): self.ocp = value; return True
             async def set_current(self, value): self.i = value; return True
             async def verify_live_programming(self, **kwargs):
                 return self.failure != "final" and self.output == 1
 
         actions = {
-            "set_voltage": 14.8, "set_current": 7.2, "set_ovp": 14.9,
-            "set_ocp": 7.3, "turn_on": True,
+            "set_voltage": 14.8, "set_current": 7.2, "turn_on": True,
             "verified_enable_transition": {"kind": "recovery_safe_wait_to_main"},
         }
         for failure in ("enable", "final"):
@@ -400,8 +422,7 @@ class RecoveryResumeOutputTransactionTests(unittest.IsolatedAsyncioTestCase):
                     kwargs = dict(
                         execution_port=port, controller=controller, battery_v=14.3,
                         current=0.0, temp=25.0, ah=12.0, max_stage_current_a=12.0,
-                        ocp_offset_a=0.1, idle_safe_ocp_a=12.0, stabilize_delay_s=0.0,
-                        recipe_voltage_ceiling_v=17.5, has_ovp=True, has_ocp=True,
+                        recipe_voltage_ceiling_v=17.5,
                         notify=lambda *a, **k: None, log_event=lambda *a: None,
                         logger=__import__("logging").getLogger("test"),
                     )

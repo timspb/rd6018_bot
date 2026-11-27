@@ -2,6 +2,18 @@
 
 Status: **CURRENT operational authority**, effective 2026-10-18.
 
+## Software protection boundary (2026-11-14)
+
+Direct Native API evidence remains mandatory for fresh physical Output, measured
+V/I, Vset/Iset, OVP/OCP register 82/83 readbacks and protection diagnostics when
+published, raw R16/OPP, temperature, and lease state. Preserve OVP/OCP entities and
+readbacks; the current HassClient / ESP Native physical adapter exposes V/I setters
+only and does not automatically program OVP/OCP thresholds during START or MAIN/MIX.
+A confirmed OVP/OCP trip is handled by the existing managed software safety guard
+for PB_MANAGED sessions. HANDS_OFF + AUTONOMOUS remains read-only and must not
+receive a bot-originated stop. Intrinsic local nonzero-R16 OFF containment remains
+on the integrated ESP8266 and uses the single R18 Output Owner.
+
 ## Non-negotiable operator instruction
 
 **БРАТЬ АКТУАЛЬНЫЕ ДАННЫЕ С ESP.**
@@ -30,7 +42,7 @@ callback/subscription timestamps, freshness/age and acquisition time:
 
 - Physical RD6018 Output state, **R18** (`output_state_code_v2`, `switch`)
 - Actual measured RD6018 voltage and current; battery voltage
-- Programmed **Vset/Iset**, **OVP/OCP**, protection **R16**
+- Programmed **Vset/Iset** and protection **R16** (raw code is neutral except OPP code 3)
 - Edge lease **armed, generation, remaining, TTL**, Modbus age
 - **trip, boot quarantine, autonomous/ownership** flags
 - Service/session identity separately from node104's read-only service/journal
@@ -79,12 +91,12 @@ acquire actuator authority.
 
 ## D109 MAIN Guard acceptance
 
-1. New direct ESP preflight: real R18 OFF, measured U/I=0, R16/OVP/OCP,
+1. New direct ESP preflight: real R18 OFF, measured U/I=0, R16/OPP,
    battery, edge-lease and controller/session state with timestamps.
 2. Existing bot START only; prove **Native** lease generation increase,
    armed=true and positive readback before Output ON.
 3. Real 1800 s of physical MAIN Output ON; inspect measured current,
-   decreasing Iset/OCP and durable journal/readback without time shortcuts.
+   decreasing Iset and durable journal/readback without time shortcuts.
 4. Existing bot STOP; capture a new direct ESP OFF + zero U/I receipt.
 5. Report exact times, fresh Native proof, secondary HA comparison, result
    PHYSICAL PASS / FAIL / BLOCKED and the precise reason.

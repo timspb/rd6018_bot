@@ -1,14 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Optional
 
 from aiogram import F
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-import operator_hmi as hmi
 from rd6018_telemetry import telemetry_freshness
 from rd_control_mode import RdControlMode, RdControlModeManager
-from runtime_safety import OutputOffNotConfirmed, RuntimeSafetyError
+from runtime.safety.runtime_guard import OutputOffNotConfirmed, RuntimeSafetyError
 
 
 def _managed_active(app: Any) -> bool:
@@ -20,61 +20,6 @@ def _managed_active(app: Any) -> bool:
     )
 
 
-def _callback_set(markup: InlineKeyboardMarkup) -> set[str]:
-    return {
-        str(getattr(button, "callback_data", "") or "")
-        for row in markup.inline_keyboard
-        for button in row
-        if getattr(button, "callback_data", None)
-    }
-
-
-def _prepend_unique(
-    markup: InlineKeyboardMarkup,
-    rows: list[list[InlineKeyboardButton]],
-) -> InlineKeyboardMarkup:
-    existing = _callback_set(markup)
-    filtered: list[list[InlineKeyboardButton]] = []
-    for row in rows:
-        unique = [
-            button
-            for button in row
-            if not button.callback_data or str(button.callback_data) not in existing
-        ]
-        if unique:
-            filtered.append(unique)
-            existing.update(
-                str(button.callback_data)
-                for button in unique
-                if button.callback_data
-            )
-    return InlineKeyboardMarkup(
-        inline_keyboard=filtered + [list(row) for row in markup.inline_keyboard]
-    )
-
-
-def _append_unique(
-    markup: InlineKeyboardMarkup,
-    rows: list[list[InlineKeyboardButton]],
-) -> InlineKeyboardMarkup:
-    existing = _callback_set(markup)
-    result = [list(row) for row in markup.inline_keyboard]
-    for row in rows:
-        unique = [
-            button
-            for button in row
-            if not button.callback_data or str(button.callback_data) not in existing
-        ]
-        if unique:
-            result.append(unique)
-            existing.update(
-                str(button.callback_data)
-                for button in unique
-                if button.callback_data
-            )
-    return InlineKeyboardMarkup(inline_keyboard=result)
-
-
 async def release_unmanaged_live_output_to_hands_off(
     app: Any,
     manager: RdControlModeManager,
@@ -82,7 +27,7 @@ async def release_unmanaged_live_output_to_hands_off(
     """Transfer an already-ON orphan/external Output to durable HANDS_OFF.
 
     This is the missing recovery boundary between an absent software session and a
-    possibly still-armed edge lease.  It never writes Output/V/I/OVP/OCP.  If the
+    possibly still-armed edge lease.  It never writes Output/V/I.  If the
     edge lease is armed, the dedicated live ownership-release command is required.
     If the edge is already unarmed, fresh direct edge/Output evidence is still required
     before software commits HANDS_OFF.
@@ -164,6 +109,15 @@ async def release_unmanaged_live_output_to_hands_off(
                         f"positively acknowledged ({exc}); local watchdog may still turn Output OFF"
                     ) from exc
             return True
+        except asyncio.CancelledError:
+            if not committed:
+                # The edge release has not been invoked. Restore the exact
+                # pre-commit lease-renewal state while PB remains authoritative.
+                manager.mode = RdControlMode.PB_MANAGED
+                if lease is not None:
+                    lease.resume_renewals()
+            # After commit, preserve HANDS_OFF and never re-arm/roll back on cancel.
+            raise
         except Exception:
             if not committed:
                 manager.mode = RdControlMode.PB_MANAGED
@@ -178,114 +132,10 @@ def install_rd_ownership_recovery(
     app: Any,
     manager: RdControlModeManager,
 ) -> None:
-    """Compose ownership recovery into the *final* semantic operator HMI.
-
-    Older ownership installers wrap ``app._build_dashboard_keyboard`` before the final
-    operator HMI replaces it.  This composer runs after ``install_operator_hmi`` and
-    wraps the authoritative ``operator_hmi.build_operator_keyboard`` instead, so the
-    production panel cannot lose HANDS_OFF/release/adoption controls through install
-    order.
-    """
+    """Register existing ownership recovery callbacks for this application."""
     if bool(getattr(app, "_rd_ownership_recovery_installed", False)):
         return
 
-    original_keyboard = hmi.build_operator_keyboard
-
-    def build_operator_keyboard(
-        app_arg: Any,
-        state: hmi.OperatorHmiState,
-        *,
-        actions: Any = None,
-    ) -> InlineKeyboardMarkup:
-        markup = (
-            original_keyboard(app_arg, state, actions=actions)
-            if actions is not None
-            else original_keyboard(app_arg, state)
-        )
-        if actions is not None:
-            # The production snapshot path supplies the capability view explicitly.
-            # Keep ownership controls on that path as well; otherwise the final
-            # dashboard silently loses the HANDS_OFF boundary.
-            if state is not None and state.process_state is hmi.HmiProcessState.IDLE and manager.pb_managed:
-                return _prepend_unique(
-                    markup,
-                    [[InlineKeyboardButton(
-                        text="🔓 Режим РД — не лезь",
-                        callback_data="rd_ownership_hands_off",
-                    )]],
-                )
-            if manager.pb_managed and _managed_active(app_arg):
-                return _prepend_unique(
-                    markup,
-                    [[InlineKeyboardButton(
-                        text="🔓 Отпустить РД",
-                        callback_data="rd_hands_off_release_confirm",
-                    )]],
-                )
-            if state is not None and state.process_state is hmi.HmiProcessState.HANDS_OFF and not state.output_on:
-                return _prepend_unique(
-                    markup,
-                    [[InlineKeyboardButton(
-                        text="🔒 Вернуть контроль заряда",
-                        callback_data="rd_hands_off_disable",
-                    )]],
-                )
-            return markup
-
-        if state.process_state is hmi.HmiProcessState.IDLE and manager.pb_managed:
-            return _append_unique(
-                markup,
-                [[InlineKeyboardButton(
-                    text="🔓 Режим РД — не лезь",
-                    callback_data="rd_ownership_hands_off",
-                )]],
-            )
-
-        if (
-            state.process_state is hmi.HmiProcessState.CONTAINMENT
-            and bool(state.output_on)
-            and manager.pb_managed
-            and not _managed_active(app_arg)
-        ):
-            actions: list[list[InlineKeyboardButton]] = []
-            adoption = getattr(app_arg, "rd_managed_live_adoption", None)
-            if adoption is not None and not bool(getattr(adoption, "active", False)) and not bool(
-                getattr(adoption, "off_pending", False)
-            ):
-                actions.append([
-                    InlineKeyboardButton(
-                        text="✅ Принять управление",
-                        callback_data="rd_ownership_adopt",
-                    )
-                ])
-            actions.extend(
-                [
-                    [InlineKeyboardButton(
-                        text="🔓 Не лезть",
-                        callback_data="rd_ownership_hands_off",
-                    )],
-                    [InlineKeyboardButton(
-                        text="⏹ Output OFF",
-                        callback_data="rd_ownership_output_off",
-                    )],
-                ]
-            )
-            return _prepend_unique(markup, actions)
-
-        if state.process_state is hmi.HmiProcessState.HANDS_OFF:
-            if state.output_on:
-                return markup
-            return _prepend_unique(
-                markup,
-                [[InlineKeyboardButton(
-                    text="🔒 Вернуть контроль заряда",
-                    callback_data="rd_hands_off_disable",
-                )]],
-            )
-
-        return markup
-
-    hmi.build_operator_keyboard = build_operator_keyboard
     app._rd_ownership_recovery_installed = True
 
     @app.router.callback_query(F.data == "rd_ownership_hands_off")
@@ -315,7 +165,7 @@ def install_rd_ownership_recovery(
         await call.answer("Режим РД включён")
         await call.message.answer(
             "🔓 <b>Режим РД — не лезь включён.</b>\n"
-            "Бот больше не меняет Output/V/I/OVP/OCP; текущий Output и уставки не переписывались.",
+            "Бот больше не меняет Output/V/I; текущий Output и уставки не переписывались.",
             parse_mode=app.ParseMode.HTML,
         )
 

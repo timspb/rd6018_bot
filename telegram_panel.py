@@ -145,9 +145,20 @@ def install_panel_last(app: Any) -> TerminalPanelManager:
 
     original_notify_safe = app._send_notify_safe
 
-    async def _notify_then_panel(msg: str, critical: bool = True) -> None:
-        await original_notify_safe(msg, critical)
-        chat_id = getattr(app, "last_chat_id", None)
+    async def _notify_then_panel(
+        msg: str, critical: bool = True, recipient_chat_id: int | None = None,
+        recipient_user_id: int | None = None,
+    ) -> None:
+        # Legacy two-argument notification callers retain their old contract.
+        # Scheduled notifications pin both IDs before asynchronous execution.
+        if recipient_chat_id is None:
+            await original_notify_safe(msg, critical)
+            chat_id = getattr(app, "last_chat_id", None)
+            user_id = getattr(app, "last_user_id", 0)
+        else:
+            await original_notify_safe(msg, critical, recipient_chat_id, recipient_user_id)
+            chat_id = recipient_chat_id
+            user_id = recipient_user_id
         if not chat_id:
             return
         # A background notification must not steal focus from a menu that the operator
@@ -158,7 +169,7 @@ def install_panel_last(app: Any) -> TerminalPanelManager:
         try:
             await manager.publish_last(
                 int(chat_id),
-                int(getattr(app, "last_user_id", 0) or 0),
+                int(user_id or 0),
             )
         except Exception as exc:
             logger.warning("terminal panel after notification failed: %s", exc)

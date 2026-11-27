@@ -2,7 +2,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 
 from edge_live_adoption import EdgeLiveAdoption, EdgeLiveAdoptionConfig
-from edge_safety_lease import EdgeSafetyLease, EdgeSafetyLeaseConfig, EdgeSafetyLeaseError
+from runtime.safety.edge_lease import EdgeSafetyLease, EdgeSafetyLeaseConfig, EdgeSafetyLeaseError
 
 
 def _iso(age_s: float = 0.0) -> str:
@@ -229,7 +229,7 @@ class EdgeLiveAdoptionTests(unittest.IsolatedAsyncioTestCase):
         lease = EdgeSafetyLease(hass, hass.lease_config)
         adoption = EdgeLiveAdoption(lease, hass.adopt_config)
 
-        with self.assertRaisesRegex(EdgeSafetyLeaseError, "protection-code entity"):
+        with self.assertRaisesRegex(EdgeSafetyLeaseError, "hardware protection state is unavailable/unknown"):
             await adoption.prepare()
 
         self.assertEqual(hass.pressed, [])
@@ -245,21 +245,40 @@ class EdgeLiveAdoptionTests(unittest.IsolatedAsyncioTestCase):
         lease = EdgeSafetyLease(hass, hass.lease_config)
         adoption = EdgeLiveAdoption(lease, hass.adopt_config)
 
-        with self.assertRaisesRegex(EdgeSafetyLeaseError, "protection-code entity"):
+        with self.assertRaisesRegex(EdgeSafetyLeaseError, "hardware protection state is unavailable/unknown"):
             await adoption.prepare()
 
         self.assertEqual(hass.pressed, [])
 
-    async def test_raw_opp_blocks_before_edge_command(self):
-        hass = FakeHass()
-        hass.states[hass.adopt_config.protection_entity] = 3
-        lease = EdgeSafetyLease(hass, hass.lease_config)
-        adoption = EdgeLiveAdoption(lease, hass.adopt_config)
+    async def test_ovp_ocp_codes_do_not_block_live_adoption_preflight(self):
+        # Hardware R16=1/2 remain observable, not software admission gates.
+        for code in (1, 2):
+            with self.subTest(code=code):
+                hass = FakeHass()
+                hass.states[hass.adopt_config.protection_entity] = code
+                lease = EdgeSafetyLease(hass, hass.lease_config)
+                adoption = EdgeLiveAdoption(lease, hass.adopt_config)
 
-        with self.assertRaisesRegex(EdgeSafetyLeaseError, "OPP"):
-            await adoption.prepare()
+                prepared = await adoption.prepare()
+                self.assertEqual(prepared.generation, 21)
+                self.assertEqual(hass.pressed, [])
+                self.assertFalse(adoption.command_may_have_executed)
 
-        self.assertEqual(hass.pressed, [])
+    async def test_opp_and_unknown_hardware_protection_block_before_edge_command(self):
+        for code in (3, 4, 65535):
+            with self.subTest(code=code):
+                hass = FakeHass()
+                hass.states[hass.adopt_config.protection_entity] = code
+                lease = EdgeSafetyLease(hass, hass.lease_config)
+                adoption = EdgeLiveAdoption(lease, hass.adopt_config)
+
+                with self.assertRaisesRegex(
+                    EdgeSafetyLeaseError, "hardware protection"
+                ):
+                    await adoption.prepare()
+
+                self.assertEqual(hass.pressed, [])
+                self.assertFalse(adoption.command_may_have_executed)
 
     async def test_stale_raw_protection_blocks_before_edge_command(self):
         hass = FakeHass()
@@ -269,7 +288,7 @@ class EdgeLiveAdoptionTests(unittest.IsolatedAsyncioTestCase):
         lease = EdgeSafetyLease(hass, hass.lease_config)
         adoption = EdgeLiveAdoption(lease, hass.adopt_config)
 
-        with self.assertRaisesRegex(EdgeSafetyLeaseError, "protection status is stale"):
+        with self.assertRaisesRegex(EdgeSafetyLeaseError, "hardware protection state is unavailable/unknown"):
             await adoption.prepare()
 
         self.assertEqual(hass.pressed, [])
@@ -280,7 +299,7 @@ class EdgeLiveAdoptionTests(unittest.IsolatedAsyncioTestCase):
         lease = EdgeSafetyLease(hass, hass.lease_config)
         adoption = EdgeLiveAdoption(lease, hass.adopt_config)
 
-        with self.assertRaisesRegex(EdgeSafetyLeaseError, "freshness timestamp"):
+        with self.assertRaisesRegex(EdgeSafetyLeaseError, "hardware protection state is unavailable/unknown"):
             await adoption.prepare()
 
         self.assertEqual(hass.pressed, [])
@@ -293,7 +312,7 @@ class EdgeLiveAdoptionTests(unittest.IsolatedAsyncioTestCase):
         await adoption.adopt(expected_generation=prepared.generation)
 
         hass.states[hass.adopt_config.protection_entity] = "unavailable"
-        with self.assertRaisesRegex(EdgeSafetyLeaseError, "protection-code entity"):
+        with self.assertRaisesRegex(EdgeSafetyLeaseError, "hardware protection state is unavailable/unknown"):
             await lease.renew_if_due()
 
         self.assertEqual(hass.pressed, [hass.adopt_config.entity])
@@ -305,7 +324,7 @@ class EdgeLiveAdoptionTests(unittest.IsolatedAsyncioTestCase):
         adoption = EdgeLiveAdoption(lease, hass.adopt_config)
         prepared = await adoption.prepare()
 
-        with self.assertRaisesRegex(EdgeSafetyLeaseError, "OPP"):
+        with self.assertRaisesRegex(EdgeSafetyLeaseError, "hardware protection is tripped"):
             await adoption.adopt(expected_generation=prepared.generation)
 
         self.assertTrue(lease.renewals_suspended)

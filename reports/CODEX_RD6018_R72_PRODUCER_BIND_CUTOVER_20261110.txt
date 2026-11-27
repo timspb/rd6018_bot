@@ -1,0 +1,42 @@
+# RD6018 / Wake Bridge R7.2 — producer binding cutover
+Date: 2026-11-10
+Run ID: rd6018-r72-producer-bind-cutover-20261110-01
+
+## Result
+
+**PASS — official producer binding changed and verified.** The Codex CLI attempt itself stopped at its sandbox/connector approval boundary and did not mutate remote state. The controlling ChatGPT session then used the existing authorized HOME-PC WSL connector and the pinned VM110 SSH identity to execute the exact owner-authorized operation. This is the final result; the earlier Codex HOLD is retained here as execution history, not current status.
+
+## Before state
+
+- Current ChatGPT route, confirmed by `wake_r72_inspect_this_chat({})`: `e4df14fbac534f2086fa70fa7dc16c62`, enabled.
+- Official R7.2 `routes` and `producer-list` CLI preflight on VM110:
+  - target route `e4df14fbac534f2086fa70fa7dc16c62`: enabled.
+  - producer `rd6018/node104`: old route `10dd32de00d144b398c2d3f89127be0c`, enabled.
+  - `wake-event-gateway.service`: active.
+- SSH host identity was checked against the existing HOME-PC `known_hosts` entry with `StrictHostKeyChecking=yes`; the existing `vm110_novnc` identity was used. No credentials or tokens were printed.
+
+## Operation
+
+Executed the official operator API, not a direct database edit:
+
+```sh
+python3 -m wakebridge.cli --db /home/ubuntu/.local/state/supervisor-wake-bridge-canary/routes.sqlite producer-bind --producer rd6018/node104 --route e4df14fbac534f2086fa70fa7dc16c62 --replace
+```
+
+R7.2 returned `ok=true`, producer `rd6018/node104`, target route `e4df14fbac534f2086fa70fa7dc16c62`, `enabled=true`.
+
+## After verification
+
+- Official `producer-list`: exactly one `rd6018/node104` row, route `e4df14fbac534f2086fa70fa7dc16c62`, `enabled=1`, `route_enabled=1`.
+- Other producer `cezar/agent-factory` unchanged on its own route.
+- Chat inspector re-run after cutover: `ok=true`, same own route `e4df14fbac534f2086fa70fa7dc16c62`, `last_ack=null`.
+- Gateway service remained active in the preflight. No Gateway configuration, listener, token, firewall, or node104 service was changed.
+
+## Scope and remaining work
+
+- Producer route cutover: **PASS**.
+- New Gateway event submission and matching ACK: **not performed in this task**; no new delivery is claimed.
+- Node104 observer environment/service remains unprovisioned/inactive as previously recorded.
+- Pending guard event remains untouched. Charger, ESP, HA, Output, setpoints, protections, lease and physical state were not accessed or changed.
+- No direct SQLite writes, no test event, no commit or push.
+- The Codex task used `approval=never; sandbox=workspace-write`. It could not invoke MCP connector tools under that policy and recorded an initial HOLD. The subsequent operation was performed by the controlling ChatGPT session through the already-authorized HOME-PC connector, using the pinned SSH host identity and the official R7.2 CLI.

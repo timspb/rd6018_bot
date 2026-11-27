@@ -30,7 +30,6 @@ class RealInstallerGraphButtonsTests(unittest.TestCase):
         app.rd_control_mode_manager = manager
         app.hass.live["set_voltage"] = 14.65
         base = hmi.build_operator_keyboard
-        old_flag = getattr(hmi, "_rd_managed_adoption_keyboard_wrapped", False)
         try:
             install_managed_live_adoption(app, manager, install_ui=True)
             install_mix_action_eligibility(app)
@@ -46,4 +45,3 @@ class RealInstallerGraphButtonsTests(unittest.TestCase):
             self.assertIn("operator_graph_2h", callbacks)
         finally:
             hmi.build_operator_keyboard = base
-            hmi._rd_managed_adoption_keyboard_wrapped = old_flag

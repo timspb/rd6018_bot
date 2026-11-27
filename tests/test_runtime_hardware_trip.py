@@ -1,7 +1,7 @@
 import types
 import unittest
 
-from runtime_safety_strict import install_strict_runtime_safety
+from runtime.safety.strict_guard import install_strict_runtime_safety
 
 
 class FakeHass:
@@ -13,8 +13,7 @@ class FakeHass:
             "temp_int": 32.0,
             "input_voltage": 64.0,
             "switch": "on",
-            "ovp_triggered": "on",
-            "ocp_triggered": "off",
+            "protection_code": 3.0,
             "set_voltage": 14.8,
             "set_current": 2.0,
             "set_current_readback_v2": 2.0,
@@ -79,7 +78,7 @@ class FakeApp:
 
 
 class RuntimeHardwareTripTests(unittest.IsolatedAsyncioTestCase):
-    async def test_live_ovp_trip_forces_verified_off_before_legacy_dispatch(self):
+    async def test_raw_r16_opp_trip_forces_verified_off(self):
         app = FakeApp()
         guard = install_strict_runtime_safety(app)
         guard.OFF_CONFIRMATION_WINDOW_S = 0.0
@@ -87,7 +86,7 @@ class RuntimeHardwareTripTests(unittest.IsolatedAsyncioTestCase):
 
         trip_snapshot = await app.hass.get_all_live()
 
-        self.assertEqual(trip_snapshot["ovp_triggered"], "on")
+        self.assertEqual(trip_snapshot["protection_code"], 3.0)
         self.assertEqual(app.hass.turn_off_calls, 1)
         self.assertEqual(app.hass.live["switch"], "off")
 

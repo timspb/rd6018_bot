@@ -6,6 +6,7 @@ import math
 from pathlib import Path
 import time
 import unittest
+from unittest.mock import patch
 
 SOURCE = Path(__file__).resolve().parents[1] / 'tools' / 'node104_d091_physical_proof_collector.py'
 SPEC = importlib.util.spec_from_file_location('node104_d091_collector', SOURCE)
@@ -15,7 +16,8 @@ SPEC.loader.exec_module(M)
 
 def snapshot():
     now = time.time()
-    ha_entity = {'last_reported': __import__('datetime').datetime.fromtimestamp(now, __import__('datetime').timezone.utc).isoformat(),
+    reported_epoch = now - 1.0
+    ha_entity = {'last_reported': __import__('datetime').datetime.fromtimestamp(reported_epoch, __import__('datetime').timezone.utc).isoformat(),
                  'attributes': {'unit_of_measurement': 'x'}}
     native_meta = {'status': 'ok', 'native_type': 'SensorState', 'age_s': 1.0,
                    'source': 'esp_native_api', 'object_id': 'output_state_code_v2'}
@@ -25,7 +27,9 @@ def snapshot():
                      'meta': {'status': 'ok', 'age_s': 1.0,
                               'native_type': 'SensorState' if key == 'edge_lease_ttl' else 'BinarySensorState',
                               'source': 'esp_native_api', 'object_id': M.EXPECTED_EDGE[key]}}
-    return {'captured_at_epoch': time.time(), 'host_machine_id': 'machine', 'service_main_pid': 0,
+    # Keep the HA report explicitly one second before capture. This is clearly
+    # fresh while avoiding zero-age/future rounding at the strict freshness boundary.
+    return {'captured_at_epoch': now, 'host_machine_id': 'machine', 'service_main_pid': 0,
             'matching_bot_process_count': 0, 'physical_device_count': 1,
             'device_info': {'project_name': M.EXPECTED_PROJECT, 'project_version': M.EXPECTED_VERSION,
                             'name': M.EXPECTED_NAME, 'model': M.EXPECTED_MODEL},
@@ -55,9 +59,11 @@ class PreservedSessionSoftwareReleaseTests(unittest.TestCase):
     def test_symlink_not_accepted(self):
         import tempfile
         with tempfile.TemporaryDirectory() as folder:
-            p=Path(folder)/'source';p.write_text('{}')
-            link=Path(folder)/'link';link.symlink_to(p)
-            with self.assertRaises(M.ProofError):M._session_state(link,software_release=True)
+            link=Path(folder)/'link'
+            link.write_text('{}')
+            with patch.object(Path, 'is_symlink', autospec=True,
+                              side_effect=lambda path: path == link):
+                with self.assertRaises(M.ProofError):M._session_state(link,software_release=True)
 
 class JournalClearProjectionTests(unittest.TestCase):
     def test_retired_v2_is_clear_only_after_disk_validation(self):
@@ -269,20 +275,23 @@ class CollectorProofTests(unittest.TestCase):
                      SensorInfo(3, 'output_current'), NumberInfo(30, 'output_current'))
         class Client:
             def subscribe_states(self, callback):
+                def emit(state):
+                    callback(state, connection_generation=23, source_client=self)
                 # Setpoint callbacks arrive for colliding object IDs; only the
                 # measured SensorState callbacks may satisfy the proof.
-                callback(SensorState(1, 0)); callback(SensorState(2, 0.0)); callback(SensorState(3, 0.0))
+                emit(SensorState(1, 0)); emit(SensorState(2, 0.0)); emit(SensorState(3, 0.0))
                 time.sleep(.002)
-                callback(NumberState(20, 13.57)); callback(NumberState(30, .10))
+                emit(NumberState(20, 13.57)); emit(NumberState(30, .10))
                 return lambda: None
 
         esp = SimpleNamespace(client=Client(), entities=inventory,
+            _native_connection_generation=23,
             _entities_by_key={1: [inventory[0]], 2: [inventory[1]], 20: [inventory[2]],
                               3: [inventory[3]], 30: [inventory[4]]},
             _state_cache={}, _state_updated_at={}, _state_reported_at={}, _state_types={},
             _state_subscription_remover=None, _state_subscription_lock=__import__('asyncio').Lock())
         # Bind the same cache behavior as the transport without connecting to a node.
-        def cache_callback(state):
+        def cache_callback(state, **_callback_identity):
             for entity in esp._entities_by_key.get(state.key, ()):
                 oid = entity.object_id
                 state_type = type(state).__name__
@@ -297,11 +306,16 @@ class CollectorProofTests(unittest.TestCase):
             {'output_state': 'output_state_code_v2', 'voltage': 'output_voltage', 'current': 'output_current'}))
         self.assertEqual([values[k][0] for k in M.MEASURED_SENSOR_KEYS], [0, 0.0, 0.0])
         self.assertTrue(all(meta['native_type'] == 'SensorState' for _, meta in values.values()))
+        self.assertTrue(all(meta['connection_generation'] == 23 for _, meta in values.values()))
         self.assertEqual(esp._state_cache['output_voltage']['NumberState'], 13.57)
         self.assertEqual(esp._state_cache['output_current']['NumberState'], .10)
-        self.assertLess(values['voltage'][1]['subscription_timestamp_monotonic'],
+        # A callback can be observed in the same monotonic clock tick as the
+        # transport cache update (notably on Windows). Freshness is established
+        # by receiving the post-subscription SensorState callback and its type,
+        # not by requiring a positive elapsed interval between two timestamps.
+        self.assertLessEqual(values['voltage'][1]['subscription_timestamp_monotonic'],
                         esp._state_updated_at['output_voltage'])
-        self.assertLess(values['current'][1]['subscription_timestamp_monotonic'],
+        self.assertLessEqual(values['current'][1]['subscription_timestamp_monotonic'],
                         esp._state_updated_at['output_current'])
 
         esp._state_subscription_remover = None
@@ -312,6 +326,48 @@ class CollectorProofTests(unittest.TestCase):
              'current': 'output_current'}, software_release=True))
         self.assertEqual(set(release_values), {'output_state', 'current'})
         self.assertEqual([release_values[k][0] for k in ('output_state', 'current')], [0, 0.0])
+
+    def test_stale_or_foreign_generation_cannot_prove_new_native_callbacks(self):
+        import asyncio
+        from types import SimpleNamespace
+
+        class SensorInfo:
+            def __init__(self, key, object_id):
+                self.key, self.object_id, self.device_id = key, object_id, 0
+
+        class SensorState:
+            def __init__(self, key, state):
+                self.key, self.state = key, state
+
+        inventory = (SensorInfo(1, 'output_state_code_v2'),
+                     SensorInfo(2, 'output_voltage'),
+                     SensorInfo(3, 'output_current'))
+
+        class Client:
+            def subscribe_states(self, callback):
+                # A reconnection may leave old callbacks racing with fresh
+                # subscription. Neither stale generation nor foreign client
+                # may establish a new D091 physical proof.
+                for key in (1, 2, 3):
+                    callback(SensorState(key, 0), connection_generation=22,
+                             source_client=self)
+                    callback(SensorState(key, 0), connection_generation=23,
+                             source_client=object())
+                return lambda: None
+
+        client = Client()
+        esp = SimpleNamespace(client=client, entities=inventory,
+                              _native_connection_generation=23,
+                              _on_state=lambda state, **meta: None)
+        async def ensure():
+            client.subscribe_states(esp._on_state)
+        esp._ensure_state_subscription = ensure
+        with patch.object(M, 'NATIVE_SENSOR_WAIT_S', 0.015):
+            with self.assertRaisesRegex(M.ProofError, 'fresh typed SensorState'):
+                asyncio.run(M._fresh_measured_sensor_callbacks(
+                    esp, inventory,
+                    {'output_state': 'output_state_code_v2',
+                     'voltage': 'output_voltage', 'current': 'output_current'}))
 
     def test_measured_values_reject_numberstate_only_wrong_key_and_no_subscription(self):
         import asyncio

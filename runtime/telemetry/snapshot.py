@@ -15,8 +15,6 @@ class TelemetrySnapshot:
     external_temperature: Optional[float] = None
     internal_temperature: Optional[float] = None
     output_state: Optional[bool] = None
-    ovp: Optional[float] = None
-    ocp: Optional[float] = None
     protection_status: Optional[str] = None
     programmed_voltage: Optional[float] = None
     programmed_current: Optional[float] = None

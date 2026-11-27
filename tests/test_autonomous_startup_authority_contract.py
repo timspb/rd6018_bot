@@ -1,4 +1,5 @@
 from pathlib import Path
+import ast
 import unittest
 
 
@@ -7,7 +8,42 @@ class AutonomousStartupAuthorityContractTests(unittest.TestCase):
     def setUpClass(cls):
         cls.text = Path("bot.py").read_text(encoding="utf-8")
         cls.recovery = Path("runtime/startup_recovery.py").read_text(encoding="utf-8")
+        cls.lifecycle = Path("runtime/production_lifecycle.py").read_text(encoding="utf-8")
         cls.gate = Path("rd_startup_authority.py").read_text(encoding="utf-8")
+        cls.execution = Path("application/execution_port.py").read_text(encoding="utf-8")
+
+    def test_both_process_startup_paths_apply_cold_start_policy_without_on_in_that_branch(self):
+        for source, class_name, method_name in (
+            (self.lifecycle, "ProductionRuntimeLifecycle", "run"),
+            (self.recovery, "StartupRecovery", "replay_deferred_startup_restore"),
+        ):
+            module = ast.parse(source)
+            cls = next(node for node in module.body
+                       if isinstance(node, ast.ClassDef) and node.name == class_name)
+            method = next(node for node in cls.body
+                          if isinstance(node, ast.AsyncFunctionDef) and node.name == method_name)
+            policy_calls = [node for node in ast.walk(method)
+                            if isinstance(node, ast.Call)
+                            and ast.unparse(node.func) == "RecoveryAuthorizationInput"
+                            and any(keyword.arg == "cold_start"
+                                    and isinstance(keyword.value, ast.Constant)
+                                    and keyword.value.value is True
+                                    for keyword in node.keywords)]
+            self.assertEqual(len(policy_calls), 1, method_name)
+            containing_branches = [node for node in ast.walk(method)
+                                   if isinstance(node, ast.If)
+                                   and any(candidate is policy_calls[0]
+                                           for candidate in ast.walk(node))]
+            branch = (min(containing_branches,
+                          key=lambda node: sum(1 for _ in ast.walk(node)))
+                      if containing_branches else method)
+            calls = {ast.unparse(node.func) for node in ast.walk(branch)
+                     if isinstance(node, ast.Call)}
+            self.assertIn("authorize_recovery_action", calls, method_name)
+            self.assertIn("RecoveryAction.SKIP", source, method_name)
+            self.assertNotIn("execution_port.request_verified_on", calls, method_name)
+            self.assertNotIn("execution_port.program_voltage", calls, method_name)
+            self.assertNotIn("execution_port.program_current", calls, method_name)
 
     def test_final_startup_gate_is_installed_after_runtime_composition(self):
         ownership = self.text.index("install_rd_control_mode(app")
@@ -31,7 +67,8 @@ class AutonomousStartupAuthorityContractTests(unittest.TestCase):
         self.assertIn("candidate = self.parse_explicit(raw)", self.gate)
         self.assertIn("if candidate is None:", self.gate)
         self.assertIn("await asyncio.sleep(delay)", self.gate)
-        self.assertIn("if not self.recovery_scope and not self.managed_actuation_ready", self.gate)
+        self.assertIn("if startup is None or bool(getattr(startup, \"recovery_scope\", False))", self.execution)
+        self.assertIn("if bool(getattr(startup, \"managed_actuation_ready\", True))", self.execution)
 
     def test_autonomous_skips_managed_recovery(self):
         block = self.gate.split("async def reconcile(", 1)[1]
@@ -44,7 +81,10 @@ class AutonomousStartupAuthorityContractTests(unittest.TestCase):
         self.assertIn("contextvars.ContextVar", self.gate)
         self.assertIn("token = self._recovery_scope.set(True)", self.gate)
         self.assertIn("self._recovery_scope.reset(token)", self.gate)
-        self.assertIn("if not self.recovery_scope and not self.managed_actuation_ready", self.gate)
+        manager_gate = self.execution.index("if manager is not None:")
+        recovery_scope_gate = self.execution.index("if startup is None or bool(getattr(startup, \"recovery_scope\", False))")
+        self.assertLess(manager_gate, recovery_scope_gate)
+        self.assertIn("if bool(getattr(startup, \"managed_actuation_ready\", True))", self.execution)
 
     def test_failed_recovery_is_throttled_and_rechecks_edge_authority(self):
         block = self.gate.split("recovered = bool(await recover())", 1)[1]
@@ -65,23 +105,24 @@ class AutonomousStartupAuthorityContractTests(unittest.TestCase):
 
     def test_deferred_restore_uses_fresh_live_and_composed_safe_actuation(self):
         replay = self.recovery.split("async def replay_deferred_startup_restore(self)", 1)[1]
-        self.assertIn("live = await app.hass.get_all_live()", replay)
+        replay = replay.split("\n    @_serialized_deferred_restore\n    async def guarded_physical_resume", 1)[0]
+        self.assertIn("live = await execution_port.read_live()", replay)
         self.assertIn("controller.try_restore_session(", replay)
         self.assertIn("app._apply_restore_time_corrections(controller, live)", replay)
         self.assertIn("app._operator_pause_active()", replay)
         self.assertIn("app._restore_allows_auto_enable(controller)", replay)
 
-        # D-STARTUP-3 realizes an eligible restored MANAGED session only
-        # after startup reconciliation. Physical mutation must now cross the
-        # application-scoped execution owner rather than call HassClient directly.
+        # Deferred restore is startup-only: the shared policy must deny the
+        # generic automatic re-energization after a cold start.
         self.assertIn("execution_port = get_or_create_execution_port(app)", replay)
-        self.assertIn("await app._apply_phase_protection(uv, ui)", replay)
-        self.assertIn("await execution_port.program_voltage(uv)", replay)
-        self.assertIn(
-            "await execution_port.program_current(app._cap_current(ui))",
-            replay,
-        )
-        self.assertIn("await execution_port.request_verified_on()", replay)
+        self.assertIn("authorize_recovery_action(RecoveryAuthorizationInput(", replay)
+        self.assertIn("cold_start=True", replay)
+        self.assertIn("RecoveryAction.SKIP", replay)
+        self.assertNotIn("request_verified_on", replay)
+        self.assertNotIn("program_voltage", replay)
+        self.assertNotIn("program_current", replay)
+        self.assertNotIn("_apply_phase_protection", replay)
+        self.assertIn("request_verified_off", replay)  # SAFE_WAIT remains OFF-only.
         self.assertIn("await execution_port.request_verified_off()", replay)
         for token in (
             "app.hass.set_voltage(",

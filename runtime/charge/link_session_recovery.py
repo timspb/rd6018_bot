@@ -39,8 +39,6 @@ class RecoveryAuthorizationInput:
     restored: bool
     auto_enable_authorized: bool
     safe_wait: bool
-    ovp_triggered: bool
-    ocp_triggered: bool
     input_voltage_ok: bool
     cold_start: bool = False
 
@@ -75,14 +73,14 @@ def authorize_recovery_action(state: RecoveryAuthorizationInput) -> RecoveryActi
     if state.route is RecoveryRoute.ACTIVE_LINK:
         return (
             RecoveryAction.REENABLE_ACTIVE
-            if not state.ovp_triggered and not state.ocp_triggered and state.input_voltage_ok
+            if state.input_voltage_ok
             else RecoveryAction.SKIP
         )
     if state.route not in {RecoveryRoute.IDLE_LINK, RecoveryRoute.IDLE_OUTPUT_ON}:
         return RecoveryAction.SKIP
     if not state.restored:
         return RecoveryAction.SKIP
-    if not state.auto_enable_authorized or state.ovp_triggered or state.ocp_triggered or not state.input_voltage_ok:
+    if not state.auto_enable_authorized or not state.input_voltage_ok:
         return RecoveryAction.SKIP
     if state.safe_wait:
         return RecoveryAction.SAFE_WAIT_OFF

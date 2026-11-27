@@ -50,7 +50,7 @@ class VerifiedStartToTerminalTickTests(unittest.IsolatedAsyncioTestCase):
                     )
                 self.assertEqual(out, {})
             self.assertEqual([action[0] for action in port.actions], ["off", "off"])
-            self.assertFalse(port.execution_owner.output)
+            self.assertFalse(port.output)
             stop.assert_called_once_with(clear_session=True)
             self.assertIsNone(host._existing_recipe_execution_binding)
             self.assertTrue(load_runner(path, recipe).completed)

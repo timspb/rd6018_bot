@@ -4,7 +4,7 @@ The production D062/D063 state machine already exists. This module only exposes 
 small, conservative test surface through the existing root-only AF_UNIX control
 socket so physical validation does not require Telegram callback synthesis.
 
-No operation can turn Output ON or program V/I/OVP/OCP. The only D062 adoption
+No operation can turn Output ON or program V/I. The only D062 adoption
 operations accept a *remaining* chemistry budget constrained to 30..300 seconds;
 they therefore create an operator-declared prior-age floor near exhaustion and can
 only reduce, never enlarge, the normal chemistry Mix budget.

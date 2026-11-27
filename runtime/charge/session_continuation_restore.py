@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any, Mapping
+import math
+import logging
+import time
+from typing import Any, Callable, Mapping
 
 from runtime.charge.strategy.final_safe_wait import (
     FinalSafeWaitContinuation,
@@ -12,6 +15,27 @@ from runtime.charge.strategy.recovery_safe_wait import (
     RecoverySafeWaitContinuation,
     validate_recovery_continuation,
 )
+
+logger = logging.getLogger("rd6018")
+
+
+def restore_desulfation_stage_clock(
+    host: Any, document: Mapping[str, Any], *, max_session_age_s: float,
+) -> None:
+    """Restore the persisted DESULFATION clock only within the existing age bound."""
+    if host.current_stage != host.STAGE_DESULFATION:
+        return
+    try:
+        saved_stage_start = float(document.get("stage_start_time"))
+    except (TypeError, ValueError, OverflowError):
+        return
+    now = float(time.time())
+    if (
+        math.isfinite(saved_stage_start)
+        and 0.0 < saved_stage_start <= now
+        and now - saved_stage_start <= float(max_session_age_s)
+    ):
+        host.stage_start_time = saved_stage_start
 
 
 def restore_recovery_safe_wait(host: Any, document: Mapping[str, Any]) -> None:
@@ -104,9 +128,59 @@ def restore_final_safe_wait(host: Any, document: Mapping[str, Any]) -> None:
         )
 
 
+def restore_controller_session(
+    host: Any,
+    voltage: float,
+    current: float,
+    ah: float,
+    *,
+    output_is_on: Any,
+    is_cv: Any,
+    is_cc: Any,
+    guarded_activation_permit: Any,
+    session_file: str,
+    persist_restore: Callable[..., tuple[bool, str | None]],
+    enrich_restored_session: Any,
+    custom_profile: str,
+    max_session_age_s: float,
+) -> tuple[bool, str | None]:
+    """Run the controller's existing persistence and continuation restore sequence."""
+    ok, message = persist_restore(
+        host, voltage, current, ah,
+        session_file=session_file,
+        _guarded_activation_permit=guarded_activation_permit,
+    )
+    if ok and host.battery_type == custom_profile:
+        logger.warning(
+            "Historical Custom controller restore rejected; Manual requires operator reauthorization"
+        )
+        host.stop(clear_session=True)
+        host._recovery_safe_wait = None
+        host._final_safe_wait = None
+        host._v2_runtime = None
+        return (
+            False,
+            "Historical Custom session is retired; restart Manual with operator authorization.",
+        )
+    if ok:
+        result = finish_session_restore(
+            host, output_is_on=output_is_on, is_cv=is_cv, is_cc=is_cc,
+            session_file=session_file, success_message=message,
+            enrich_restored_session=enrich_restored_session,
+            max_session_age_s=max_session_age_s,
+            guarded_activation=guarded_activation_permit is not None,
+        )
+        if result[0] and guarded_activation_permit is not None:
+            host._guarded_restore_candidate = None
+            host._guarded_restore_activated_off = True
+        return result
+    return ok, message
+
+
 def finish_session_restore(
     host: Any, *, output_is_on: Any, is_cv: Any, is_cc: Any,
     session_file: str, success_message: str | None, enrich_restored_session: Any,
+    max_session_age_s: float,
     guarded_activation: bool = False,
 ) -> tuple[bool, str | None]:
     """Sequence accepted ordinary snapshot, continuations, and extensions.
@@ -117,7 +191,7 @@ def finish_session_restore(
     """
     snapshot = getattr(host, "_session_restore_snapshot", None)
     document = dict(snapshot.document) if snapshot is not None else {}
-    host._restore_desulfation_stage_clock(document)
+    restore_desulfation_stage_clock(host, document, max_session_age_s=max_session_age_s)
     restore_recovery_safe_wait(host, document)
     restore_final_safe_wait(host, document)
     host._initialize_shadow_session(started_at=host._v2_trace_started_at)
@@ -139,4 +213,10 @@ def finish_session_restore(
 
 
 
-__all__ = ["finish_session_restore", "restore_final_safe_wait", "restore_recovery_safe_wait"]
+__all__ = [
+    "finish_session_restore",
+    "restore_controller_session",
+    "restore_desulfation_stage_clock",
+    "restore_final_safe_wait",
+    "restore_recovery_safe_wait",
+]

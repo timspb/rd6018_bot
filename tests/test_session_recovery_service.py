@@ -35,18 +35,12 @@ class FakePort:
 class SessionRecoveryServiceTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.port = FakePort()
-        self.protection_calls = []
-
-        async def protection(v, i):
-            self.protection_calls.append(("protection", v, i))
-
         self.service = SessionRecoveryService(
-            self.port, protection, lambda value: min(10.0, value)
+            self.port, lambda value: min(10.0, value)
         )
 
     async def test_route_a_success_and_failed_enable(self):
         self.assertTrue(await self.service.reenable_active(14.4, 12.0))
-        self.assertEqual(self.protection_calls, [("protection", 14.4, 12.0)])
         self.assertEqual(self.port.calls, [("voltage", 14.4), ("current", 10.0), ("on",)])
 
         self.port.calls.clear()
@@ -177,7 +171,7 @@ class SessionRecoveryServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.port.calls, [("voltage", 14.4), ("current", 2.0)])
         self.assertNotIn("on", [call[0] for call in self.port.calls])
 
-    async def test_setter_and_protection_errors_propagate(self):
+    async def test_setter_and_current_cap_errors_propagate(self):
         for failed in ("voltage", "current"):
             with self.subTest(failed=failed):
                 self.port.calls.clear()
@@ -189,52 +183,39 @@ class SessionRecoveryServiceTests(unittest.IsolatedAsyncioTestCase):
                 self.port.fail_on = None
         self.port.calls.clear()
         self.service._guard.operator_rearm(confirmed_output_off=True)
-        self.port.fail_on = "protection"
-        async def broken_protection(_v, _i):
-            raise RuntimeError("protection")
-        broken = SessionRecoveryService(self.port, broken_protection, float)
-        with self.assertRaisesRegex(RuntimeError, "protection"):
+        def broken_cap(_value):
+            raise RuntimeError("current cap")
+        broken = SessionRecoveryService(self.port, broken_cap)
+        with self.assertRaisesRegex(RuntimeError, "current cap"):
             await broken.restore_idle_link(14.4, 2.0, safe_wait=False)
         self.assertEqual(self.port.calls, [])
 
     def test_runtime_delegates_all_recovery_execution_sequences(self):
-        source = Path("runtime/production_runtime.py").read_text(encoding="utf-8")
-        start = source.index("recovery_route = choose_recovery_route(")
-        end = source.index("now_ts = time.time()", start)
-        recovery = source[start:end]
-        self.assertIn("if recovery_route is not RecoveryRoute.NONE:", recovery)
-        self.assertIn("recovery_execution = SessionRecoveryService(", recovery)
-        self.assertLess(recovery.index("recovery_execution = SessionRecoveryService("),
+        application = Path("application/session_recovery_service.py").read_text(encoding="utf-8")
+        runtime = Path("runtime/production_runtime.py").read_text(encoding="utf-8")
+        start = application.index("    async def run_cycle(")
+        end = application.index("    async def reenable_active(", start)
+        recovery = application[start:end]
+        self.assertIn("if route is not RecoveryRoute.NONE", recovery)
+        self.assertIn("SessionRecoveryService(execution_port_getter(), cap_current)", recovery)
+        self.assertLess(recovery.index("SessionRecoveryService(execution_port_getter(), cap_current)"),
                         recovery.index("recovery_execution.reenable_active("))
-        # The service is not bound at data_logger startup: port identity can
-        # change after HA/physical-owner recovery, but authority lock stays app-wide.
-        self.assertNotIn("recovery_execution = SessionRecoveryService(",
-                         source[source.index("async def data_logger("):start])
         self.assertIn("recovery_execution.reenable_active(", recovery)
         self.assertIn("recovery_execution.restore_idle_link(", recovery)
         self.assertIn("recovery_execution.restore_output_on(", recovery)
         self.assertIn("if not result.confirmed:", recovery)
-        self.assertNotIn("charge_controller.stop(", recovery)
-        self.assertNotIn("charge_controller._was_unavailable =", recovery)
+        self.assertNotIn("controller.stop(", recovery)
+        self.assertNotIn("controller._was_unavailable =", recovery)
         self.assertNotIn("clear_session=False", recovery)
         self.assertNotIn("except Exception", recovery)
-        denied_b = recovery[recovery.index("if not result.confirmed:"):recovery.index("else:", recovery.index("if not result.confirmed:"))]
-        self.assertNotIn('"RESTORE"', denied_b)
-        self.assertNotIn("last_checkpoint_time =", denied_b)
-        self.assertIn("состояние Output неизвестно", denied_b)
-        self.assertNotIn("Заряд остановлен", denied_b)
-        denied_c_start = recovery.index("if not result.confirmed:", recovery.index("restore_output_on("))
-        denied_c = recovery[denied_c_start:recovery.index("else:", denied_c_start)]
-        self.assertNotIn('"RESTORE"', denied_c)
-        self.assertNotIn("last_checkpoint_time =", denied_c)
-        self.assertIn("состояние Output неизвестно", denied_c)
-        self.assertNotIn("Заряд остановлен", denied_c)
         self.assertIn("Output ON отдельно не подтверждался.", recovery)
-        self.assertNotIn("await _apply_phase_protection(uv, ui)", recovery)
         self.assertNotIn("program_voltage(uv)", recovery)
         self.assertNotIn("program_current(_cap_current(ui))", recovery)
         self.assertIn("recovery_guard.quarantined", recovery)
-        self.assertIn("may_run_automatic_control()", source)
+        self.assertIn("may_run_automatic_control()", application)
+        self.assertIn("await SessionRecoveryService.run_cycle(", runtime)
+        self.assertIn('if effect.kind == "event":', runtime)
+        self.assertIn('now_ts = time.time()', runtime)
 
     async def test_explicit_rearm_requires_positive_output_off_evidence(self):
         self.port.reject = {"on"}

@@ -2,7 +2,7 @@ import asyncio
 import unittest
 from types import SimpleNamespace
 
-from edge_safety_lease import EdgeSafetyLease, EdgeSafetyLeaseConfig, EdgeSafetyLeaseError
+from runtime.safety.edge_lease import EdgeSafetyLease, EdgeSafetyLeaseConfig, EdgeSafetyLeaseError
 from hass_api import HassClient
 
 

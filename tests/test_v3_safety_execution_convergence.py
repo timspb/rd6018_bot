@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import ast
+import subprocess
 from pathlib import Path
+from source_audit_inventory import source_inventory
 import unittest
 
 from runtime.charge.strategy.mix_variables import mix_max_active_hours
@@ -35,9 +37,9 @@ PHYSICAL_METHODS = {
 APPROVED_PHYSICAL_IMPLEMENTATION = {
     "application/execution_port.py",
     "hass_api.py",
-    "runtime_safety_strict.py",
-    "managed_runtime_safety.py",
-    "safe_output.py",
+    "runtime/safety/strict_guard.py",
+    "runtime/safety/managed_guard.py",
+    "application/safe_output_coordinator.py",
 }
 RETIRED_EXECUTION_COMPATIBILITY = {
     "recipe_output.py",
@@ -46,11 +48,13 @@ RETIRED_EXECUTION_COMPATIBILITY = {
 
 
 def _production_python_files():
-    for path in sorted(ROOT.rglob("*.py")):
-        rel = path.relative_to(ROOT)
+    # Audit only tracked source of this checkout, not nested worktrees.
+    for rel in source_inventory(ROOT):
+        if rel.suffix != ".py":
+            continue
         if any(part in SKIP_PARTS for part in rel.parts):
             continue
-        yield rel.as_posix(), path
+        yield rel.as_posix(), ROOT / rel
 
 
 def _direct_physical_call_modules() -> set[str]:

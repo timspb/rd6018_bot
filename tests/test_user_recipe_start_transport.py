@@ -1,5 +1,9 @@
 import unittest
 from types import SimpleNamespace
+from application.start_transaction_adapter import (
+    StartPersistenceStatus,
+    StartTransactionOutcome,
+)
 from application.start_transaction_runner import StartTransactionRunner
 
 
@@ -8,7 +12,11 @@ class StartTransportTests(unittest.IsolatedAsyncioTestCase):
         seen=[]
         async def owner(app,event,pending):
             seen.append((pending.recipe_id,pending.recipe_version))
-            return True
+            return StartTransactionOutcome(
+                started=True,
+                reason="started",
+                persistence_status=StartPersistenceStatus.COMMITTED,
+            )
         transaction=SimpleNamespace(
             profile="AGM",capacity_ah=70.0,intent="normal",
             battery_id="battery-test",condition="unknown",
@@ -24,7 +32,11 @@ class StartTransportTests(unittest.IsolatedAsyncioTestCase):
         seen=[]
         async def owner(app,event,pending):
             seen.append((pending.recipe_id,pending.recipe_version))
-            return True
+            return StartTransactionOutcome(
+                started=True,
+                reason="started",
+                persistence_status=StartPersistenceStatus.COMMITTED,
+            )
         transaction=SimpleNamespace(
             profile="AGM",capacity_ah=70.0,intent="normal",
             battery_id="battery-test",condition="unknown",

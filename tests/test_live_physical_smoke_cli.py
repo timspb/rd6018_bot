@@ -18,8 +18,8 @@ spec.loader.exec_module(module)
 
 class LivePhysicalSmokeCliTests(unittest.IsolatedAsyncioTestCase):
     def _evidence(self, status="MATCH", qualities=("VALID", "VALID")):
-        ha = HardwareSnapshot(1, "connected", False, 13.2, 0.0, 13.7, 0.1, 14.2, 0.2, 25.0, 13.2)
-        esp = HardwareSnapshot(2, "connected", False, 13.2, 0.0, 13.7, 0.1, 14.2, 0.2, 25.0, 13.2)
+        ha = HardwareSnapshot(1, "connected", False, 13.2, 0.0, 13.7, 0.1, 25.0, 13.2)
+        esp = HardwareSnapshot(2, "connected", False, 13.2, 0.0, 13.7, 0.1, 25.0, 13.2)
         return PhysicalSnapshotEvidence(
             3, "test", ha, esp,
             PhysicalSnapshotComparison(status, (), "equal" if status == "MATCH" else "x"),

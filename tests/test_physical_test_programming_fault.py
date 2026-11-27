@@ -9,11 +9,8 @@ from physical_test_control_source_faults import (
     _PROGRAMMED_READBACK_OPS,
     install_physical_test_control_source_faults,
 )
-from safe_output import (
-    OutputRequest,
-    SafeOutputCoordinator,
-    SafetySupervisor,
-)
+from runtime.safety.output_policy import OutputRequest, SafetySupervisor
+from application.safe_output_coordinator import SafeOutputCoordinator
 from tools.physical_test_programming_fault_client import OPERATION
 
 
@@ -48,8 +45,6 @@ def idle_live(*, set_voltage_stale=True):
         "input_voltage": 65.0,
         "set_voltage": 15.10,
         "set_current": 0.18,
-        "ovp": 15.30,
-        "ocp": 0.40,
         "protection_code": 0.0,
         "regulation_code": 0.0,
         "is_cv": True,
@@ -66,8 +61,6 @@ def idle_live(*, set_voltage_stale=True):
         "protection_code": _meta(fresh, source_key="protection_code"),
         "set_voltage": _meta(static, source_key="set_voltage"),
         "set_current": _meta(STALE, source_key="set_current"),
-        "ovp": _meta(STALE, source_key="ovp"),
-        "ocp": _meta(STALE, source_key="ocp"),
     }
     return live
 
@@ -113,12 +106,6 @@ class FakeAdapter:
         self.live["_meta"][key]["age_s"] = 0.0
         return True
 
-    async def set_ovp(self, value):
-        return self._write("ovp", value)
-
-    async def set_ocp(self, value):
-        return self._write("ocp", value)
-
     async def set_voltage(self, value):
         return self._write("set_voltage", value)
 
@@ -142,26 +129,18 @@ class FakeAdapter:
         *,
         voltage_v,
         current_a,
-        ovp_v,
-        ocp_a,
         recipe_voltage_ceiling_v,
         **_kwargs,
     ):
         if self.wrong_write:
-            await self.set_ovp(ovp_v)
-            await self.set_ocp(ocp_a)
             await self.set_voltage(float(voltage_v) + 0.10)
             raise AssertionError("harness should have blocked wrong write")
         request = OutputRequest(
             float(voltage_v),
             float(current_a),
-            float(ovp_v),
-            float(ocp_a),
             float(recipe_voltage_ceiling_v),
         )
         if self.bypass_readback_gate:
-            await self.set_ovp(ovp_v)
-            await self.set_ocp(ocp_a)
             await self.set_voltage(voltage_v)
             await self.set_current(current_a)
             try:
@@ -216,7 +195,7 @@ class ProgrammedReadbackPhysicalHookTests(unittest.IsolatedAsyncioTestCase):
         _app, adapter, _guard, control = self.make_system()
         before = {
             key: adapter.live[key]
-            for key in ("set_voltage", "set_current", "ovp", "ocp")
+            for key in ("set_voltage", "set_current")
         }
         response = await control.dispatch({"op": OPERATION})
         self.assertTrue(response["ok"], response)
@@ -228,15 +207,13 @@ class ProgrammedReadbackPhysicalHookTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["output_off_attempts"], 1)
         self.assertEqual(
             result["programming_writes"],
-            {"ovp": 1, "ocp": 1, "set_voltage": 1, "set_current": 1},
+            {"set_voltage": 1, "set_current": 1},
         )
         self.assertEqual(adapter.hardware_on_calls, 0)
         self.assertEqual(adapter.hardware_off_calls, 1)
         self.assertEqual(
             adapter.hardware_writes,
             [
-                ("ovp", before["ovp"]),
-                ("ocp", before["ocp"]),
                 ("set_voltage", before["set_voltage"]),
                 ("set_current", before["set_current"]),
             ],
@@ -266,7 +243,7 @@ class ProgrammedReadbackPhysicalHookTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(adapter.live["set_voltage"], 15.10)
         self.assertEqual(
             adapter.hardware_writes,
-            [("ovp", 15.30), ("ocp", 0.40)],
+            [],
         )
 
     async def test_b16_detects_attempt_to_cross_output_on_boundary_without_actuating(self):

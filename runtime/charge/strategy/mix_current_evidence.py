@@ -11,12 +11,14 @@ from enum import Enum
 from math import isfinite
 from typing import Any, Mapping
 
+from rd6018_telemetry import CURRENT_SETPOINT_READBACK_TOLERANCE_A
+
 
 _NATIVE = ("output_state_code_v2", "regulation_code",
            "set_current_readback_v2", "current")
-# RD6018 set-current register is published to 0.01 A resolution. This is
-# observational agreement, not a calibrated adaptive headroom or trip margin.
-_REGISTER_TOLERANCE_A = 0.01
+# Use the same physical Iset readback tolerance as MAIN Guard. This only
+# reconciles a committed register value; it does not alter the adaptive headroom.
+_REGISTER_TOLERANCE_A = CURRENT_SETPOINT_READBACK_TOLERANCE_A
 _EVIDENCE_MAX_AGE_S = 20.0
 _EVIDENCE_MAX_SKEW_S = 10.0
 

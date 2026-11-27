@@ -2,6 +2,16 @@
 
 Status: **current production architecture contract**.
 
+OVP/OCP are retained as physical configuration/readback and protection-diagnostic
+signals. Preserve their entities, register 82/83 readbacks and the existing managed
+software trip guard. The current HassClient / ESP Native physical adapter does not
+expose OVP/OCP setters, so START and MAIN/MIX do not automatically program these
+thresholds. A confirmed trip may stop an active PB_MANAGED session through the
+existing safety owner; HANDS_OFF + AUTONOMOUS remains strictly read-only and cannot
+issue a bot-originated stop. Preserve intrinsic local nonzero-R16 containment via
+the integrated ESP8266 and the single R18 Output Owner. Do not disable or rewrite
+the RD6018's physical protection thresholds.
+
 The modular cutover is complete. Retired V1/V2 compatibility, shadow and dual-runtime
 owners are not production architecture and must not be reintroduced.
 
@@ -80,6 +90,25 @@ Safety is modular by concern:
 - edge lease.
 
 Charge policy cannot bypass safety. Safety does not choose charge stages.
+
+Canonical production guard classes now live in `runtime/safety/runtime_guard.py`,
+`runtime/safety/strict_guard.py`, and `runtime/safety/managed_guard.py`.
+These are the existing safety-effect adapters, not additional execution owners.
+Pure telemetry, electrical-envelope, foreign-Output, freshness and watchdog
+policies live in separate sibling modules. `runtime/safety/watchdog_runtime.py`
+provides one background observation task; the soft and 300-second
+communication policies cannot issue competing OFF for a latched incident.
+All actual actuator mutations still use the established application
+`ExecutionPort` / physical bridge. No top-level runtime guard compatibility
+modules exist.
+
+The former mixed `safe_output.py` is split by concern: policy DTOs,
+`SafetySupervisor` and telemetry snapshots have one owner in
+`runtime/safety/output_policy.py`; the existing state-preserving verified
+output-enable transaction lives in `application/safe_output_coordinator.py`.
+It is the same established output adapter execution seam, not a second
+hardware or charge-session owner. Source and physical-call inventories freeze
+both paths and release D124 treats their changes as control changes.
 
 ### Execution
 
@@ -195,3 +224,16 @@ Current production must continue to satisfy all of the following:
 - Before each change: identify existing canonical owner and config source, perform the smallest source modification that implements the requirement, and remove superseded code rather than adding shims. Do not construct a parallel abstraction, extra proof/authorization, new service, duplicate observer, or alternative rollback path.
 - Acceptance: focused module tests + existing architecture/UI regressions + actual entrypoint behavior where relevant. Record evidence and exact SHA in the runbook. Keep the deployed known-good baseline untouched until an explicit safe D145/D144 installation is authorized; never confuse source acceptance with live hardware/UI acceptance.
 - If requested work needs a new setting or subsystem, extend the original semantic owner rather than opening an independent control plane. Reject any design that makes two modules authoritative for the same state.
+
+## Execution owner encapsulation — 2026-11-15
+
+`ExecutionPort` is the only application-facing physical execution boundary. Its composed Safety owner is private (`_execution_owner`); application consumers must not inspect or call it directly. Application read consumers use `ExecutionPort.read_live()` / `read_native_physical_output_report()`, while physical commands use the existing typed port operations. `HassClient` and the configured HA/ESP connector remain transport/read adapters. Production installs `ManagedRuntimeSafetyGuard` with `patch_adapter=False`; the optional adapter-patching compatibility mode is not a production composition path.
+
+Static architecture tests enforce that application modules other than `application/execution_port.py` do not access `.execution_owner` or `._execution_owner`. MAIN Guard transaction and recipe execution consume live snapshots through the port. This encapsulation does not move Safety policy into programs, nor does it make the port a charge-phase owner.
+## Transport/Safety separation — 2026-11-15
+
+`HassClient` is a raw transport adapter for HA REST and the selected physical connector. It owns connection/session management, raw telemetry metadata and raw command dispatch only. It does not own SafetySupervisor, SafeOutputCoordinator, programming admission, ON verification, OFF confirmation, lease policy or runtime protection.
+
+`RuntimeSafetyGuard` / `ManagedRuntimeSafetyGuard` are explicit Safety owners over the injected `adapter`. They perform admission, lease, telemetry/protection, setpoint verification, Output verification and OFF containment. `ExecutionPort` privately owns the Safety execution owner and is the application-facing command/read boundary. Production installs the Safety owner without mutating adapter methods (`patch_adapter=False`).
+
+HA REST `get_state()` is an independent sidecar when the selected physical connector has no native entity-state API. Native physical Output evidence remains sourced only from the selected physical connector and never falls back to HA. `last_reported` is part of HassClient's transport metadata contract; Safety must not monkeypatch the transport formatter.

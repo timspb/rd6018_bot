@@ -1,0 +1,619 @@
+from __future__ import annotations
+
+import asyncio
+import logging
+import math
+import time
+from typing import Any, Optional
+
+from runtime.safety.variables import MAX_STAGE_CURRENT_A, WATCHDOG_TIMEOUT_S
+from runtime.safety.telemetry_recovery import (
+    isolated_callback_recovery_eligible, known_unsafe_observation,
+)
+from runtime.safety.live_freshness import runtime_freshness_error
+from runtime.safety.critical_telemetry import managed_critical_telemetry_error
+from runtime.safety.electrical_envelope import managed_envelope_error
+from runtime.safety.foreign_output import foreign_output_safety_error
+
+MAX_STAGE_CURRENT = float(MAX_STAGE_CURRENT_A.default)
+from runtime.safety.temperature_integrity import ExternalTempIntegrityMonitor, ExternalTempIntegrityPolicy
+from rd6018_telemetry import (
+    canonical_programmed_readback,
+    telemetry_freshness,
+)
+from runtime.safety.runtime_guard import OutputOffNotConfirmed, RuntimeSafetyError, _binary, _finite
+from runtime.safety.strict_guard import StrictRuntimeSafetyGuard
+
+logger = logging.getLogger("rd6018")
+
+
+class ManagedRuntimeSafetyGuard(StrictRuntimeSafetyGuard):
+    """Production guard aligned with the accepted V2 authority model."""
+
+    RUNTIME_FRESHNESS_KEYS = (
+        "battery_voltage",
+        "current",
+        "temp_ext",
+        "temp_int",
+        "switch",
+    )
+    # An unconfirmed OFF is a latched containment state, not a command loop. When
+    # fresh evidence still positively says ON we may retry OFF at a bounded cadence;
+    # unknown/stale Output evidence never causes command spam.
+    OFF_UNCONFIRMED_RETRY_S = 60.0
+    # Owner-authorized Native communication-loss budget. The independent
+    # 900-second ESP safety lease remains unchanged.
+    TELEMETRY_UNAVAILABLE_GRACE_S = float(WATCHDOG_TIMEOUT_S.default)
+
+    @staticmethod
+    def _current_evidence(live: dict[str, Any]) -> Optional[float]:
+        return canonical_programmed_readback(live, "set_current")
+
+    @staticmethod
+    def _programmed_evidence(live: dict[str, Any], key: str) -> Optional[float]:
+        return canonical_programmed_readback(live, key)
+
+    def __init__(self, app: Any) -> None:
+        super().__init__(app)
+        self._off_unconfirmed_notice_active = False
+        self._off_unconfirmed_last_retry_at = 0.0
+        self._telemetry_unavailable_since: Optional[float] = None
+        configured_policy = getattr(app, "external_temp_integrity_policy", None)
+        policy = (
+            configured_policy
+            if isinstance(configured_policy, ExternalTempIntegrityPolicy)
+            else ExternalTempIntegrityPolicy()
+        )
+        self.external_temp_integrity = ExternalTempIntegrityMonitor(
+            policy,
+            fault_file=str(
+                getattr(
+                    app,
+                    "external_temp_integrity_fault_file",
+                    "external_temp_integrity_fault_v2.json",
+                )
+            ),
+        )
+
+    def _notify(self, key: str, message: str) -> None:
+        # INC-006: one operator alarm per unconfirmed-OFF incident. Repeated safety
+        # polls must not re-page the operator every NOTIFY_REPEAT_S while the same
+        # physical state remains unknown. A later proven OFF clears the incident and
+        # allows a new independent failure to notify again.
+        if key == "off_unconfirmed":
+            if self._off_unconfirmed_notice_active:
+                return
+            self._off_unconfirmed_notice_active = True
+        super()._notify(key, message)
+
+    def _clear_off_unconfirmed_containment(self) -> None:
+        self._off_unconfirmed = False
+        self._off_unconfirmed_notice_active = False
+        self._off_unconfirmed_last_retry_at = 0.0
+        self._orphan_output_seen_at = None
+
+    def _output_evidence_is_fresh(self, live: dict[str, Any]) -> bool:
+        try:
+            return bool(telemetry_freshness(live, ("switch",)).valid)
+        except Exception:
+            return False
+
+    @staticmethod
+    def _is_transient_telemetry_error(reason: str) -> bool:
+        lowered = str(reason or "").lower()
+        return (
+            lowered.startswith("required telemetry ")
+            or "freshness" in lowered
+            or "stale" in lowered
+        )
+
+    def _telemetry_grace_active(self, live: dict[str, Any], reason: str) -> bool:
+        if not self._is_transient_telemetry_error(reason):
+            self._telemetry_unavailable_since = None
+            return False
+        if known_unsafe_observation(
+            live, max_voltage_v=self.policy.absolute_voltage_ceiling_v,
+            max_current_a=self.policy.absolute_current_ceiling_a,
+            critical_battery_temp_c=self.policy.critical_temp_c,
+            max_psu_temp_c=self.policy.max_internal_temp_c,
+        ):
+            self._telemetry_unavailable_since = None
+            return False
+        # A known Native TCP interruption can restore only part of its
+        # callback batch. Keep ONE 300s budget, anchored to the original
+        # disconnect, even if measured U/I or Output R18 arrive before the
+        # programmed-register readbacks. Partial data must not reset the clock.
+        native_since = live.get("_native_link_outage_since")
+        native_outage = (
+            isinstance(native_since, (int, float))
+            and not isinstance(native_since, bool)
+            and math.isfinite(native_since)
+            and native_since >= 0
+        )
+        # A live Native connection can lose an independent callback stream.
+        # Permit this wait only with fresh physical Output/protection evidence.
+        if not native_outage and not isolated_callback_recovery_eligible(
+            live, reason, output_known=_binary(live.get("switch")) is not None,
+            max_voltage_v=self.policy.absolute_voltage_ceiling_v,
+            max_current_a=self.policy.absolute_current_ceiling_a,
+            critical_battery_temp_c=self.policy.critical_temp_c,
+            max_psu_temp_c=self.policy.max_internal_temp_c,
+        ):
+            # Retain the established complete-blackout recovery allowance.
+            blackout = not any(
+                _finite(live.get(key)) is not None
+                for key in ("battery_voltage", "current", "temp_ext", "temp_int")
+            ) and _binary(live.get("switch")) is None
+            if not blackout:
+                self._telemetry_unavailable_since = None
+                return False
+        now = time.monotonic()
+        started = min(float(native_since), now) if native_outage else now
+        if self._telemetry_unavailable_since is None:
+            self._telemetry_unavailable_since = started
+            logger.warning(
+                "Managed telemetry recovery pending; withholding software STOP "
+                "for up to %.0fs: %s",
+                self.TELEMETRY_UNAVAILABLE_GRACE_S,
+                reason,
+            )
+        elif native_outage:
+            self._telemetry_unavailable_since = min(
+                self._telemetry_unavailable_since, started
+            )
+        if now - self._telemetry_unavailable_since < self.TELEMETRY_UNAVAILABLE_GRACE_S:
+            return True
+        logger.error(
+            "Managed telemetry recovery window exceeded %.0fs: %s",
+            self.TELEMETRY_UNAVAILABLE_GRACE_S,
+            reason,
+        )
+        return False
+
+    @property
+    def telemetry_recovery_active(self) -> bool:
+        """Bounded hold owned by this guard; never authorizes a physical write."""
+        since = self._telemetry_unavailable_since
+        return bool(
+            since is not None
+            and 0 <= time.monotonic() - since < self.TELEMETRY_UNAVAILABLE_GRACE_S
+        )
+
+    def _clear_telemetry_grace(self) -> None:
+        self._telemetry_unavailable_since = None
+
+    async def _recover_off_unconfirmed(self, live: dict[str, Any]) -> dict[str, Any]:
+        """Contain one failed OFF without turning background polling into an OFF storm.
+
+        Fresh confirmed OFF self-heals the latch. Fresh confirmed ON permits a bounded
+        retry because the device is still known energized. Unknown/stale Output remains
+        fail-closed for all future ON requests but is passive: no repeated actuator
+        command and no repeated operator alarm until evidence changes.
+        """
+        evidence = self._output_evidence(live)
+        fresh = self._output_evidence_is_fresh(live)
+        self._orphan_output_seen_at = None
+
+        if fresh and evidence.state is False:
+            self._clear_off_unconfirmed_containment()
+            await self._disarm_edge_lease_best_effort()
+            return live
+
+        if not fresh or evidence.state is None:
+            raise OutputOffNotConfirmed(
+                "previous Output OFF remains unconfirmed: physical Output state is unknown/stale"
+            )
+
+        # Fresh evidence still says ON. Retry at a bounded cadence; the original
+        # incident notification remains latched and will not be emitted again. A zero
+        # retry timestamp means no retry has run yet; do not make the first retry depend
+        # on host monotonic uptime (fresh processes can have uptime < retry interval).
+        now = time.monotonic()
+        if (
+            self._off_unconfirmed_last_retry_at <= 0.0
+            or now - self._off_unconfirmed_last_retry_at >= self.OFF_UNCONFIRMED_RETRY_S
+        ):
+            self._off_unconfirmed_last_retry_at = now
+            try:
+                if await self._ensure_output_off(
+                    "previous Output OFF remains unconfirmed; fresh telemetry still reports ON"
+                ):
+                    self._clear_off_unconfirmed_containment()
+                    await self._disarm_edge_lease_best_effort()
+                    return await self._raw_live()
+            except OutputOffNotConfirmed:
+                pass
+
+        raise OutputOffNotConfirmed(
+            "previous Output OFF remains unconfirmed: fresh telemetry still reports ON"
+        )
+
+    @property
+    def manual_active(self) -> bool:
+        manager = getattr(self.app, "manual_session_manager", None)
+        return bool(manager is not None and getattr(manager, "is_active", False))
+
+    @property
+    def managed_mix_active(self) -> bool:
+        coordinator = getattr(self.app, "rd_managed_mix_adoption", None)
+        return bool(coordinator is not None and getattr(coordinator, "managed_authority", False))
+
+    @property
+    def controller_active(self) -> bool:
+        if super().controller_active or self.manual_active or self.managed_mix_active:
+            return True
+        # Terminal Storage may intentionally own an ON output even though
+        # Done is no longer a ticking charge stage. RAM intent alone is never
+        # sufficient: require the exact fsynced canonical session and guard.
+        from runtime.charge.persistence import managed_storage_ownership_proven
+        return managed_storage_ownership_proven(
+            getattr(self.app, "charge_controller", None)
+        )
+
+    def _recipe_voltage_ceiling(self) -> float:
+        if self.manual_active:
+            return float(self.policy.absolute_voltage_ceiling_v)
+        return super()._recipe_voltage_ceiling()
+
+    def _critical_telemetry_error(
+        self, live: dict[str, Any], *, require_programming: bool,
+    ) -> Optional[str]:
+        return managed_critical_telemetry_error(
+            live, require_programming=require_programming,
+            min_battery_voltage_v=self.policy.min_battery_voltage_v,
+            max_battery_voltage_v=self.policy.max_battery_voltage_v,
+            critical_temp_c=self.policy.critical_temp_c,
+            max_internal_temp_c=self.policy.max_internal_temp_c,
+        )
+
+    @staticmethod
+    def _available(value: Any) -> bool:
+        return value not in (None, "", "unknown", "unavailable")
+
+    def _runtime_freshness_error(
+        self,
+        live: dict[str, Any],
+        *,
+        output_state: Optional[bool],
+    ) -> Optional[str]:
+        # Retain the original entrypoint used by managed adoption. This guard
+        # alone decides whether a freshness error triggers grace or fail-closed.
+        return runtime_freshness_error(
+            live, output_state=output_state, required_keys=self.RUNTIME_FRESHNESS_KEYS,
+        )
+
+    def _foreign_output_safety_error(self, live: dict[str, Any]) -> Optional[str]:
+        return foreign_output_safety_error(
+            live, max_internal_temp_c=self.policy.max_internal_temp_c,
+        )
+
+    def _runtime_envelope_error(self, live: dict[str, Any]) -> Optional[str]:
+        return managed_envelope_error(
+            live,
+            recipe_ceiling_v=self._recipe_voltage_ceiling(),
+            absolute_voltage_ceiling_v=self.policy.absolute_voltage_ceiling_v,
+            absolute_current_ceiling_a=self.policy.absolute_current_ceiling_a,
+            max_stage_current_a=float(MAX_STAGE_CURRENT),
+            readback_tolerance=self.READBACK_TOLERANCE,
+        )
+
+    def _stage_target(self, live: dict[str, Any]) -> tuple[Optional[float], Optional[float]]:
+        if self.manual_active:
+            manager = getattr(self.app, "manual_session_manager", None)
+            request = getattr(manager, "request", None)
+            if request is not None:
+                return _finite(getattr(request, "voltage_v", None)), _finite(
+                    getattr(request, "current_a", None)
+                )
+        return super()._stage_target(live)
+
+    def _temp_integrity_hv_active(self) -> bool:
+        # D062 owns only an already-running high-voltage MIX. It has no
+        # ManualSessionManager request, so register it explicitly as HV-active.
+        if self.managed_mix_active:
+            return True
+        if self.manual_active:
+            manager = getattr(self.app, "manual_session_manager", None)
+            request = getattr(manager, "request", None)
+            voltage = (
+                _finite(getattr(request, "voltage_v", None))
+                if request is not None
+                else None
+            )
+            return bool(voltage is not None and voltage > 15.0)
+        controller = getattr(self.app, "charge_controller", None)
+        predicate = getattr(controller, "_current_stage_is_hv", None)
+        if callable(predicate):
+            try:
+                return bool(predicate())
+            except Exception:
+                return False
+        stage = getattr(controller, "current_stage", None)
+        return stage in {
+            getattr(controller, "STAGE_DESULFATION", object()),
+            getattr(controller, "STAGE_MIX", object()),
+        }
+
+    async def _retire_temp_integrity_session(self, reason: str) -> None:
+        manager = getattr(self.app, "manual_session_manager", None)
+        if manager is not None and getattr(manager, "is_active", False):
+            stop = getattr(manager, "stop", None)
+            if callable(stop):
+                await stop("external_temp_sensor_integrity")
+            return
+        controller = getattr(self.app, "charge_controller", None)
+        if controller is not None and bool(getattr(controller, "is_active", False)):
+            stop = getattr(controller, "stop", None)
+            if callable(stop):
+                stop(clear_session=True)
+
+    async def _trip_external_temp_integrity(
+        self,
+        reason: str,
+        *,
+        output_state: Optional[bool],
+    ) -> None:
+        monitor = self.external_temp_integrity
+        self._notify(
+            "external_temp_integrity",
+            f"🛑 <b>Защита V2:</b> недостоверна внешняя температура АКБ: {reason}. "
+            "Output будет выключен; автоматическое возобновление этой сессии запрещено.",
+        )
+        if not monitor.latch_persistence_ok:
+            self._notify(
+                "external_temp_integrity_latch_io",
+                "🚨 Не удалось надёжно записать durable latch отказа внешнего датчика "
+                "температуры. Сессия будет завершена после подтверждённого Output OFF; "
+                "повторный запуск до проверки storage запрещён.",
+            )
+        if output_state is True or (output_state is None and self.controller_active):
+            await self._ensure_output_off(f"external temperature sensor integrity: {reason}")
+        await self._retire_temp_integrity_session(reason)
+        raise RuntimeSafetyError(f"external temperature sensor integrity: {reason}")
+
+    def _auto_restore_active(self) -> bool:
+        controller = getattr(self.app, "charge_controller", None)
+        return bool(
+            controller is not None
+            and getattr(controller, "is_active", False)
+            and str(getattr(controller, "_session_start_reason", "")) == "Auto-restore"
+        )
+
+    async def turn_on(self, entity_id: Optional[str] = None) -> bool:
+        if self._off_unconfirmed:
+            live = await self._raw_live()
+            evidence = self._output_evidence(live)
+            if self._output_evidence_is_fresh(live) and evidence.state is False:
+                self._clear_off_unconfirmed_containment()
+                await self._disarm_edge_lease_best_effort()
+            else:
+                raise OutputOffNotConfirmed(
+                    "previous OFF command remains unconfirmed; fresh confirmed OFF is required before Output ON"
+                )
+
+        monitor = self.external_temp_integrity
+        if not monitor.latched:
+            return await super().turn_on(entity_id)
+
+        if self._auto_restore_active():
+            controller = getattr(self.app, "charge_controller", None)
+            stop = getattr(controller, "stop", None)
+            if callable(stop):
+                stop(clear_session=True)
+            raise RuntimeSafetyError(
+                "external temperature sensor integrity fault is latched; auto-restore is forbidden"
+            )
+
+        live = await self._raw_live()
+        output_state = _binary(live.get("switch"))
+        if output_state is not False:
+            if output_state is True:
+                await self._ensure_output_off(
+                    "external temperature integrity latch requires Output OFF before reauthorization"
+                )
+            raise RuntimeSafetyError(
+                "external temperature reauthorization blocked: Output OFF is not confirmed"
+            )
+
+        error = self._critical_telemetry_error(live, require_programming=False)
+        if error is not None:
+            monitor.reset_recovery_evidence()
+            raise RuntimeSafetyError(f"external temperature reauthorization blocked: {error}")
+        freshness_error = self._runtime_freshness_error(live, output_state=False)
+        if freshness_error is not None:
+            monitor.reset_recovery_evidence()
+            raise RuntimeSafetyError(
+                f"external temperature reauthorization blocked: {freshness_error}"
+            )
+        allowed, detail = monitor.can_rearm(
+            live,
+            hv=self._temp_integrity_hv_active(),
+        )
+        if not allowed:
+            raise RuntimeSafetyError(f"external temperature reauthorization blocked: {detail}")
+
+        enabled = await super().turn_on(entity_id)
+        if not enabled:
+            return False
+        if not monitor.clear_latch():
+            await super().turn_off(entity_id)
+            raise RuntimeSafetyError(
+                "external temperature reauthorization failed: durable fault latch could not be cleared"
+            )
+        return True
+
+    async def get_all_live(self) -> dict[str, Any]:
+        live = await self._raw_live()
+        output_state = _binary(live.get("switch"))
+        monitor = self.external_temp_integrity
+
+        manager = getattr(self.app, "rd_control_mode_manager", None)
+        if (
+            manager is not None
+            and bool(getattr(manager, "release_in_progress", False))
+            and not bool(getattr(manager, "hands_off", False))
+        ):
+            # Ownership release explicitly suspends lease renewal and normal
+            # actuation through ExecutionPort. During that bounded transfer,
+            # expose raw telemetry without re-entering managed ownership logic.
+            return live
+
+        if self._off_unconfirmed:
+            return await self._recover_off_unconfirmed(live)
+
+        # A latched Class-C fault remains non-actuating while Output is OFF, but the
+        # normal telemetry loop may collect clean *distinct source reports* so a later
+        # explicit user authorization does not require repeated button presses. This
+        # evidence never clears the latch by itself.
+        if monitor.latched and output_state is False and not self.controller_active:
+            error = self._critical_telemetry_error(live, require_programming=False)
+            freshness_error = (
+                None
+                if error is not None
+                else self._runtime_freshness_error(live, output_state=False)
+            )
+            if error is not None or freshness_error is not None:
+                monitor.reset_recovery_evidence()
+            else:
+                monitor.observe_recovery(
+                    live,
+                    hv=self._temp_integrity_hv_active(),
+                )
+            self._orphan_output_seen_at = None
+            return live
+
+        safety_relevant = self.controller_active or output_state is True
+        if not safety_relevant:
+            self._orphan_output_seen_at = None
+            # A retired owner with freshly observed Output OFF ends this
+            # telemetry incident. Never carry its old 300s deadline into a
+            # later charging session; unknown/stale Output cannot reset it.
+            if output_state is False and self._output_evidence_is_fresh(live):
+                self._clear_telemetry_grace()
+            return live
+
+        # D068: an already-ON Output with no managed software session first gets one
+        # short ownership-decision window. This is not a managed Pb grace period: it
+        # keeps canonical Output/protection truth and hard PSU trip authority, but does
+        # not apply battery chemistry, temp_ext or recipe-program requirements before
+        # the operator can choose Adopt, HANDS_OFF, or verified OFF. D061 performs the
+        # complete managed preflight if adoption is actually selected.
+        if output_state is True and not self.controller_active:
+            foreign_error = self._foreign_output_safety_error(live)
+            if foreign_error is not None:
+                await self._fail_closed(
+                    "unmanaged_output_safety",
+                    foreign_error,
+                    output_state=True,
+                )
+            now = time.monotonic()
+            if self._orphan_output_seen_at is None:
+                self._orphan_output_seen_at = now
+                return live
+            if now - self._orphan_output_seen_at >= self.ORPHAN_OUTPUT_GRACE_S:
+                await self._fail_closed(
+                    "unmanaged_output",
+                    "RD6018 output remains ON without an explicit ownership decision",
+                    output_state=True,
+                )
+            return live
+
+        # A real managed authority starts a new ownership epoch. A stale orphan timer
+        # from a prior external-output decision must never shorten a later orphan grace.
+        if self.controller_active:
+            self._orphan_output_seen_at = None
+
+        error = self._critical_telemetry_error(
+            live,
+            require_programming=output_state is True,
+        )
+        if error is not None:
+            if self._telemetry_grace_active(live, error):
+                return {**live, "_managed_telemetry_recovery_pending": True}
+            await self._fail_closed("telemetry_invalid", error, output_state=output_state)
+
+        freshness_error = self._runtime_freshness_error(
+            live,
+            output_state=output_state,
+        )
+        if freshness_error is not None:
+            if self._telemetry_grace_active(live, freshness_error):
+                return {**live, "_managed_telemetry_recovery_pending": True}
+            await self._fail_closed(
+                "telemetry_stale",
+                freshness_error,
+                output_state=output_state,
+            )
+
+        decision = monitor.observe(
+            live,
+            hv=self._temp_integrity_hv_active(),
+        )
+        if decision.trip:
+            await self._trip_external_temp_integrity(
+                decision.detail,
+                output_state=output_state,
+            )
+
+        if output_state is False:
+            self._clear_off_unconfirmed_containment()
+            return live
+
+        if output_state is True:
+            envelope_error = self._runtime_envelope_error(live)
+            if envelope_error is not None:
+                await self._fail_closed(
+                    "runtime_envelope",
+                    envelope_error,
+                    output_state=True,
+                )
+
+            temp_int = _finite(live.get("temp_int"))
+            if (
+                temp_int is not None
+                and temp_int >= float(self.policy.max_internal_temp_c)
+            ):
+                await self._fail_closed(
+                    "psu_temperature_high",
+                    f"RD6018 temperature {temp_int:.1f}C >= {self.policy.max_internal_temp_c:.1f}C",
+                    output_state=True,
+                )
+
+            if self.edge_safety_lease is not None and getattr(
+                self.edge_safety_lease, "renewals_suspended", False
+            ):
+                task = asyncio.current_task()
+                meta = live.get("_meta") if isinstance(live, dict) else None
+                output_meta = None
+                if isinstance(meta, dict):
+                    output_meta = meta.get("output_state_code_v2") or meta.get("switch")
+                logger.warning(
+                    "Managed live read requests edge renewal while suspended: "
+                    "task=%s switch=%r native_output=%r output_meta=%r",
+                    task.get_name() if task is not None else None,
+                    live.get("switch"),
+                    live.get("output_state_code_v2"),
+                    output_meta,
+                    stack_info=True,
+                )
+            await self._renew_edge_lease_or_fail(output_state=True)
+
+        self._clear_telemetry_grace()
+        return live
+
+
+def install_managed_runtime_safety(
+    app: Any,
+    *,
+    patch_adapter: bool = False,
+) -> ManagedRuntimeSafetyGuard:
+    existing = getattr(app, "runtime_safety_guard", None)
+    if isinstance(existing, ManagedRuntimeSafetyGuard):
+        return existing
+    adapter_existing = getattr(app.hass, "_runtime_safety_guard", None)
+    if adapter_existing is not None and not isinstance(adapter_existing, ManagedRuntimeSafetyGuard):
+        raise RuntimeError("runtime safety guard was installed before V2 production guard")
+    guard = ManagedRuntimeSafetyGuard(app)
+    guard.install(patch_adapter=patch_adapter)
+    app.runtime_safety_guard = guard
+    return guard

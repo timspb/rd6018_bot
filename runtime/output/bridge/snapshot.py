@@ -14,8 +14,6 @@ class HardwareSnapshot:
     measured_current: float | None = None
     configured_voltage: float | None = None
     configured_current: float | None = None
-    ovp: float | None = None
-    ocp: float | None = None
     temperature: float | None = None
     battery_voltage: float | None = None
 

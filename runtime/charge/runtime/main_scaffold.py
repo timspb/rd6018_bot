@@ -32,6 +32,12 @@ from runtime.safety.thermal_variables import (
 from runtime.safety.voltage_variables import PB_PROFILE_WARNING_VOLTAGE_V
 
 
+from runtime.charge.runtime.support import (
+    output_is_known as _output_is_known,
+    output_is_on as _output_is_on,
+    phase_log as _phase_log,
+)
+
 logger = logging.getLogger("rd6018.charge.main_runtime")
 
 
@@ -75,7 +81,11 @@ def apply_main_authority_tick(
         intent=host._v2_intent,
         first_stage=first_stage,
         policy_decision=record.decision.decision,
-        seconds_since_current_min=record.analysis.metrics.seconds_since_current_min,
+        seconds_since_current_min=(
+            record.analysis.metrics.main_stable_hold_s
+            if getattr(record.analysis.metrics, "main_stable_hold_s", None) is not None
+            else 0.0
+        ),
         required_tail_hold_s=required_hold,
         agm_stage_idx=host._agm_stage_idx,
         agm_stage_count=len(AGM_STAGE_VOLTAGES_V.default),
@@ -121,6 +131,15 @@ def apply_main_authority_tick(
             host, reason=decision.reason, now_s=timestamp_s, ah=ah,
             voltage_v=voltage, current_a=current, temperature_c=temp,
             target_voltage_v=target_v, target_current_a=target_i,
+            transition_evidence={
+                "mode": "CV" if is_cv else ("CC" if bool(getattr(getattr(record.analysis, "sample", None), "is_cc", False)) else "unknown"),
+                "main_imin_a": getattr(record.analysis.metrics, "current_min_a", None),
+                "main_hold_age_s": getattr(record.analysis.metrics, "main_stable_hold_s", None),
+                "main_hold_required_s": required_hold,
+                "main_delta_a": getattr(record.analysis.metrics, "delta_current_from_min_a", None),
+                "main_required_delta_a": getattr(record.analysis.metrics, "reversal_threshold_a", None),
+                "temperature_c": temp,
+            },
             actions=actions,
         )
     elif decision.action == AuthorityAction.COMPLETE_NORMAL:
@@ -147,35 +166,6 @@ def apply_main_authority_tick(
             current=current, temp=temp, ah=ah, reason=decision.reason,
         )
     return decision
-
-
-def _output_is_known(value: Any) -> bool:
-    return value is not None and str(value).lower() not in {
-        "unavailable",
-        "unknown",
-        "",
-    }
-
-
-def _output_is_on(value: Any) -> bool:
-    return value is True or str(value).lower() == "on"
-
-
-def _phase_log(phase: str, voltage: float, current: float, temp: float) -> None:
-    try:
-        from time_utils import format_time_user_tz
-
-        stamp = format_time_user_tz()
-    except Exception:
-        stamp = "-"
-    logger.info(
-        "%s | %-12s | %5.2fВ | %5.2fА | %5.1f°C",
-        stamp,
-        phase,
-        voltage,
-        current,
-        temp,
-    )
 
 
 async def run_authoritative_main_scaffold(
@@ -340,7 +330,7 @@ async def run_authoritative_main_scaffold(
 
     elapsed = now - host.stage_start_time
     if now - host._last_log_time >= float(HISTORY_SAMPLE_INTERVAL_S.default):
-        _phase_log(host.current_stage, voltage, current, temp)
+        _phase_log(logger, host.current_stage, voltage, current, temp)
         host._last_log_time = now
 
     report_interval = float(OPERATOR_REPORT_INTERVAL_S.default)

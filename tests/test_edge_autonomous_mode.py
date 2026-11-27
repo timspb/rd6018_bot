@@ -1,7 +1,7 @@
 import unittest
 
 from edge_autonomous_mode import EdgeAutonomousAuthority
-from edge_safety_lease import EdgeSafetyLease, EdgeSafetyLeaseConfig, EdgeSafetyLeaseError
+from runtime.safety.edge_lease import EdgeSafetyLease, EdgeSafetyLeaseConfig, EdgeSafetyLeaseError
 
 
 class FakeHass:
@@ -99,7 +99,7 @@ class EdgeAutonomousModeTests(unittest.IsolatedAsyncioTestCase):
 
         hass = NativeHass()
         authority = EdgeAutonomousAuthority(EdgeSafetyLease(hass, hass.config))
-        with self.assertRaisesRegex(EdgeSafetyLeaseError, "ButtonInfo missing/invalid"):
+        with self.assertRaisesRegex(EdgeSafetyLeaseError, "not a native button"):
             await authority.enter()
         self.assertEqual(hass.pressed, [])
 

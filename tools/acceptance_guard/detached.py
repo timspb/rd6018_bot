@@ -7,7 +7,6 @@ that exact descriptor and inode; it never opens or relocks the lock path.
 from __future__ import annotations
 
 from contextlib import contextmanager
-import fcntl
 import os
 from pathlib import Path
 import stat

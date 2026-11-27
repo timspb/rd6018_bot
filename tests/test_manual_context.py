@@ -1,6 +1,7 @@
 import json
 import asyncio
 import os
+from source_audit_inventory import production_python_sources
 import tempfile
 import time
 import unittest
@@ -85,11 +86,13 @@ class ManualContextEntrypointTests(unittest.TestCase):
         self.assertEqual(current_matches[0].callback.__name__, "_manual_choose")
 
         production = Path(__file__).resolve().parents[1]
-        sources = [
-            path.read_text(encoding="utf-8")
-            for path in production.rglob("*.py")
-            if "tests" not in path.parts
+        # Scan tracked production sources in this checkout, not nested Git
+        # worktrees, virtualenvs or generated files outside source ownership.
+        production_paths = [
+            path for _relative, path in production_python_sources(production)
         ]
+        self.assertIn(production / "bot.py", production_paths)
+        sources = [path.read_text(encoding="utf-8") for path in production_paths]
         self.assertFalse(any('callback_data="v2_manual"' in source for source in sources))
         self.assertFalse(any("_v2_manual_text_middleware" in source for source in sources))
 
@@ -222,11 +225,16 @@ class ManualInterruptedReauthorizationTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.hass.safe_enable_calls, [])
 
             before = time.time()
-            enabled = await manager.start(
-                manager.request,
-                reach_voltage_v=manager.reach_voltage_v,
-                reach_current_a=manager.reach_current_a,
-            )
+            # This test verifies interrupted identity/START ownership, not
+            # battery-registry persistence. Do not open the process-wide
+            # aiosqlite connection from an isolated test event loop.
+            with patch("manual_runtime.get_battery", new=AsyncMock(return_value=None)) as lookup:
+                enabled = await manager.start(
+                    manager.request,
+                    reach_voltage_v=manager.reach_voltage_v,
+                    reach_current_a=manager.reach_current_a,
+                )
+                lookup.assert_awaited_once_with("physical-battery-1")
             self.assertTrue(enabled)
             self.assertEqual(manager.state, ManualSessionState.ACTIVE)
             self.assertGreaterEqual(manager.started_at, before)

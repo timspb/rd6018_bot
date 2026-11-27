@@ -2,7 +2,7 @@
 
 This module extends the existing opt-in root-only AF_UNIX physical-test control
 plane with one parameterless operation. It never turns Output ON and never writes
-V/I/OVP/OCP/protection. The operation requires an already ACTIVE MIX_ADOPTED
+V/I/protection. The operation requires an already ACTIVE MIX_ADOPTED
 session, injects only in-memory post-adoption Delta evidence, then rewinds only
 the in-memory sticky-finish-hold anchor by the production 2h hold duration.
 

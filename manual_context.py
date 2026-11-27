@@ -56,7 +56,6 @@ def _manual_request_summary(manager: ProductionManualSessionManager) -> str:
     return (
         "<b>Прерванный Manual</b>\n"
         f"U={request.voltage_v:.2f} V · I={request.current_a:.2f} A\n"
-        f"OVP={request.ovp_v:.2f} V · OCP={request.ocp_a:.2f} A\n"
         f"АКБ: <code>{battery}</code>\n"
         f"Stop: <code>{stop_text}</code>\n\n"
         "Перезапуск процесса не продолжает старый выход. Повторный запуск требует "

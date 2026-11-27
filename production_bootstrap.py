@@ -10,7 +10,7 @@ from aiogram import F
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-import production_bot_ui
+from production_bot_ui import _safe_answer as _ui_safe_answer, install_ui_support
 from battery_diagnostics_store import init_battery_diagnostics_store
 from battery_registry import init_battery_registry, upsert_battery as registry_upsert_battery
 from charge_controller import ManagedChargeController
@@ -18,14 +18,25 @@ from production_controller import configure_production_charge_host, create_produ
 from manual_runtime import ProductionManualSessionManager, ProductionManualUIRoute
 from manual_text import install_manual_text
 from pb_domain import ChargeIntent
-from managed_runtime_safety import install_managed_runtime_safety
-from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
+from runtime.safety.managed_guard import install_managed_runtime_safety
+from runtime.ui.telegram.charge import (
+    CHARGE_CALLBACK_DATA,
+    _clear_pending_program_state,
+    _pending_intent,
+    _pending_start,
+    selected_program_for_user,
+)
 from runtime.ui.telegram.details import HOME_CALLBACK_DATA
 from runtime.ui.telegram.off_conditions import OFF_CALLBACK_DATA
 from telegram_panel import install_panel_last
 from battery_input import parse_battery_spec
 from sg_ui import install_sg_ui, sg_menu_button
-from ui_polish import build_operator_dashboard_keyboard, install_dashboard_polish
+from runtime.ui.components.hmi_values import format_start_feedback
+from ui_polish import (
+    build_operator_dashboard_keyboard,
+    format_active_evidence_pretty,
+    install_dashboard_polish,
+)
 from application.execution_port import get_or_create_execution_port
 from application.session_recovery_guard import SessionRecoveryGuard
 from runtime.journal.recovery_quarantine import RecoveryQuarantineJournal, default_journal_path
@@ -177,6 +188,7 @@ def install_production(app: Any, *, install_ui: bool = True) -> None:
             persist_incident=journal.persist, durable=True, initial_state=loaded_state
         )
         app._recovery_quarantine_journal_configured = True
+    install_managed_runtime_safety(app, patch_adapter=False)
     get_or_create_execution_port(app)
     if install_ui and not getattr(app, "_recovery_clearance_service_installed", False):
         authority = TelegramRecoveryAuthority()
@@ -194,7 +206,6 @@ def install_production(app: Any, *, install_ui: bool = True) -> None:
     if not isinstance(getattr(app, "manual_session_manager", None), ProductionManualSessionManager):
         app.manual_session_manager = ProductionManualSessionManager(app)
     app.manual_ui_route = ProductionManualUIRoute(app.manual_session_manager)
-    install_managed_runtime_safety(app)
     _install_managed_charge_monitor_guard(app)
     install_manual_text(app)
     if not install_ui:
@@ -204,9 +215,7 @@ def install_production(app: Any, *, install_ui: bool = True) -> None:
         await init_battery_registry()
         await registry_upsert_battery(identity, lifecycle, updated_at=time.time())
 
-    production_bot_ui.upsert_battery = _upsert_from_ui
-    production_bot_ui.parse_battery_spec = parse_battery_spec
-    original_safe_answer = production_bot_ui._safe_answer
+    original_safe_answer = _ui_safe_answer
 
     async def _safe_answer_operator(event, text: str, *, reply_markup=None) -> None:
         if "ID | AGM/EFB/Ca/Ca | Ah | Производитель | Модель" in text:
@@ -228,9 +237,6 @@ def install_production(app: Any, *, install_ui: bool = True) -> None:
             text = text.replace(old, new)
         await original_safe_answer(event, text, reply_markup=reply_markup)
 
-    production_bot_ui._safe_answer = _safe_answer_operator
-    production_bot_ui._intent_keyboard = _operator_intent_keyboard
-    production_bot_ui._preview_keyboard = _operator_preview_keyboard
     # Telegram START reaches the existing V2 owner only after StartPreflightService
     # and the transactional ExecutionPort checks have passed.
     v3_transaction_adapter = StartTransactionAdapter()
@@ -247,6 +253,7 @@ def install_production(app: Any, *, install_ui: bool = True) -> None:
         app,
         port=v3_start_port,
     )
+    battery_start_route = app._v3_production_start_route
 
     @app.router.callback_query(F.data == "v2_battery_start")
     async def _battery_start_route(call: Any) -> None:
@@ -258,18 +265,20 @@ def install_production(app: Any, *, install_ui: bool = True) -> None:
         await call.answer()
         message = getattr(call, "message", None)
 
-        async def _send_result(text: str) -> None:
+        async def _send_result(text: str) -> bool:
             answer = getattr(message, "answer", None)
             if not callable(answer):
                 logger.error("START result could not be delivered: callback has no source message")
-                return
+                return False
             try:
                 await answer(text)
             except Exception:
                 logger.exception("START result message delivery failed")
+                return False
+            return True
 
         user_id = call.from_user.id if call.from_user else 0
-        pending = production_bot_ui._pending_start.get(user_id)
+        pending = _pending_start.get(user_id)
         if pending is None:
             await _send_result("Предпросмотр устарел — выберите АКБ заново")
             return
@@ -290,16 +299,37 @@ def install_production(app: Any, *, install_ui: bool = True) -> None:
                 "native_recipe_version": pending.native_recipe_version,
             },
         )
-        result = await app._v3_production_start_route.submit(intent)
+        try:
+            result = await battery_start_route.submit(intent)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # The callback may have reached the execution owner before it
+            # failed. Preserve the pending request and report the outcome as
+            # unconfirmed; never retry or imply that Output changed.
+            logger.exception("START transaction result could not be confirmed")
+            await _send_result("Не удалось подтвердить START. Проверьте состояние перед повтором.")
+            return
         if not result.accepted:
             await _send_result(f"START отклонён: {result.reason}")
             return
-        await _send_result(production_bot_ui.format_start_feedback(result))
+        if await _send_result(format_start_feedback(result)):
+            _clear_pending_program_state(app, user_id)
 
-    production_bot_ui.install_ui_support(app)
+    install_ui_support(
+        app,
+        pending_intent_state=_pending_intent,
+        battery_upsert=_upsert_from_ui,
+        battery_spec_parser=parse_battery_spec,
+        safe_answer=_safe_answer_operator,
+        intent_keyboard=_operator_intent_keyboard,
+        preview_keyboard=_operator_preview_keyboard,
+        active_evidence_formatter=format_active_evidence_pretty,
+        start_route=app._v3_production_start_route,
+    )
     install_sg_ui(app)
-    install_dashboard_polish(app, production_bot_ui)
-    app._selected_program_for_user = production_bot_ui.selected_program_for_user
+    install_dashboard_polish(app)
+    app._selected_program_for_user = selected_program_for_user
     app._charge_modes_text = _operator_modes_text
     app._build_charge_modes_keyboard = _operator_modes_keyboard
 
@@ -310,7 +340,7 @@ def install_production(app: Any, *, install_ui: bool = True) -> None:
     installed_handle_ah = app.handle_ah_input
 
     async def _handle_ah_conservative(message, profile: str, user_id: int) -> None:
-        production_bot_ui._pending_intent.setdefault(user_id, ChargeIntent.NORMAL)
+        _pending_intent.setdefault(user_id, ChargeIntent.NORMAL)
         await installed_handle_ah(message, profile, user_id)
 
     app.handle_ah_input = _handle_ah_conservative

@@ -4,7 +4,7 @@ The operations are intentionally narrower than the Telegram operator actions: th
 available only while the opt-in physical-test server is enabled, accept no parameters,
 require canonical Output OFF plus a clean/readable edge state, and delegate the actual
 ownership/operation transition to the already-installed production coordinators. They
-never write RD6018 Output/V/I/OVP/OCP directly and never create another listener.
+never write RD6018 Output/V/I directly and never create another listener.
 """
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ _AUTONOMOUS_OPERATIONS = {
     _EXIT_AUTONOMOUS_OPERATION,
 }
 _MAX_MODBUS_AGE_S = 20.0
-_PROGRAMMED_KEYS = ("set_voltage", "set_current", "ovp", "ocp")
+_PROGRAMMED_KEYS = ("set_voltage", "set_current")
 
 
 class PhysicalTestControlPbMode:
@@ -205,7 +205,7 @@ class PhysicalTestControlPbMode:
             )
         if not self._same_programmed_values(programmed_before, live_after):
             raise PhysicalTestControlError(
-                "AUTONOMOUS entry unexpectedly changed programmed V/I/OVP/OCP"
+                "AUTONOMOUS entry unexpectedly changed programmed V/I"
             )
         return {
             "entered": True,
@@ -258,7 +258,7 @@ class PhysicalTestControlPbMode:
             )
         if not self._same_programmed_values(programmed_before, live_after):
             raise PhysicalTestControlError(
-                "AUTONOMOUS exit unexpectedly changed programmed V/I/OVP/OCP"
+                "AUTONOMOUS exit unexpectedly changed programmed V/I"
             )
         return {
             "exited": True,
@@ -368,7 +368,7 @@ class PhysicalTestControlPbMode:
             )
         if not self._same_programmed_values(programmed_before, live_after):
             raise PhysicalTestControlError(
-                "PB control return unexpectedly changed programmed V/I/OVP/OCP"
+                "PB control return unexpectedly changed programmed V/I"
             )
 
         return {

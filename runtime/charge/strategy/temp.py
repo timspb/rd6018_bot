@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from external_temp_integrity import ExternalTempIntegrityMonitor
+from runtime.safety.temperature_integrity import ExternalTempIntegrityMonitor
 
 
 @dataclass(frozen=True)

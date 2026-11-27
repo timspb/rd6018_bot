@@ -128,3 +128,138 @@ def test_pinned_recipe_reaches_existing_main_owner_as_immutable_values():
     assert selected["min_window_minutes"] == 95.
     assert selected["max_window_minutes"] == 120.
     assert selected["strong_plateau_drop_a"] == .01
+
+
+def _main_scaffold_host(*, adaptive_enabled):
+    from types import SimpleNamespace
+    from runtime.charge.programs.native_recipe_session import (
+        NativeRecipeSessionSelection, _digest,
+    )
+    from runtime.charge.evidence.recovery_plateau_policy import PlateauVerdict
+    overrides = dict(draft(**({
+        "charge.recovery_plateau.enabled": 1,
+    } if adaptive_enabled else {})).overrides)
+    payload = dict(
+        base_recipe_id="native_efb_recovery",
+        name="recovery-plateau",
+        version=1,
+        overrides=overrides,
+    )
+    selection = NativeRecipeSessionSelection(
+        name="recovery-plateau",
+        version=1,
+        base_recipe_id="native_efb_recovery",
+        profile="EFB",
+        intent="recovery",
+        overrides=tuple(sorted(overrides.items())),
+        content_sha256=_digest(payload),
+    )
+    return SimpleNamespace(
+        battery_type="EFB",
+        _v2_intent="recovery",
+        _native_recipe_session_selection=selection,
+        _recovery_plateau_latest=SimpleNamespace(verdict=PlateauVerdict.CONFIRMED),
+        PROFILE_AGM="AGM",
+        _agm_stage_idx=0,
+        antisulfate_count=0,
+        stage_start_time=0.0,
+        current_stage="MAIN",
+        _desulf_target=lambda temp: (17.0, 0.5),
+    )
+
+
+def _main_scaffold_record():
+    from types import SimpleNamespace
+    return SimpleNamespace(
+        decision=SimpleNamespace(decision=RecoveryDecision.CONTINUE),
+        analysis=SimpleNamespace(
+            metrics=SimpleNamespace(
+                main_stable_hold_s=None,
+                current_min_a=0.20,
+                delta_current_from_min_a=0.0,
+                reversal_threshold_a=0.01,
+            ),
+            sample=SimpleNamespace(is_cc=False),
+        ),
+    )
+
+
+def test_main_scaffold_consumes_only_pinned_adaptive_plateau_and_dispatches_existing_effect(monkeypatch):
+    from runtime.charge.decisions import AuthorityAction
+    from runtime.charge.runtime.main_scaffold import apply_main_authority_tick
+    import runtime.charge.runtime.desulfation_entry as desulfation_entry
+
+    effects = []
+    monkeypatch.setattr(
+        desulfation_entry,
+        "apply_main_desulfation_entry",
+        lambda host, **kwargs: effects.append(kwargs),
+    )
+
+    common = dict(
+        record=_main_scaffold_record(),
+        first_stage=assessment(),
+        timestamp_s=1200.0,
+        voltage=14.83,
+        current=0.23,
+        temp=25.0,
+        ah=1.0,
+        is_cv=True,
+        actions={},
+        decision_veto=lambda decision: None,
+    )
+
+    disabled = apply_main_authority_tick(
+        _main_scaffold_host(adaptive_enabled=False), **common
+    )
+    assert disabled.action == AuthorityAction.CONTINUE
+    assert effects == []
+
+    enabled = apply_main_authority_tick(
+        _main_scaffold_host(adaptive_enabled=True), **common
+    )
+    assert enabled.action == AuthorityAction.ENTER_DESULFATION
+    assert enabled.reason == "efb_adaptive_plateau_intermediate_recovery"
+    assert len(effects) == 1
+    assert effects[0]["reason"] == enabled.reason
+
+
+def test_main_scaffold_diagnostic_veto_precedes_adaptive_plateau_effect(monkeypatch):
+    from runtime.charge.decisions import AuthorityAction, AuthorityDecision
+    from runtime.charge.runtime.main_scaffold import apply_main_authority_tick
+    import runtime.charge.runtime.desulfation_entry as desulfation_entry
+    import runtime.charge.runtime.stop_diagnose as stop_diagnose
+
+    effects = []
+    stops = []
+    monkeypatch.setattr(
+        desulfation_entry,
+        "apply_main_desulfation_entry",
+        lambda host, **kwargs: effects.append(kwargs),
+    )
+    monkeypatch.setattr(
+        stop_diagnose,
+        "apply_stop_and_diagnose",
+        lambda host, **kwargs: stops.append(kwargs),
+    )
+
+    decision = apply_main_authority_tick(
+        _main_scaffold_host(adaptive_enabled=True),
+        record=_main_scaffold_record(),
+        first_stage=assessment(),
+        timestamp_s=1200.0,
+        voltage=14.83,
+        current=0.23,
+        temp=25.0,
+        ah=1.0,
+        is_cv=True,
+        actions={},
+        decision_veto=lambda proposed: (
+            AuthorityDecision(AuthorityAction.STOP_AND_DIAGNOSE, "test_diagnostic_hv_veto")
+            if proposed.action == AuthorityAction.ENTER_DESULFATION else None
+        ),
+    )
+    assert decision.action == AuthorityAction.STOP_AND_DIAGNOSE
+    assert decision.reason == "test_diagnostic_hv_veto"
+    assert len(stops) == 1
+    assert effects == []

@@ -4,7 +4,7 @@ import types
 import unittest
 from datetime import datetime, timezone
 
-from ha_history import ContinuousOnEvidence, MixHistoryEvidence
+from ha_history import ContinuousOnEvidence, HomeAssistantHistoryError, MixHistoryEvidence
 from pb_domain import BatteryChemistry
 from rd_control_mode import RdControlMode
 from rd_managed_adoption import ManagedAdoptionFingerprint, ManagedLiveAdoptionCoordinator
@@ -16,8 +16,8 @@ from rd_managed_mix_adoption import (
     PriorMixAgeSource,
     resolve_prior_mix_age,
 )
-from runtime_safety import RuntimeSafetyError
-from safe_output import SafetyPolicy
+from runtime.safety.runtime_guard import RuntimeSafetyError
+from runtime.safety.output_policy import SafetyPolicy
 
 
 class Clock:
@@ -57,6 +57,7 @@ class FakeHass:
         }
         self.turn_on_calls = 0
         self.turn_off_calls = 0
+        self.get_all_live_calls = 0
         self.writes = []
         self.refresh_meta()
 
@@ -75,6 +76,7 @@ class FakeHass:
         }
 
     async def get_all_live(self):
+        self.get_all_live_calls += 1
         return dict(self.live)
 
     async def turn_on(self, entity_id=None):
@@ -115,9 +117,14 @@ class FakeGuard:
         self._off_unconfirmed = False
         self._orphan_output_seen_at = None
         self.edge_safety_lease = None
+        self.managed_live_calls = 0
 
     async def _raw_live(self):
         return dict(self.app.hass.live)
+
+    async def get_all_live(self):
+        self.managed_live_calls += 1
+        return await self._raw_live()
 
     def _critical_telemetry_error(self, live, *, require_programming):
         return None
@@ -196,6 +203,10 @@ def history(clock, elapsed_s, *, reliable=True):
     )
 
 
+async def _raise_history_error():
+    raise HomeAssistantHistoryError("history unavailable")
+
+
 class ManagedMixAdoptionTests(unittest.IsolatedAsyncioTestCase):
     def make_system(self, state_file, *, prior_s=3600.0, reliable=True):
         clock = Clock()
@@ -242,7 +253,7 @@ class ManagedMixAdoptionTests(unittest.IsolatedAsyncioTestCase):
             battery_id="Baic72",
             chemistry=BatteryChemistry.CA_CA,
             capacity_ah=72.0,
-            fingerprint=ManagedAdoptionFingerprint(16.50, 1.00, 16.70, 1.20),
+            fingerprint=ManagedAdoptionFingerprint(16.50, 1.00),
             prior_age=PriorMixAge(float(prior_s), source, clock.wall),
         )
 
@@ -255,6 +266,25 @@ class ManagedMixAdoptionTests(unittest.IsolatedAsyncioTestCase):
                 await task
             except asyncio.CancelledError:
                 pass
+
+    async def test_fresh_prior_age_history_error_preserves_forward_aged_floor(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            clock, _app, _manager, _edge, coordinator, reader = self.make_system(
+                f"{tmp}/mix.json", prior_s=3600
+            )
+            async def fail_history(**_kwargs):
+                reader.calls += 1
+                await _raise_history_error()
+
+            reader.read_mix_evidence = fail_history
+            preview = self.preview(clock, prior_s=3600)
+            clock.advance(45)
+            age = await coordinator._fresh_prior_age(preview, {"switch": "on"})
+            self.assertEqual(age.elapsed_s, 3645)
+            self.assertEqual(age.source, PriorMixAgeSource.RECORDER)
+            self.assertEqual(reader.calls, 1)
+            self.assertEqual(_app.hass.turn_on_calls + _app.hass.turn_off_calls, 0)
+            self.assertEqual(_app.hass.writes, [])
 
     def test_unknown_prior_age_cannot_create_fresh_budget(self):
         clock = Clock()
@@ -323,7 +353,7 @@ class ManagedMixAdoptionTests(unittest.IsolatedAsyncioTestCase):
                 battery_id="Baic72",
                 chemistry=BatteryChemistry.CA_CA,
                 capacity_ah=72.0,
-                fingerprint=ManagedAdoptionFingerprint(14.70, 1.00, 16.70, 1.20),
+                fingerprint=ManagedAdoptionFingerprint(14.70, 1.00),
                 prior_age=PriorMixAge(3600, PriorMixAgeSource.RECORDER, clock.wall),
             )
             with self.assertRaisesRegex(RuntimeSafetyError, "high-voltage Mix"):
@@ -340,7 +370,7 @@ class ManagedMixAdoptionTests(unittest.IsolatedAsyncioTestCase):
                 battery_id="Baic72",
                 chemistry=BatteryChemistry.CA_CA,
                 capacity_ah=72.0,
-                fingerprint=ManagedAdoptionFingerprint(16.50, 2.50, 16.70, 2.70),
+                fingerprint=ManagedAdoptionFingerprint(16.50, 2.50),
                 prior_age=PriorMixAge(3600, PriorMixAgeSource.RECORDER, clock.wall),
             )
             with self.assertRaisesRegex(RuntimeSafetyError, "chemistry HV envelope"):
@@ -358,6 +388,8 @@ class ManagedMixAdoptionTests(unittest.IsolatedAsyncioTestCase):
             clock.advance(11)
             app.hass.refresh_meta()
             await coordinator.observe_once()
+            self.assertEqual(coordinator.guard.managed_live_calls, 1)
+            self.assertEqual(app.hass.get_all_live_calls, 0)
             self.assertEqual(coordinator.state, ManagedMixState.FAILED)
             self.assertEqual(coordinator.terminal_reason, "MIX_TIMEOUT")
             self.assertEqual(app.hass.turn_off_calls, 1)
@@ -395,6 +427,8 @@ class ManagedMixAdoptionTests(unittest.IsolatedAsyncioTestCase):
             clock.advance(5)
             app.hass.refresh_meta()
             await coordinator.observe_once()
+            self.assertEqual(coordinator.guard.managed_live_calls, 1)
+            self.assertEqual(app.hass.get_all_live_calls, 0)
             self.assertEqual(coordinator.state, ManagedMixState.FAILED)
             self.assertIn("OUT_OF_BAND_INCREASE", coordinator.terminal_reason)
             self.assertEqual(app.hass.turn_off_calls, 1)

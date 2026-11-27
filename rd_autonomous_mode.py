@@ -6,13 +6,10 @@ from typing import Any, Optional
 from aiogram import F
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from runtime.ui.telegram.charge import CHARGE_CALLBACK_DATA
-from runtime.ui.telegram.off_conditions import OFF_CALLBACK_DATA
-
 from edge_autonomous_mode import EdgeAutonomousAuthority
 from operator_confirmation import ConfirmationStore
 from rd6018_telemetry import telemetry_freshness
-from runtime_safety import RuntimeSafetyError, _binary
+from runtime.safety.runtime_guard import RuntimeSafetyError, _binary
 
 
 class RdAutonomousModeCoordinator:
@@ -33,6 +30,11 @@ class RdAutonomousModeCoordinator:
         else:
             self.edge = EdgeAutonomousAuthority(lease)
         self._transition_lock = asyncio.Lock()
+        # A command may reach ESPHome even when its positive ACK is lost. Keep
+        # generic PB restore and bot OFF capabilities closed until explicit exit
+        # reconciliation proves the edge mode is no longer AUTONOMOUS.
+        self._entry_uncertain = False
+        self._entry_transition_pending = False
 
     def _require_edge(self) -> EdgeAutonomousAuthority:
         # The canonical runtime binds its deferred HassClient only after the
@@ -72,6 +74,10 @@ class RdAutonomousModeCoordinator:
     async def enter(self) -> bool:
         """Move managed-idle/HANDS_OFF into explicit persistent edge AUTONOMOUS."""
         async with self._transition_lock:
+            if self._entry_transition_pending or self._entry_uncertain:
+                raise RuntimeSafetyError(
+                    "AUTONOMOUS entry blocked: previous edge transition is pending/unconfirmed; use explicit AUTONOMOUS exit"
+                )
             if bool(getattr(self.guard, "_off_unconfirmed", False)):
                 raise RuntimeSafetyError(
                     "AUTONOMOUS blocked: previous Output OFF remains unconfirmed"
@@ -91,7 +97,7 @@ class RdAutonomousModeCoordinator:
                 ) from exc
 
             if already_autonomous:
-                self.manager._edge_autonomous = True
+                self.manager._record_edge_autonomous(True)
                 if not self.manager.hands_off:
                     self.manager._write_mode(type(self.manager.mode).HANDS_OFF)
                     self.manager.mode = type(self.manager.mode).HANDS_OFF
@@ -102,21 +108,40 @@ class RdAutonomousModeCoordinator:
             # positively disarms the managed dead-man and blocks all bot actuators. If
             # the later autonomous edge command is ambiguous, HANDS_OFF is retained;
             # software never rolls itself back to managed authority.
-            if not self.manager.hands_off:
-                await self.manager.enter_hands_off()
-
+            self._entry_transition_pending = True
             try:
-                await edge.enter()
-            except Exception as exc:
-                self.manager._edge_autonomous = False
-                raise RuntimeSafetyError(
-                    "RD remains HANDS_OFF, but AUTONOMOUS edge transition was not "
-                    f"positively acknowledged: {exc}"
-                ) from exc
+                if not self.manager.hands_off:
+                    await self.manager.enter_hands_off()
 
-            self.manager._edge_autonomous = True
-            self.guard._orphan_output_seen_at = None
-            return True
+                try:
+                    await edge.enter()
+                except asyncio.CancelledError:
+                    # Cancellation is also an ambiguous outcome once the edge
+                    # command may have been issued. Do not let finally clear the
+                    # pending fence into an apparent managed-ready state.
+                    self._entry_uncertain = bool(
+                        getattr(edge, "command_may_have_executed", True)
+                    )
+                    self.manager._record_edge_autonomous(False)
+                    raise
+                except Exception as exc:
+                    # EdgeAutonomousAuthority marks this boundary before issuing the
+                    # command. Missing ACK after that point is UNKNOWN, never OFF.
+                    self._entry_uncertain = bool(
+                        getattr(edge, "command_may_have_executed", True)
+                    )
+                    self.manager._record_edge_autonomous(False)
+                    raise RuntimeSafetyError(
+                        "RD remains HANDS_OFF, but AUTONOMOUS edge transition was not "
+                        f"positively acknowledged: {exc}"
+                    ) from exc
+
+                self._entry_uncertain = False
+                self.manager._record_edge_autonomous(True)
+                self.guard._orphan_output_seen_at = None
+                return True
+            finally:
+                self._entry_transition_pending = False
 
     async def exit(self) -> bool:
         """Return explicit AUTONOMOUS to managed-idle; Output must remain confirmed OFF."""
@@ -134,56 +159,27 @@ class RdAutonomousModeCoordinator:
                     f"AUTONOMOUS exit blocked: edge authority read failed: {exc}"
                 ) from exc
 
-            if autonomous:
+            if autonomous or self._entry_uncertain:
                 try:
+                    # Even if a read currently says OFF, an uncertain ENTER must
+                    # pass through the existing edge exit/reconciliation contract.
+                    # EdgeAutonomousAuthority.exit() also validates the unarmed,
+                    # healthy lease when the persistent mode is already OFF.
                     await edge.exit()
                 except Exception as exc:
-                    self.manager._edge_autonomous = True
+                    self.manager._record_edge_autonomous(True)
                     raise RuntimeSafetyError(
                         f"AUTONOMOUS exit was not positively acknowledged: {exc}"
                     ) from exc
 
-            self.manager._edge_autonomous = False
+            self.manager._record_edge_autonomous(False)
+            self._entry_uncertain = False
             if not self.manager.hands_off:
                 raise RuntimeSafetyError(
                     "AUTONOMOUS exit requires software HANDS_OFF ownership boundary"
                 )
             await self.manager.return_pb_control()
             return True
-
-
-def _filter_callback(markup: InlineKeyboardMarkup, callback: str) -> InlineKeyboardMarkup:
-    return _filter_callbacks(markup, {callback})
-
-
-def _filter_callbacks(
-    markup: InlineKeyboardMarkup,
-    blocked: set[str],
-) -> InlineKeyboardMarkup:
-    rows: list[list[InlineKeyboardButton]] = []
-    for row in markup.inline_keyboard:
-        kept = [
-            button
-            for button in row
-            if str(getattr(button, "callback_data", "") or "") not in blocked
-        ]
-        if kept:
-            rows.append(kept)
-    return InlineKeyboardMarkup(inline_keyboard=rows)
-
-
-def _append_unique(
-    markup: InlineKeyboardMarkup,
-    button: InlineKeyboardButton,
-) -> InlineKeyboardMarkup:
-    callback = str(button.callback_data or "")
-    for row in markup.inline_keyboard:
-        for existing in row:
-            if callback and str(getattr(existing, "callback_data", "") or "") == callback:
-                return markup
-    return InlineKeyboardMarkup(
-        inline_keyboard=[list(row) for row in markup.inline_keyboard] + [[button]]
-    )
 
 
 def install_rd_autonomous_mode(
@@ -205,6 +201,14 @@ def install_rd_autonomous_mode(
     original_return_pb_control = manager.return_pb_control
 
     async def guarded_return_pb_control() -> bool:
+        if coordinator._entry_transition_pending:
+            raise RuntimeSafetyError(
+                "PB control restore blocked: edge AUTONOMOUS transition is in progress"
+            )
+        if coordinator._entry_uncertain:
+            raise RuntimeSafetyError(
+                "PB control restore blocked: edge AUTONOMOUS entry outcome is unconfirmed; use explicit AUTONOMOUS exit"
+            )
         if manager.edge_autonomous:
             raise RuntimeSafetyError(
                 "PB control restore blocked: edge AUTONOMOUS is active; use explicit AUTONOMOUS exit"
@@ -221,6 +225,14 @@ def install_rd_autonomous_mode(
     original_operator_output_off = getattr(manager, "operator_output_off", None)
     if callable(original_operator_output_off):
         async def guarded_operator_output_off(entity_id: Optional[str] = None) -> bool:
+            if coordinator._entry_transition_pending:
+                raise RuntimeSafetyError(
+                    "RD AUTONOMOUS transition is in progress: bot Output OFF is disabled"
+                )
+            if coordinator._entry_uncertain:
+                raise RuntimeSafetyError(
+                    "RD AUTONOMOUS outcome is unconfirmed: bot Output OFF is disabled; use explicit edge reconciliation or physical RD6018 controls"
+                )
             if manager.edge_autonomous:
                 raise RuntimeSafetyError(
                     "RD AUTONOMOUS: bot Output OFF is disabled; use the physical RD6018 controls"
@@ -245,7 +257,7 @@ def install_rd_autonomous_mode(
         await call.message.answer(
             "⚠️ <b>Перевести RD6018 в АВТОНОМНЫЙ БП?</b>\n\n"
             "Требуется подтверждённый Output OFF. После перехода бот не управляет "
-            "Output/V/I/OVP/OCP, Pb-сессии и внешний датчик температуры не являются "
+            "Output/V/I, Pb-сессии и внешний датчик температуры не являются "
             "authority. Потеря Wi-Fi/HA/Telegram не выключает БП сама по себе. "
             "Локальная intrinsic-защита ESP/RD остаётся активной.",
             parse_mode=app.ParseMode.HTML,
@@ -308,17 +320,9 @@ def install_rd_autonomous_mode(
 
 
 def install_rd_autonomous_final_hmi(app: Any, coordinator: RdAutonomousModeCoordinator) -> None:
-    """Compose the global Bot/Autonomous switch after Output-truth normalization.
-
-    This is also the last stale-capability barrier. A Telegram keyboard rendered before
-    AUTONOMOUS was selected must not leave Pb adoption/Mix controls as live capabilities,
-    and the HANDS_OFF Mix observer must not acquire future-OFF authority in AUTONOMOUS.
-    """
+    """Bind autonomous keyboard projection and retain its observer start guard."""
     if bool(getattr(app, "_rd_autonomous_final_hmi_installed", False)):
         return
-
-    import operator_hmi as hmi
-    from operator_output_truth import output_known
 
     observer = getattr(app, "rd_live_mix_observer", None)
     if observer is not None and not bool(getattr(observer, "_autonomous_start_guarded", False)):
@@ -334,66 +338,8 @@ def install_rd_autonomous_final_hmi(app: Any, coordinator: RdAutonomousModeCoord
         observer.start = guarded_observer_start
         observer._autonomous_start_guarded = True
 
-    original = hmi.build_operator_keyboard
-
-    def build_keyboard(
-        app_arg: Any,
-        state: Any,
-        *,
-        actions: Any = None,
-    ) -> InlineKeyboardMarkup:
-        markup = original(app_arg, state, actions=actions) if actions is not None else original(app_arg, state)
-        if actions is not None:
-            return markup
-        manager = coordinator.manager
-
-        if manager.edge_autonomous:
-            # AUTONOMOUS is a generic PSU state. Remove every Pb/adoption/ownership
-            # affordance that can be inherited from the underlying HANDS_OFF HMI. The
-            # only ownership transition exposed here is the explicit OFF-only edge exit.
-            markup = _filter_callbacks(
-                markup,
-                {
-                    "rd_hands_off_disable",
-                    "rd_hands_off_output_off",
-                    "rd_managed_adopt",
-                    "rd_managed_mix",
-                    "rd_live_mix",
-                    "rd_ownership_adopt",
-                    "rd_ownership_hands_off",
-                    "rd_hands_off_release_confirm",
-                    "charge_modes",
-                    CHARGE_CALLBACK_DATA,
-                    "v2_batteries",
-                    "power_toggle",
-                    "menu_off",
-                    OFF_CALLBACK_DATA,
-                },
-            )
-            if output_known(state) and not bool(getattr(state, "output_on", False)):
-                return _append_unique(
-                    markup,
-                    InlineKeyboardButton(
-                        text="🤖 Вернуть управление боту",
-                        callback_data="rd_autonomous_exit",
-                    ),
-                )
-            return markup
-
-        if (
-            manager.pb_managed
-            and getattr(state, "process_state", None) is hmi.HmiProcessState.IDLE
-            and output_known(state)
-            and not bool(getattr(state, "output_on", False))
-        ):
-            return _append_unique(
-                markup,
-                InlineKeyboardButton(
-                    text="🔌 Автономный БП",
-                    callback_data="rd_autonomous_confirm",
-                ),
-            )
-        return markup
-
-    hmi.build_operator_keyboard = build_keyboard
+    # Reuse the already-established per-app autonomous owner. The normal
+    # installer set this attribute; stand-alone characterization uses the same
+    # reference rather than adding a second coordinator slot.
+    app.rd_autonomous_mode = coordinator
     app._rd_autonomous_final_hmi_installed = True

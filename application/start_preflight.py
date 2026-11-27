@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from application.execution_port import get_or_create_execution_port
 from application.recipe_policy import chemistry_for_profile
 from pb_domain import BatteryIdentity, ChargeContext
 from recipe_engine import select_recipe_envelope
 from runtime.ui.commands.models import CommandResult, CommandStatus, DomainIntent
-from safe_output import OutputRequest, SafetySupervisor, snapshot_from_live
+from runtime.safety.output_policy import OutputRequest, SafetySupervisor, snapshot_from_live
 
 from .intents import OperatorIntent, OperatorIntentKind
 from .start_request import (
@@ -60,7 +61,7 @@ class StartPreflightService:
         if abs(float(identity.nominal_capacity_ah) - float(request.capacity_ah)) > 1e-9:
             reasons.append("profile_capacity_mismatch")
 
-        live = await self.app.hass.get_all_live()
+        live = await get_or_create_execution_port(self.app).read_live()
         snapshot = snapshot_from_live(live)
         if snapshot is None:
             return StartPreflightResult(
@@ -115,11 +116,10 @@ class StartPreflightService:
         safety_request = OutputRequest(
             voltage_v=target.voltage_v,
             current_a=current,
-            ovp_v=None,
-            ocp_a=None,
             recipe_voltage_ceiling_v=recipe.voltage_ceiling_v,
         )
-        policy = getattr(getattr(self.app.hass, "_safety_supervisor", None), "policy", None)
+        safety_owner = getattr(self.app, "runtime_safety_guard", None)
+        policy = getattr(safety_owner, "policy", None)
         safety = SafetySupervisor(policy).preflight(safety_request, snapshot)
         if not safety.allowed:
             reasons.extend(sorted(item.value for item in safety.violations))

@@ -1,5 +1,6 @@
 from __future__ import annotations
 import hashlib
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -24,6 +25,7 @@ class D147PinnedCollectorTests(unittest.TestCase):
         return subject.install(source=self.source,destination=self.destination,
                                host_check=lambda: None)
 
+    @unittest.skipUnless(os.name == "posix", "pin installation fsyncs a POSIX directory descriptor and checks POSIX modes")
     def test_pinned_copy_is_exact_and_readonly(self):
         result=self.install()
         self.assertEqual(result["sha256"],self.hash)
@@ -31,6 +33,7 @@ class D147PinnedCollectorTests(unittest.TestCase):
         self.assertEqual(self.destination.stat().st_mode & 0o222,0)
         self.assertEqual(self.install()["sha256"],self.hash)
 
+    @unittest.skipUnless(os.name == "posix", "pin installation requires POSIX directory fsync and permission modes")
     def test_corrupt_existing_copy_never_overwritten(self):
         self.install()
         # Fixture-only tampering: production pin remains read-only.
@@ -46,6 +49,7 @@ class D147PinnedCollectorTests(unittest.TestCase):
                 self.install()
         self.assertFalse(self.destination.exists())
 
+    @unittest.skipUnless(os.name == "posix", "symlink refusal contract requires POSIX symlink support")
     def test_source_symlink_refused(self):
         link=self.root/"link.py"
         link.symlink_to(self.source)
@@ -53,6 +57,7 @@ class D147PinnedCollectorTests(unittest.TestCase):
             subject.install(source=link,destination=self.destination,
                             host_check=lambda: None)
 
+    @unittest.skipUnless(os.name == "posix", "world-writable parent contract uses POSIX permission bits")
     def test_reject_world_writable_collector_parent(self):
         self.destination.parent.mkdir(mode=0o777)
         self.destination.parent.chmod(0o777)
@@ -61,6 +66,7 @@ class D147PinnedCollectorTests(unittest.TestCase):
         self.assertFalse(self.destination.exists())
 
 
+    @unittest.skipUnless(os.name == "posix", "symlink directory refusal contract requires POSIX symlink support")
     def test_existing_copy_under_symlink_directory_is_refused(self):
         self.install()
         link=self.root/"alias"

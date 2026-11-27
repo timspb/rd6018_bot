@@ -17,7 +17,7 @@ class RecipeExecutionIdentity:
 async def execute_recipe_action(*, port: Any, pending: PendingAction,
                                 identity: RecipeExecutionIdentity,
                                 safety_context: SafetyContext,
-                                restart_limits: tuple[float, float, float] | None = None) -> ActionReceipt:
+                                recipe_voltage_ceiling_v: float | None = None) -> ActionReceipt:
     """Execute only within an externally admitted, already-active session.
 
     Setpoints never enable the output; OFF uses the existing verified OFF path.
@@ -46,21 +46,19 @@ async def execute_recipe_action(*, port: Any, pending: PendingAction,
     if pending.operation == "off":
         result = await port.disable(intent, identity=identity, reason="recipe_step_off")
     else:
-        # Reuse the existing physical owner for OFF -> ON, never fabricate OVP/OCP.
-        owner = getattr(port, "execution_owner", None)
-        if owner is not None:
-            live = await owner.get_all_live()
-            switch = str(live.get("switch", "")).lower()
-            if switch not in {"on", "true", "1", "off", "false", "0"}:
+        # Reuse the existing ExecutionPort for OFF -> ON; the transport/Safety
+        # owner is intentionally not exposed to this recipe adapter.
+        live = await port.read_live()
+        switch = str(live.get("switch", "")).lower()
+        if switch not in {"on", "true", "1", "off", "false", "0"}:
+            return ActionReceipt(pending.action_id, False, False, False)
+        if switch in {"off", "false", "0"}:
+            if recipe_voltage_ceiling_v is None:
                 return ActionReceipt(pending.action_id, False, False, False)
-            if switch in {"off", "false", "0"}:
-                if restart_limits is None:
-                    return ActionReceipt(pending.action_id, False, False, False)
-                ovp_v, ocp_a, ceiling_v = restart_limits
-                result = await port.enable(intent, identity=identity, ovp_v=ovp_v,
-                                           ocp_a=ocp_a, recipe_voltage_ceiling_v=ceiling_v)
-            else:
-                result = await port.apply_intent(intent, identity=identity)
+            result = await port.enable(
+                intent, identity=identity,
+                recipe_voltage_ceiling_v=float(recipe_voltage_ceiling_v),
+            )
         else:
             result = await port.apply_intent(intent, identity=identity)
     return ActionReceipt(

@@ -20,34 +20,6 @@ MAX_STAGE_CURRENT_A = VariableSpec(
 )
 
 
-PROTECTION_OVP_MARGIN_V = VariableSpec(
-    key="safety.protection.ovp_margin_v",
-    default=0.1,
-    value_type=float,
-    unit="V",
-    description="Required OVP headroom above a programmed target voltage.",
-    owner="runtime.safety",
-    provenance="accepted production OVP target margin",
-    override_policy=OverridePolicy.DEPLOYMENT_ONLY,
-    change_effect=ChangeEffect.DEPLOY_REQUIRED,
-    minimum=0.0,
-    maximum=2.0,
-)
-
-PROTECTION_OCP_MARGIN_A = VariableSpec(
-    key="safety.protection.ocp_margin_a",
-    default=0.1,
-    value_type=float,
-    unit="A",
-    description="Required OCP headroom above a programmed target current.",
-    owner="runtime.safety",
-    provenance="accepted production OCP target margin",
-    override_policy=OverridePolicy.DEPLOYMENT_ONLY,
-    change_effect=ChangeEffect.DEPLOY_REQUIRED,
-    minimum=0.0,
-    maximum=5.0,
-)
-
 WATCHDOG_TIMEOUT_S = VariableSpec(
     key="safety.watchdog.timeout_s",
     default=300.0,
@@ -64,12 +36,12 @@ WATCHDOG_TIMEOUT_S = VariableSpec(
 
 HIGH_V_FAST_TIMEOUT_S = VariableSpec(
     key="safety.watchdog.high_voltage_fast_timeout_s",
-    default=60.0,
+    default=300.0,
     value_type=float,
     unit="s",
-    description="Fast communication-loss timeout while measured voltage is above the high-voltage threshold.",
+    description="Compatibility: high-voltage communication-loss timeout equals ordinary 300s watchdog.",
     owner="runtime.safety",
-    provenance="accepted production high-voltage watchdog timeout",
+    provenance="operator decision 2026-11-08: no accelerated high-voltage communication timeout",
     override_policy=OverridePolicy.DEPLOYMENT_ONLY,
     change_effect=ChangeEffect.DEPLOY_REQUIRED,
     minimum=1.0,
@@ -95,7 +67,5 @@ __all__ = [
     "HIGH_V_FAST_TIMEOUT_S",
     "HIGH_V_THRESHOLD_V",
     "MAX_STAGE_CURRENT_A",
-    "PROTECTION_OCP_MARGIN_A",
-    "PROTECTION_OVP_MARGIN_V",
     "WATCHDOG_TIMEOUT_S",
 ]

@@ -2,7 +2,7 @@
 
 The original B16 bench hook exposed a real production integration defect: writable
 ESPHome ``number`` entities do not provide an authoritative heartbeat when a same-value
-write leaves their state unchanged.  V2 therefore reads programmed V/I/OVP/OCP from
+write leaves their state unchanged.  V2 therefore reads programmed V/I from
 separate force-updated, read-only Modbus sensors while retaining the existing numbers
 as actuator endpoints.
 
@@ -23,7 +23,7 @@ from rd6018_telemetry import (
     resolve_protection,
     telemetry_freshness,
 )
-from safe_output import OutputRequest, SafetySupervisor, snapshot_from_live
+from runtime.safety.output_policy import OutputRequest, SafetySupervisor, snapshot_from_live
 
 
 OPERATION = "b16_fault_hold_stale_set_voltage_readback"
@@ -33,8 +33,6 @@ _B16_REAL_READBACK_PROOF_POLL_S = 0.25
 _EXPECTED_READBACK_SOURCES = {
     "set_voltage": "set_voltage_readback_v2",
     "set_current": "set_current_readback_v2",
-    "ovp": "ovp_readback_v2",
-    "ocp": "ocp_readback_v2",
 }
 
 
@@ -194,8 +192,6 @@ class PhysicalTestControlProgrammedReadbackV2:
         request = OutputRequest(
             voltage_v=programmed["set_voltage"],
             current_a=programmed["set_current"],
-            ovp_v=programmed["ovp"],
-            ocp_a=programmed["ocp"],
             recipe_voltage_ceiling_v=programmed["set_voltage"],
         )
         decision = SafetySupervisor().preflight(request, snapshot)
@@ -207,8 +203,6 @@ class PhysicalTestControlProgrammedReadbackV2:
         adapter = self.app.hass
         safe_enable = getattr(adapter, "safe_enable_output", None)
         original_get_all_live = getattr(adapter, "get_all_live", None)
-        original_set_ovp = getattr(adapter, "set_ovp", None)
-        original_set_ocp = getattr(adapter, "set_ocp", None)
         original_set_voltage = getattr(adapter, "set_voltage", None)
         original_set_current = getattr(adapter, "set_current", None)
         original_turn_on = getattr(adapter, "turn_on", None)
@@ -218,8 +212,6 @@ class PhysicalTestControlProgrammedReadbackV2:
             for item in (
                 safe_enable,
                 original_get_all_live,
-                original_set_ovp,
-                original_set_ocp,
                 original_set_voltage,
                 original_set_current,
                 original_turn_on,
@@ -230,8 +222,6 @@ class PhysicalTestControlProgrammedReadbackV2:
 
         injection_task = asyncio.current_task()
         counts = {
-            "ovp": 0,
-            "ocp": 0,
             "set_voltage": 0,
             "set_current": 0,
             "turn_on": 0,
@@ -276,8 +266,6 @@ class PhysicalTestControlProgrammedReadbackV2:
             return bool(await original_turn_off(entity_id))
 
         adapter.get_all_live = injected_get_all_live
-        adapter.set_ovp = same_value_wrapper("ovp", programmed["ovp"], original_set_ovp)
-        adapter.set_ocp = same_value_wrapper("ocp", programmed["ocp"], original_set_ocp)
         adapter.set_voltage = same_value_wrapper(
             "set_voltage", programmed["set_voltage"], original_set_voltage
         )
@@ -294,16 +282,12 @@ class PhysicalTestControlProgrammedReadbackV2:
                 result = await safe_enable(
                     voltage_v=programmed["set_voltage"],
                     current_a=programmed["set_current"],
-                    ovp_v=programmed["ovp"],
-                    ocp_a=programmed["ocp"],
                     recipe_voltage_ceiling_v=programmed["set_voltage"],
                 )
             except Exception as exc:
                 caught = exc
         finally:
             adapter.get_all_live = original_get_all_live
-            adapter.set_ovp = original_set_ovp
-            adapter.set_ocp = original_set_ocp
             adapter.set_voltage = original_set_voltage
             adapter.set_current = original_set_current
             adapter.turn_on = original_turn_on
@@ -321,7 +305,7 @@ class PhysicalTestControlProgrammedReadbackV2:
             )
         if not injected_readback:
             raise PhysicalTestControlError("B16 did not reach programmed-readback boundary")
-        for key in ("ovp", "ocp", "set_voltage", "set_current"):
+        for key in ("set_voltage", "set_current"):
             if counts[key] != 1:
                 raise PhysicalTestControlError(
                     f"B16 expected exactly one same-value {key} write, observed {counts[key]}"
@@ -394,8 +378,6 @@ class PhysicalTestControlProgrammedReadbackV2:
             "violations": sorted(violation_values),
             "programmed_values": dict(programmed),
             "programming_writes": {
-                "ovp": counts["ovp"],
-                "ocp": counts["ocp"],
                 "set_voltage": counts["set_voltage"],
                 "set_current": counts["set_current"],
             },

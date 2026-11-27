@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import inspect
-from typing import Any, Mapping
+from datetime import datetime
+from dataclasses import replace
+from typing import Any, Callable, Mapping
 
+from runtime.safety.protection_boundary import ProtectionVerdict, assess_protection
 from runtime.ui.models import (
     ChargeView,
     DiagnosticsView,
@@ -20,8 +23,17 @@ from .journal_read_service import EventJournalReadService
 from .operator_read_source import DiagnosticAuthority, HmiProcessState, OperatorReadSource
 from .operator_snapshot import OperatorSnapshot
 from .operator_views import OperatorDetailsView, ServiceDetailsView
-from .operator_actions import OperatorAction, OperatorActionSpec, OperatorActionsView
+from .operator_actions import OperatorActionsView
+from .operator_button_rules import actions_for_hmi, actions_for_snapshot
 from .intents import IntentDispatcher, OperatorIntent
+
+
+def __getattr__(name: str):
+    """Lazy compatibility exports for callers of the former AI projections."""
+    if name in {"build_ai_context_dict", "build_ai_context_text", "build_ai_analysis_text", "build_trend_summary"}:
+        from integrations.ai import context
+        return getattr(context, name)
+    raise AttributeError(name)
 
 
 class OperatorSnapshotProvider:
@@ -110,9 +122,7 @@ class OperatorSnapshotProvider:
             stage=str(getattr(controller, "current_stage", "—") or "—"),
             v2_analysis="available" if snapshot.get("runtime_analysis_available") else "unavailable",
             decision=str(snapshot.get("decision") or "—"),
-            ovp_v=self._number(live.get("ovp")),
-            ocp_a=self._number(live.get("ocp")),
-            protection=str(live.get("protection_code") or "—"),
+            protection=assess_protection(live).verdict.value,
             regulation=str(live.get("regulation_code") or "—"),
             heartbeat=str(live.get("last_reported") or live.get("last_updated") or "—"),
         )
@@ -122,49 +132,13 @@ class OperatorSnapshotProvider:
         # read can otherwise change ownership between the text and keyboard;
         # HANDS_OFF must never be remapped to a safety fault in that gap.
         if snapshot is not None:
-            if snapshot.state == "HANDS_OFF":
-                output_on = bool(snapshot.snapshot.output.get("enabled"))
-                if output_on:
-                    return self._actions(
-                        (OperatorAction.ADOPT_MIX, OperatorAction.DISABLE_OUTPUT),
-                        (),
-                        "hands_off",
-                    )
-                return self._actions(
-                    (OperatorAction.START_CHARGE, OperatorAction.RETURN_PB_CONTROL),
-                    (OperatorAction.SELECT_PROFILE,),
-                    "hands_off",
-                )
-            return OperatorActionsView.for_state(
-                snapshot.state,
-                safety_allowed=snapshot.snapshot.safety.allowed,
-                pause_allowed=False,
-            )
-
+            return actions_for_snapshot(snapshot)
         live = await self._source.read_live()
         hmi = self._source.hmi_state(live)
-        if hmi.process_state is HmiProcessState.ADOPTED_MIX:
-            available = (OperatorAction.STOP_MIX, OperatorAction.SHOW_LOG, OperatorAction.SHOW_DIAGNOSTICS)
-            return self._actions(available, (OperatorAction.START_CHARGE, OperatorAction.SELECT_PROFILE), "adopted_mix")
-        if hmi.process_state is HmiProcessState.INTERRUPTED:
-            available = (OperatorAction.ADOPT_MIX, OperatorAction.SHOW_LOG, OperatorAction.SHOW_DIAGNOSTICS)
-            return self._actions(available, (OperatorAction.START_CHARGE, OperatorAction.STOP_CHARGE), "interrupted")
-        if hmi.process_state is HmiProcessState.HANDS_OFF:
-            available = (OperatorAction.ADOPT_MIX, OperatorAction.DISABLE_OUTPUT) if hmi.output_on else (OperatorAction.START_CHARGE, OperatorAction.RETURN_PB_CONTROL)
-            return self._actions(available, (), "hands_off")
-        if hmi.process_state is HmiProcessState.STORAGE:
-            return self._actions((OperatorAction.SHOW_LOG, OperatorAction.SHOW_DIAGNOSTICS), (OperatorAction.START_CHARGE, OperatorAction.STOP_CHARGE), "storage")
-        if hmi.process_state in {HmiProcessState.RUNNING, HmiProcessState.PAUSED} and hmi.authority.value in {"auto", "manual"}:
-            paused = self._source.pause_active()
-            available = (OperatorAction.RESUME_CHARGE if paused else OperatorAction.PAUSE_CHARGE, OperatorAction.STOP_CHARGE, OperatorAction.SHOW_LOG, OperatorAction.SHOW_GRAPH, OperatorAction.SHOW_DIAGNOSTICS)
-            return self._actions(available, (OperatorAction.START_CHARGE, OperatorAction.SELECT_PROFILE), "charging")
-        snapshot = self._build_snapshot(live, hmi)
-        return OperatorActionsView.for_state(snapshot.state, safety_allowed=snapshot.snapshot.safety.allowed, pause_allowed=False)
-
-    @staticmethod
-    def _actions(available, disabled, reason: str) -> OperatorActionsView:
-        reasons = {action.value: reason for action in disabled}
-        return OperatorActionsView(tuple(OperatorActionSpec(action) for action in available), tuple(disabled), reasons)
+        process = getattr(getattr(hmi, "process_state", None), "value", "")
+        authority = getattr(getattr(hmi, "authority", None), "value", "")
+        paused = self._source.pause_active() if process in {"running", "paused"} and authority in {"auto", "manual"} else None
+        return actions_for_hmi(hmi, paused=paused)
 
     def _observer_state(self) -> str:
         observer = self._source.observer()
@@ -210,7 +184,12 @@ class OperatorSnapshotProvider:
         return tuple(self._source.format_journal_entry(entry) for entry in entries)
 
     async def submit_intent(self, intent: Any):
-        """Route read-only intents; execution intents remain unmigrated."""
+        """Submit a typed intent to the configured application dispatcher.
+
+        The provider owns the read model and routing result, not runtime or
+        physical execution. The configured handler determines whether the
+        request is validation-only or a narrow application state command.
+        """
         from runtime.ui.commands.models import CommandResult, CommandStatus
 
         if not isinstance(intent, OperatorIntent):
@@ -223,7 +202,13 @@ class OperatorSnapshotProvider:
         return OperatorReadSource.hmi_from_snapshot(snapshot)
 
     def _build_snapshot(self, live: Mapping[str, Any], hmi: Any) -> OperatorSnapshot:
-        fresh = self._source.freshness(live, ("switch", "battery_voltage", "current", "protection_code", "regulation_code"))
+        protection = assess_protection(live, require_fresh=True)
+        fresh = (
+            self._source.freshness(
+                live, ("switch", "battery_voltage", "current", "regulation_code")
+            )
+            and protection.verdict is not ProtectionVerdict.UNKNOWN
+        )
         state = self._state(hmi, live, fresh)
         stage = str(getattr(self._source.controller(), "current_stage", "") or "")
         if not stage:
@@ -266,13 +251,19 @@ class OperatorSnapshotProvider:
             output={"enabled": getattr(hmi, "output_on", None), "power_w": getattr(hmi, "power_w", None)},
             journal_tail=(),
         )
-        return OperatorSnapshot(
+        snapshot = OperatorSnapshot(
             state=state,
             snapshot=runtime_snapshot,
-            available_actions=self._snapshot_actions(state, fresh, bool(getattr(hmi, "output_on", False))),
             faults=faults,
             telemetry_fresh=fresh,
+            manual_interrupted=bool(getattr(hmi, "manual_interrupted", False)),
+            process_state=str(getattr(getattr(hmi, "process_state", None), "value", "") or ""),
         )
+        # Published capabilities must match the actual one-owner selector used
+        # by the Telegram keyboard for this exact snapshot.
+        return replace(snapshot, available_actions=tuple(
+            item.action.value for item in actions_for_snapshot(snapshot).available_actions
+        ))
 
     @staticmethod
     def _state(hmi: Any, live: Mapping[str, Any], fresh: bool) -> str:
@@ -292,10 +283,6 @@ class OperatorSnapshotProvider:
         faults = []
         if str(getattr(hmi, "attention", "normal")) == "alarm":
             faults.append(str(getattr(hmi, "safety", "safety_alarm")))
-        if str(live.get("ovp_triggered", "")).lower() in {"on", "true", "1"}:
-            faults.append("OVP")
-        if str(live.get("ocp_triggered", "")).lower() in {"on", "true", "1"}:
-            faults.append("OCP")
         return tuple(dict.fromkeys(faults))
 
     def _diagnostics(self, live: Mapping[str, Any], *, faults: tuple[str, ...] = ()) -> DiagnosticsView:
@@ -309,12 +296,58 @@ class OperatorSnapshotProvider:
             reasons=reasons or faults,
         )
 
-    @staticmethod
-    def _snapshot_actions(state: str, fresh: bool, output_on: bool) -> tuple[str, ...]:
-        if state == "CHARGING":
-            return ("stop_charge", "show_journal", "show_graph", "refresh")
-        if state == "HANDS_OFF":
-            return (("adopt_mix", "disable_output") if output_on else ("start_charge", "return_pb_control", "refresh"))
-        if state == "IDLE" and fresh and not output_on:
-            return ("start_charge", "show_journal", "show_diagnostics", "refresh")
-        return ("show_diagnostics", "show_journal", "refresh")
+
+def build_safe_stage_snapshot(
+    controller: Any,
+    temp_ext: float | None,
+    *,
+    on_error: Callable[[Exception], None] | None = None,
+) -> dict[str, Any]:
+    """Return the legacy strategy snapshot without owning controller state."""
+    if not bool(getattr(controller, "is_active", False)):
+        return {
+            "stage": "Idle",
+            "profile": "UNKNOWN",
+            "is_active": False,
+            "summary": "Активный заряд не идет.",
+            "transition": "Нет активного перехода.",
+            "next_stage": "Idle",
+            "timers": {"total_time": "—", "stage_time": "—", "remaining_time": "—"},
+            "hold": None,
+            "safety": {},
+            "target_voltage": 0.0,
+            "target_current": 0.0,
+        }
+
+    try:
+        return dict(controller.get_ai_stage_snapshot(temp_ext) or {})
+    except Exception as exc:
+        # A deliberately disabled/removed AI module is not a telemetry failure.
+        from runtime.optional_modules import ModuleUnavailable
+        if on_error is not None and not isinstance(exc, ModuleUnavailable):
+            on_error(exc)
+        try:
+            timers = controller.get_timers()
+        except Exception:
+            timers = {"total_time": "—", "stage_time": "—", "remaining_time": "—"}
+        try:
+            target_v, target_i = controller._get_target_v_i(temp_ext)
+        except Exception:
+            target_v, target_i = 0.0, 0.0
+        stage = str(getattr(controller, "current_stage", "") or "")
+        return {
+            "stage": stage,
+            "profile": str(getattr(controller, "battery_type", "") or ""),
+            "is_active": True,
+            "summary": "Снимок стратегии временно недоступен.",
+            "transition": "Fallback snapshot after error.",
+            "next_stage": stage,
+            "timers": timers,
+            "hold": None,
+            "safety": {},
+            "target_voltage": target_v,
+            "target_current": target_i,
+            "previous_stage": getattr(controller, "previous_stage", stage),
+            "stage_path": getattr(controller, "_stage_history", []),
+            "last_transition_reason": getattr(controller, "_last_transition_reason", ""),
+        }

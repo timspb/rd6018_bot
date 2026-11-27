@@ -11,7 +11,8 @@ from physical_test_control_programmed_readback import (
     install_physical_test_control_programmed_readback,
 )
 from physical_test_control_source_faults import install_physical_test_control_source_faults
-from safe_output import OutputRequest, SafeOutputCoordinator, SafetySupervisor
+from runtime.safety.output_policy import OutputRequest, SafetySupervisor
+from application.safe_output_coordinator import SafeOutputCoordinator
 
 
 def _fresh_stamp():
@@ -41,8 +42,6 @@ def idle_live():
         "input_voltage": 65.0,
         "set_voltage": 15.10,
         "set_current": 0.18,
-        "ovp": 15.30,
-        "ocp": 0.40,
         "protection_code": 0.0,
     }
     live["_meta"] = {
@@ -56,8 +55,6 @@ def idle_live():
         "protection_code": _meta("protection_code"),
         "set_voltage": _meta("set_voltage_readback_v2"),
         "set_current": _meta("set_current_readback_v2"),
-        "ovp": _meta("ovp_readback_v2"),
-        "ocp": _meta("ocp_readback_v2"),
     }
     return live
 
@@ -93,7 +90,7 @@ class FakeAdapter:
     async def get_all_live(self):
         if self._programmed and self.refresh_readback:
             stamp = _fresh_stamp()
-            for key in ("set_voltage", "set_current", "ovp", "ocp"):
+            for key in ("set_voltage", "set_current"):
                 self.live["_meta"][key]["last_reported"] = stamp
                 self.live["_meta"][key]["last_updated"] = stamp
                 self.live["_meta"][key]["age_s"] = 0.0
@@ -109,12 +106,6 @@ class FakeAdapter:
         # writable number entity is not the safety heartbeat; the independent V2
         # Modbus sensor owns that heartbeat.
         return True
-
-    async def set_ovp(self, value):
-        return self._write("ovp", value)
-
-    async def set_ocp(self, value):
-        return self._write("ocp", value)
 
     async def set_voltage(self, value):
         return self._write("set_voltage", value)
@@ -139,8 +130,6 @@ class FakeAdapter:
         *,
         voltage_v,
         current_a,
-        ovp_v,
-        ocp_a,
         recipe_voltage_ceiling_v,
         **_kwargs,
     ):
@@ -153,8 +142,6 @@ class FakeAdapter:
             OutputRequest(
                 float(voltage_v),
                 float(current_a),
-                float(ovp_v),
-                float(ocp_a),
                 float(recipe_voltage_ceiling_v),
             )
         )
@@ -196,26 +183,25 @@ class ProgrammedReadbackV2PhysicalHookTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_b16_uses_authoritative_force_updated_readback_and_never_attempts_on(self):
         _app, adapter, _guard, control = self.make_system()
-        before = {key: adapter.live[key] for key in ("set_voltage", "set_current", "ovp", "ocp")}
+        before = {key: adapter.live[key] for key in ("set_voltage", "set_current")}
         before_ts = adapter.live["_meta"]["set_voltage"]["last_reported"]
         response = await control.dispatch({"op": OPERATION})
         self.assertTrue(response["ok"], response)
         result = response["result"]
+        self.assertTrue({"ovp", "ocp", "ovp_readback_v2", "ocp_readback_v2"}.isdisjoint(adapter.live))
         self.assertTrue(result["blocked_before_output_on"])
         self.assertIn("telemetry_invalid", result["violations"])
         self.assertEqual(result["output_on_attempts"], 0)
         self.assertEqual(result["output_off_attempts"], 1)
         self.assertEqual(
             result["programming_writes"],
-            {"ovp": 1, "ocp": 1, "set_voltage": 1, "set_current": 1},
+            {"set_voltage": 1, "set_current": 1},
         )
         self.assertEqual(adapter.hardware_on_calls, 0)
         self.assertEqual(adapter.hardware_off_calls, 1)
         self.assertEqual(
             adapter.hardware_writes,
             [
-                ("ovp", before["ovp"]),
-                ("ocp", before["ocp"]),
                 ("set_voltage", before["set_voltage"]),
                 ("set_current", before["set_current"]),
             ],

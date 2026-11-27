@@ -1,6 +1,6 @@
 import unittest
 
-from external_temp_integrity import ExternalTempIntegrityMonitor, ExternalTempIntegrityPolicy
+from runtime.safety.temperature_integrity import ExternalTempIntegrityMonitor, ExternalTempIntegrityPolicy
 from runtime.charge import Measurements
 from runtime.charge.strategy import (
     CCMixExitConfig,
@@ -9,8 +9,6 @@ from runtime.charge.strategy import (
     MixPolicy,
     MixPolicyConfig,
     MixTemperatureIntegrityPolicy,
-    emergency_stop_reset_intent,
-    post_mix_reset_intent,
 )
 
 
@@ -49,13 +47,6 @@ class V3MixProtectionTests(unittest.TestCase):
         self.assertEqual(2400.0, state.last_recalculation)
         self.assertAlmostEqual(0.9, state.fixed_limit)
         self.assertEqual(0, state.reduction_count)
-
-    def test_post_mix_and_emergency_reset_intents_are_non_actuating(self):
-        normal = post_mix_reset_intent(17.5, 12.0, reason="MIX_FINISH")
-        emergency = emergency_stop_reset_intent(17.5, 12.0, reason="MIX_SENSOR_FAULT")
-        self.assertEqual("MIX", normal.source_phase)
-        self.assertEqual("MIX_EMERGENCY_STOP", emergency.source_phase)
-        self.assertEqual((17.5, 12.0), (normal.target_ovp, normal.target_ocp))
 
     def test_mix_temperature_policy_latches_impossible_drop(self):
         monitor = ExternalTempIntegrityMonitor(

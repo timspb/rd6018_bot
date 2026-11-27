@@ -1,3 +1,4 @@
+import tempfile
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -17,6 +18,7 @@ def analysis_at(ts, *, voltage, current, is_cv=True, is_cc=False, current_min=0.
     metrics = SignalMetrics(
         d_voltage_v_per_min=0.0, d_current_a_per_min=0.0, d_temp_c_per_min=0.0,
         current_min_a=current_min, seconds_since_current_min=seconds_since_min,
+        main_stable_hold_s=seconds_since_min,
         delta_current_from_min_a=(current - current_min if current_min is not None else None),
         reversal_threshold_a=(max(0.03, current_min * 0.30) if current_min is not None else None),
         current_plateau_span_a=0.0, current_plateau_center_a=current,
@@ -46,6 +48,18 @@ class ExplodingRuntime:
 
 
 class ChargeControllerAuthorityTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self._session_tmp = tempfile.TemporaryDirectory()
+        self._session_patch = patch(
+            "charge_controller.SESSION_FILE",
+            f"{self._session_tmp.name}/charge_session.json",
+        )
+        self._session_patch.start()
+
+    def tearDown(self):
+        self._session_patch.stop()
+        self._session_tmp.cleanup()
+
     def _controller(self, *, profile="EFB", intent=ChargeIntent.RECOVERY, now=10000.0):
         controller = ManagedChargeController(DummyHass())
         controller.current_stage = controller.STAGE_MAIN
@@ -57,6 +71,36 @@ class ChargeControllerAuthorityTests(unittest.IsolatedAsyncioTestCase):
         controller._v2_intent = intent
         controller._last_known_output_on = True
         return controller
+
+    def test_shift_active_clocks_moves_owned_timestamps_and_main_evidence(self):
+        controller = ManagedChargeController(DummyHass())
+        fields = (
+            "stage_start_time", "total_start_time", "finish_timer_start",
+            "_first_stage_hold_since", "_stuck_current_since", "_safe_wait_start",
+            "_blanking_until", "_delta_monitor_after", "_cv_since",
+            "_v2_trace_started_at",
+        )
+        for index, name in enumerate(fields, start=1):
+            setattr(controller, name, float(index * 100))
+        controller._blanking_until = 0.0
+        controller._delta_monitor_after = -5.0
+        controller._cv_since = "unset"
+        controller._main_sample_evidence.plateau_since_s = 250.0
+
+        controller.shift_active_clocks(30.0)
+
+        for index, name in enumerate(fields, start=1):
+            expected = float(index * 100) + 30.0 if name not in (
+                "_blanking_until", "_delta_monitor_after", "_cv_since"
+            ) else {"_blanking_until": 0.0, "_delta_monitor_after": -5.0, "_cv_since": "unset"}[name]
+            self.assertEqual(getattr(controller, name), expected, name)
+        self.assertEqual(controller._main_sample_evidence.plateau_since_s, 280.0)
+
+        before = {name: getattr(controller, name) for name in fields}
+        controller.shift_active_clocks(0.0)
+        controller.shift_active_clocks(-10.0)
+        self.assertEqual({name: getattr(controller, name) for name in fields}, before)
+        self.assertEqual(controller._main_sample_evidence.plateau_since_s, 280.0)
 
     async def test_normal_tail_completes_without_mix(self):
         now = 10000.0
@@ -151,7 +195,14 @@ class ChargeControllerAuthorityTests(unittest.IsolatedAsyncioTestCase):
             actions = await run_charge_session_tick(controller, 14.7, 0.5, 25.0, True, 50.0, True, is_cc=False)
         self.assertEqual(controller.current_stage, controller.STAGE_MIX)
         self.assertFalse(bool(actions.get("turn_off")))
-        self.assertEqual(actions.get("log_event"), "START | V2_MIX")
+        # Operator-facing transition replaces the retired internal V2 START.
+        # Preserve the source decision and actual target evidence in its log.
+        event = actions.get("log_event", "")
+        self.assertTrue(event.startswith("MIX_STARTED | reason=main_timeout_ca_efb_v1_compatible_mix"))
+        self.assertIn("target_voltage_v=16.50", event)
+        self.assertIn("target_current_a=", event)
+        self.assertIn("main_hold_required_s=", event)
+        self.assertNotIn("START | V2_MIX", event)
 
 
 if __name__ == "__main__":

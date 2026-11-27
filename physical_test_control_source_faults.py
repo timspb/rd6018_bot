@@ -2,7 +2,7 @@
 
 This extension reuses the existing opt-in root-only AF_UNIX server.  Managed-source
 operations mutate exactly one in-memory production decision snapshot, never HA/RD
-state.  B16 performs one deliberately narrow same-value OVP/OCP/V/I programming
+state.  B16 performs one deliberately narrow same-value V/I programming
 transaction while Output is already OFF and withholds only the post-write Vset
 freshness observation from the production coordinator.  No operation accepts an
 entity ID, timestamp, setpoint, or other authority-widening parameter.
@@ -27,7 +27,7 @@ from rd6018_telemetry import (
     resolve_regulation,
     telemetry_freshness,
 )
-from safe_output import OutputRequest, SafetySupervisor, snapshot_from_live
+from runtime.safety.output_policy import OutputRequest, SafetySupervisor, snapshot_from_live
 
 
 _SOURCE_FAULT_OPS = {
@@ -257,8 +257,6 @@ class PhysicalTestControlSourceFaults:
         mapping = {
             "set_voltage": "set_voltage",
             "set_current": "set_current",
-            "ovp": "ovp",
-            "ocp": "ocp",
         }
         values: Dict[str, float] = {}
         for name, key in mapping.items():
@@ -287,7 +285,7 @@ class PhysicalTestControlSourceFaults:
 
         Preconditions intentionally require a PB-managed but idle, positively-OFF
         system and an already stale idle Vset heartbeat. The operation reprograms the
-        *same* OVP/OCP/V/I values and withholds only that old Vset metadata from the
+        *same* V/I values and withholds only that old Vset metadata from the
         coordinator after the Vset write. Any attempt to change a value or reach
         Output ON is blocked by the harness before hardware actuation.
         """
@@ -365,8 +363,6 @@ class PhysicalTestControlSourceFaults:
         request = OutputRequest(
             voltage_v=programmed["set_voltage"],
             current_a=programmed["set_current"],
-            ovp_v=programmed["ovp"],
-            ocp_a=programmed["ocp"],
             recipe_voltage_ceiling_v=programmed["set_voltage"],
         )
         decision = SafetySupervisor().preflight(request, snapshot)
@@ -381,8 +377,6 @@ class PhysicalTestControlSourceFaults:
             raise PhysicalTestControlError("B16 safe-output coordinator API unavailable")
 
         original_get_all_live = getattr(adapter, "get_all_live", None)
-        original_set_ovp = getattr(adapter, "set_ovp", None)
-        original_set_ocp = getattr(adapter, "set_ocp", None)
         original_set_voltage = getattr(adapter, "set_voltage", None)
         original_set_current = getattr(adapter, "set_current", None)
         original_turn_on = getattr(adapter, "turn_on", None)
@@ -391,8 +385,6 @@ class PhysicalTestControlSourceFaults:
             callable(item)
             for item in (
                 original_get_all_live,
-                original_set_ovp,
-                original_set_ocp,
                 original_set_voltage,
                 original_set_current,
                 original_turn_on,
@@ -403,8 +395,6 @@ class PhysicalTestControlSourceFaults:
 
         injection_task = asyncio.current_task()
         counts = {
-            "ovp": 0,
-            "ocp": 0,
             "set_voltage": 0,
             "set_current": 0,
             "turn_on": 0,
@@ -456,8 +446,6 @@ class PhysicalTestControlSourceFaults:
             return bool(await original_turn_off(entity_id))
 
         adapter.get_all_live = injected_get_all_live
-        adapter.set_ovp = same_value_wrapper("ovp", programmed["ovp"], original_set_ovp)
-        adapter.set_ocp = same_value_wrapper("ocp", programmed["ocp"], original_set_ocp)
         adapter.set_voltage = same_value_wrapper(
             "set_voltage", programmed["set_voltage"], original_set_voltage
         )
@@ -474,16 +462,12 @@ class PhysicalTestControlSourceFaults:
                 result = await safe_enable(
                     voltage_v=programmed["set_voltage"],
                     current_a=programmed["set_current"],
-                    ovp_v=programmed["ovp"],
-                    ocp_a=programmed["ocp"],
                     recipe_voltage_ceiling_v=programmed["set_voltage"],
                 )
             except Exception as exc:
                 caught = exc
         finally:
             adapter.get_all_live = original_get_all_live
-            adapter.set_ovp = original_set_ovp
-            adapter.set_ocp = original_set_ocp
             adapter.set_voltage = original_set_voltage
             adapter.set_current = original_set_current
             adapter.turn_on = original_turn_on
@@ -503,7 +487,7 @@ class PhysicalTestControlSourceFaults:
             raise PhysicalTestControlError(
                 "B16 did not reach the post-programming readback boundary"
             )
-        for key in ("ovp", "ocp", "set_voltage", "set_current"):
+        for key in ("set_voltage", "set_current"):
             if counts[key] != 1:
                 raise PhysicalTestControlError(
                     f"B16 expected exactly one same-value {key} write, observed {counts[key]}"
@@ -572,8 +556,6 @@ class PhysicalTestControlSourceFaults:
             "violations": sorted(violation_values),
             "programmed_values": dict(programmed),
             "programming_writes": {
-                "ovp": counts["ovp"],
-                "ocp": counts["ocp"],
                 "set_voltage": counts["set_voltage"],
                 "set_current": counts["set_current"],
             },

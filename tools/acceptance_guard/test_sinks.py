@@ -2,11 +2,13 @@
 import asyncio
 from types import SimpleNamespace as NS
 import unittest
+from unittest.mock import patch
 
 from tools.acceptance_guard.guard import Guard, Blocked, ordinary_off, fault_off
 from tools.acceptance_guard.adapters import (GuardedHassClient, GuardedHAConnector,
     GuardedESPConnector, GuardedD061Control, GuardedNativeTransport, GuardedHATransport,
     GuardedRuntimeSafety)
+from runtime.physical.transports.esp128 import ESPHomeTransport
 
 
 class Clock:
@@ -48,10 +50,22 @@ class SinkTests(unittest.IsolatedAsyncioTestCase):
         self.esp = object.__new__(GuardedESPConnector)
         self.esp.guard = self.guard
         self.esp.transport = object.__new__(GuardedNativeTransport)
-        self.esp.transport.config = self.ha.transport.config
+        ESPHomeTransport.__init__(self.esp.transport, self.ha.transport.config, NS())
+        self.esp.transport.guard = self.guard
         self.esp.transport.client = Native()
+        self.esp.transport.client.subscribe_states = lambda callback: (lambda: None)
         self.esp.transport.entities = [NS(object_id='fake.output', key=1, device_id=0),
                                      NS(object_id='fake.voltage', key=2, device_id=0)]
+        self.esp.transport._entities_by_key = {
+            1: [self.esp.transport.entities[0]],
+            2: [self.esp.transport.entities[1]],
+        }
+
+        async def fake_command_output(enabled):
+            self.esp.transport.client.switch_command(1, bool(enabled), 0)
+            return {"state": "APPLIED", "target": bool(enabled),
+                    "observed_r18": 1 if enabled else 0}
+        self.esp.transport.command_output = fake_command_output
 
     def stable(self, state=False):
         for t in (100., 106., 112.):
@@ -350,9 +364,9 @@ class SinkTests(unittest.IsolatedAsyncioTestCase):
         owner._raw_live, owner._raw_turn_off, owner._verify_switch_off = raw_live, raw_off, verified
         client.turn_off = owner.turn_off  # Mirrors canonical owner install(), in test only.
         self.guard.clock = lambda: (_ for _ in ()).throw(OSError('clock unavailable'))
-        with patch('hass_api.SafeOutputCoordinator', Coordinator):
+        with patch('tools.acceptance_guard.adapters.SafeOutputCoordinator', Coordinator):
             self.assertTrue(await client.safe_enable_output(voltage_v=14.,current_a=.1,
-                ovp_v=14.5,ocp_a=.2,recipe_voltage_ceiling_v=14.7))
+                recipe_voltage_ceiling_v=14.7))
         self.assertEqual(self.calls, ['OFF'])
         self.assertTrue(self.guard.aborted)
 
@@ -385,7 +399,10 @@ class SinkTests(unittest.IsolatedAsyncioTestCase):
         self.guard.pending = (True, 100.)
         self.guard.clock = lambda: (_ for _ in ()).throw(OSError('clock fault'))
         with patch('rd_managed_adoption.get_or_create_execution_port',
-                   return_value=NS(request_verified_off=owner.turn_off)):
+                   return_value=NS(
+                       request_verified_off=owner.turn_off,
+                       request_emergency_off=owner.turn_off,
+                   )):
             self.assertTrue(await coordinator._verified_off('ambiguous edge adoption'))
         self.assertEqual(self.calls, ['OFF'])
         self.assertTrue(self.guard.aborted)
@@ -411,7 +428,7 @@ class SinkTests(unittest.IsolatedAsyncioTestCase):
     async def test_transaction_above_acceptance_cap_cannot_program_any_backend(self):
         with self.assertRaises(Blocked):
             await self.hass.safe_enable_output(voltage_v=15.51,current_a=.1,
-                ovp_v=16.,ocp_a=.2,recipe_voltage_ceiling_v=17.5)
+                recipe_voltage_ceiling_v=17.5)
         self.assertEqual(self.calls, [])
 
     async def test_d061_fault_dispatch_keeps_hands_off_containment_immediate(self):
@@ -443,7 +460,7 @@ class SinkTests(unittest.IsolatedAsyncioTestCase):
                        return_value='ActiveState=inactive\nMainPID=0\n'), \
                  patch('tools.acceptance_guard.pairing.Path.iterdir',return_value=[]), \
                  patch('tools.acceptance_guard.pairing.Path.cwd',return_value=state), \
-                 patch('tools.acceptance_guard.pairing.fcntl.flock',side_effect=BlockingIOError()), \
+                 patch('fcntl.flock',side_effect=BlockingIOError()), \
                  patch('tools.acceptance_guard.pairing.assemble') as assemble:
                 with self.assertRaisesRegex(RuntimeError,'poller lock'):
                     await run_prepared(root/'source',root/'manifest',physical_ready=True,sole_poller_ready=True)
@@ -459,7 +476,10 @@ class SinkTests(unittest.IsolatedAsyncioTestCase):
             is_bound = False
             def bind(self, client): calls.append(client)
         original = hass_api.HassClient._switch_service
-        config = load_config(Path(hass_api.__file__).parent / 'config')
+        # Config construction needs a syntactically valid transport endpoint,
+        # but bind_client must not open it; loopback keeps this a pure unit test.
+        with patch.dict("os.environ", {"ESPHOME_API_HOST": "127.0.0.1", "ESPHOME_API_PORT": "6053"}):
+            config = load_config(Path(hass_api.__file__).parent / 'config')
         guard, client = bind_client(NS(hass=Deferred()), config, base_url='http://fake.invalid', token='fake')
         self.assertIs(hass_api.HassClient._switch_service, original)
         self.assertIs(client, calls[0])
@@ -499,23 +519,10 @@ class SinkTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue((await control._verified_stop())['stopped'])
         self.assertEqual(calls, ['OFF', 'OFF'])
 
-    async def test_original_turn_on_postverification_failure_off_is_immediate(self):
-        from unittest.mock import patch
-        class Client(GuardedHassClient):
-            def _recent_programming_request(inner): return NS()
-            async def get_all_live(inner): return {}
-        class Coordinator:
-            def __init__(inner, *args): pass
-            async def confirm_programmed_readback(inner, request): return None, NS(allowed=True)
-        client = Client(guard=self.guard, backend=self.hass._physical_backend)
-        client._safety_supervisor = NS(preflight=lambda *a: NS(allowed=True),
-            verify_live_output=lambda *a: NS(allowed=False, detail='synthetic post-enable rejection'))
+    async def test_hass_transport_turn_on_is_one_guarded_sink_command(self):
         self.stable()
-        with patch('hass_api.snapshot_from_live', return_value=NS(output_on=True)), \
-             patch('hass_api.SafeOutputCoordinator', Coordinator):
-            self.assertFalse(await client.turn_on())
-        self.assertEqual(self.calls, ['ON', 'OFF'])
-        self.assertTrue(self.guard.aborted)
+        self.assertTrue(await self.hass.turn_on())
+        self.assertEqual(self.calls, ["ON"])
 
     async def test_ha_actual_get_requires_advancing_last_reported(self):
         from unittest.mock import patch

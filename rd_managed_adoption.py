@@ -19,8 +19,8 @@ from edge_live_adoption import EdgeLiveAdoption
 from manual_mode import ManualChargeRequest, ManualSessionState
 from operator_confirmation import ConfirmationStore
 from pb_domain import BatteryChemistry
-from rd6018_telemetry import ProtectionStatus, finite_float, resolve_protection
-from runtime_safety import RuntimeSafetyError, _binary
+from rd6018_telemetry import finite_float
+from runtime.safety.runtime_guard import RuntimeSafetyError, _binary
 from battery_catalog import list_batteries
 from ui_support import battery_button_label
 
@@ -43,8 +43,6 @@ class ManagedAdoptionState(str, Enum):
 class ManagedAdoptionFingerprint:
     set_voltage_v: float
     set_current_a: float
-    ovp_v: float
-    ocp_a: float
 
 
 @dataclass(frozen=True)
@@ -60,8 +58,8 @@ class ManagedLiveAdoptionCoordinator:
     """D061 live HANDS_OFF -> PB_MANAGED adoption for an already-ON RD6018.
 
     This first managed adoption program is deliberately Manual-only. It takes no
-    chemistry transition authority and performs no Output/V/I/OVP/OCP write at the
-    adoption point. The observed live V/I/OVP/OCP become component-wise maximum
+    chemistry transition authority and performs no Output/V/I write at the
+    adoption point. The observed live V/I become component-wise maximum
     authority. That authority can ratchet only downward; any out-of-band increase is a
     verified-OFF condition.
 
@@ -75,7 +73,7 @@ class ManagedLiveAdoptionCoordinator:
     OFF_PENDING containment and requires verified Output OFF.
     """
 
-    VERSION = 1
+    VERSION = 2
 
     def __init__(
         self,
@@ -123,8 +121,6 @@ class ManagedLiveAdoptionCoordinator:
             return {
                 "set_voltage_v": value.set_voltage_v,
                 "set_current_a": value.set_current_a,
-                "ovp_v": value.ovp_v,
-                "ocp_a": value.ocp_a,
             }
 
         return {
@@ -181,8 +177,6 @@ class ManagedLiveAdoptionCoordinator:
             values = [
                 float(raw["set_voltage_v"]),
                 float(raw["set_current_a"]),
-                float(raw["ovp_v"]),
-                float(raw["ocp_a"]),
             ]
         except (KeyError, TypeError, ValueError):
             return None
@@ -196,7 +190,12 @@ class ManagedLiveAdoptionCoordinator:
         try:
             with open(self.state_file, "r", encoding="utf-8") as handle:
                 raw = json.load(handle)
-            if not isinstance(raw, dict) or int(raw.get("version")) != self.VERSION:
+            if not isinstance(raw, dict):
+                return
+            version = int(raw.get("version"))
+            # Persisted v1 active sessions must still enter verified-OFF
+            # recovery after the v2 V/I-only schema migration.
+            if version not in (1, self.VERSION):
                 return
             previous = ManagedAdoptionState(str(raw.get("state") or "idle"))
             self.session_id = str(raw.get("session_id") or "")
@@ -228,15 +227,13 @@ class ManagedLiveAdoptionCoordinator:
         values = [
             finite_float(live.get("set_voltage")),
             finite_float(live.get("set_current")),
-            finite_float(live.get("ovp")),
-            finite_float(live.get("ocp")),
         ]
         if any(value is None for value in values):
             return None
-        set_v, set_i, ovp, ocp = (float(value) for value in values if value is not None)
-        if set_v <= 0 or set_i <= 0 or ovp <= 0 or ocp <= 0:
+        set_v, set_i = (float(value) for value in values if value is not None)
+        if set_v <= 0 or set_i <= 0:
             return None
-        return ManagedAdoptionFingerprint(set_v, set_i, ovp, ocp)
+        return ManagedAdoptionFingerprint(set_v, set_i)
 
     @staticmethod
     def fingerprint_matches(
@@ -250,8 +247,6 @@ class ManagedLiveAdoptionCoordinator:
             for a, b in (
                 (expected.set_voltage_v, actual.set_voltage_v),
                 (expected.set_current_a, actual.set_current_a),
-                (expected.ovp_v, actual.ovp_v),
-                (expected.ocp_a, actual.ocp_a),
             )
         )
 
@@ -270,11 +265,6 @@ class ManagedLiveAdoptionCoordinator:
         freshness = self.guard._runtime_freshness_error(live, output_state=True)
         if freshness is not None:
             raise RuntimeSafetyError(f"live adoption freshness rejected: {freshness}")
-        protection = resolve_protection(live)
-        if protection.status is not ProtectionStatus.NORMAL:
-            raise RuntimeSafetyError(
-                f"live adoption requires normal RD protection state, got {protection.status.value}"
-            )
 
         policy = self.guard.policy
         temp_ext = finite_float(live.get("temp_ext"))
@@ -296,20 +286,12 @@ class ManagedLiveAdoptionCoordinator:
         fingerprint = self.fingerprint_from_live(live)
         if fingerprint is None:
             raise RuntimeSafetyError(
-                "live adoption requires positive V/I/OVP/OCP readback; disabled protections are not managed authority"
+                "live adoption requires positive V/I readback"
             )
         if fingerprint.set_voltage_v > policy.absolute_voltage_ceiling_v + ADOPTION_SETPOINT_TOLERANCE:
             raise RuntimeSafetyError("live adoption voltage exceeds managed absolute envelope")
         if fingerprint.set_current_a > policy.absolute_current_ceiling_a + ADOPTION_SETPOINT_TOLERANCE:
             raise RuntimeSafetyError("live adoption current exceeds managed absolute envelope")
-        if fingerprint.ovp_v > policy.absolute_ovp_ceiling_v + ADOPTION_SETPOINT_TOLERANCE:
-            raise RuntimeSafetyError("live adoption OVP exceeds managed absolute envelope")
-        if fingerprint.ocp_a > policy.absolute_ocp_ceiling_a + ADOPTION_SETPOINT_TOLERANCE:
-            raise RuntimeSafetyError("live adoption OCP exceeds managed absolute envelope")
-        if fingerprint.ovp_v + ADOPTION_SETPOINT_TOLERANCE < fingerprint.set_voltage_v + policy.min_ovp_margin_v:
-            raise RuntimeSafetyError("live adoption OVP does not protect the live voltage setpoint")
-        if fingerprint.ocp_a + ADOPTION_SETPOINT_TOLERANCE < fingerprint.set_current_a + policy.min_ocp_margin_a:
-            raise RuntimeSafetyError("live adoption OCP does not protect the live current setpoint")
 
         measured_v = finite_float(live.get("voltage"))
         measured_i = finite_float(live.get("current"))
@@ -319,10 +301,6 @@ class ManagedLiveAdoptionCoordinator:
             raise RuntimeSafetyError("live measured voltage exceeds managed absolute working envelope")
         if measured_i > policy.absolute_current_ceiling_a + ADOPTION_SETPOINT_TOLERANCE:
             raise RuntimeSafetyError("live measured current exceeds managed absolute working envelope")
-        if measured_v > fingerprint.ovp_v + ADOPTION_SETPOINT_TOLERANCE:
-            raise RuntimeSafetyError("live measured voltage exceeds configured OVP")
-        if measured_i > fingerprint.ocp_a + ADOPTION_SETPOINT_TOLERANCE:
-            raise RuntimeSafetyError("live measured current exceeds configured OCP")
 
         if expected is not None and not self.fingerprint_matches(expected, fingerprint):
             raise RuntimeSafetyError(
@@ -383,15 +361,25 @@ class ManagedLiveAdoptionCoordinator:
         self.manual._task = None
         self.manual._persist()
 
-    async def _verified_off(self, reason: str) -> bool:
+    async def _verified_off(self, reason: str, *, emergency: bool = True) -> bool:
         self.state = ManagedAdoptionState.OFF_PENDING
         self.last_status = f"{reason}: verified Output OFF pending"
         self._persist()
         try:
             if bool(getattr(self.manager, "hands_off", False)):
-                await self.manager.operator_output_off(self.app.ENTITY_MAP.get("switch"))
+                off_confirmed = await self.manager.operator_output_off(
+                    self.app.ENTITY_MAP.get("switch")
+                )
             else:
-                await get_or_create_execution_port(self.app).request_verified_off()
+                port = get_or_create_execution_port(self.app)
+                if emergency:
+                    off_confirmed = await port.request_emergency_off()
+                else:
+                    off_confirmed = await port.request_verified_off()
+            if not off_confirmed:
+                self.last_status = f"{reason}: Output OFF unconfirmed: operation returned false"
+                self._persist()
+                return False
         except Exception as exc:
             self.last_status = f"{reason}: Output OFF unconfirmed: {type(exc).__name__}: {exc}"
             self._persist()
@@ -561,7 +549,10 @@ class ManagedLiveAdoptionCoordinator:
             await self._verified_off("adopted_live_manual_authority_disappeared_while_on")
             return
 
-        live = await self.app.hass.get_all_live()
+        # Active adopted ownership must use the managed Safety read path, not
+        # raw HA transport. This keeps protection/telemetry/lease supervision
+        # aligned with the observer's existing 5 s cadence.
+        live = await self.guard.get_all_live()
         if _binary(live.get("switch")) is False:
             await self._complete_external_off()
             return
@@ -572,7 +563,7 @@ class ManagedLiveAdoptionCoordinator:
             return
 
         increases = []
-        for field in ("set_voltage_v", "set_current_a", "ovp_v", "ocp_a"):
+        for field in ("set_voltage_v", "set_current_a"):
             actual = float(getattr(fingerprint, field))
             ceiling = float(getattr(authority, field))
             if actual > ceiling + ADOPTION_SETPOINT_TOLERANCE:
@@ -586,8 +577,6 @@ class ManagedLiveAdoptionCoordinator:
         ratcheted = ManagedAdoptionFingerprint(
             set_voltage_v=min(authority.set_voltage_v, fingerprint.set_voltage_v),
             set_current_a=min(authority.set_current_a, fingerprint.set_current_a),
-            ovp_v=min(authority.ovp_v, fingerprint.ovp_v),
-            ocp_a=min(authority.ocp_a, fingerprint.ocp_a),
         )
         if ratcheted != authority:
             self.current_authority = ratcheted
@@ -635,7 +624,7 @@ class ManagedLiveAdoptionCoordinator:
             raise RuntimeSafetyError(
                 "verified adopted-live stop requires active adopted Manual authority"
             )
-        return await self._verified_off("physical_test_control_verified_stop")
+        return await self._verified_off("physical_test_control_verified_stop", emergency=False)
 
 
 def _preview_text(preview: ManagedAdoptionPreview) -> str:
@@ -645,8 +634,7 @@ def _preview_text(preview: ManagedAdoptionPreview) -> str:
         f"АКБ: <code>{preview.battery_id}</code> · {preview.chemistry.value} · {preview.capacity_ah:g} Ah\n"
         "Программа: <b>Adopted Manual</b> — без AUTO/Mix-химии.\n"
         f"RD: {fp.set_voltage_v:.2f} V / {fp.set_current_a:.2f} A · "
-        f"OVP {fp.ovp_v:.2f} / OCP {fp.ocp_a:.2f}\n\n"
-        "На точке подхвата бот не пишет Output/V/I/OVP/OCP. Эти четыре live-readback "
+        "На точке подхвата бот не пишет Output/V/I. Эти два live-readback "
         "становятся максимальной authority; дальше разрешено только уменьшение. "
         "Любое внешнее увеличение завершает adopted-сессию через verified Output OFF.\n\n"
         "После перезапуска такая live-сессия автоматически не продолжается."
@@ -666,48 +654,8 @@ def install_managed_live_adoption(
     coordinator = ManagedLiveAdoptionCoordinator(app, manager)
     app.rd_managed_live_adoption = coordinator
 
-    # Compose a non-bypassable adopted authority gate around the already-installed
-    # runtime-safety + RD ownership wrappers. It never enlarges ordinary Manual rights.
-    hass = app.hass
-    if not getattr(hass, "_rd_managed_live_adoption_wrapped", False):
-        original_turn_on = hass.turn_on
-        original_set_voltage = hass.set_voltage
-        original_set_current = hass.set_current
-        original_set_ovp = hass.set_ovp
-        original_set_ocp = hass.set_ocp
-
-        async def turn_on(entity_id: Optional[str] = None) -> bool:
-            if coordinator.active or coordinator.off_pending:
-                raise RuntimeSafetyError(
-                    "adopted-live Manual cannot re-energize Output; start a fresh managed program"
-                )
-            return bool(await original_turn_on(entity_id))
-
-        async def _write(field: str, value: float, fn: Any) -> bool:
-            coordinator.authorize_managed_write(field, value)
-            result = bool(await fn(value))
-            if result:
-                coordinator.ratchet_after_managed_write(field, value)
-            return result
-
-        async def set_voltage(value: float) -> bool:
-            return await _write("set_voltage_v", value, original_set_voltage)
-
-        async def set_current(value: float) -> bool:
-            return await _write("set_current_a", value, original_set_current)
-
-        async def set_ovp(value: float) -> bool:
-            return await _write("ovp_v", value, original_set_ovp)
-
-        async def set_ocp(value: float) -> bool:
-            return await _write("ocp_a", value, original_set_ocp)
-
-        hass.turn_on = turn_on
-        hass.set_voltage = set_voltage
-        hass.set_current = set_current
-        hass.set_ovp = set_ovp
-        hass.set_ocp = set_ocp
-        hass._rd_managed_live_adoption_wrapped = True
+    # Adopted-live authority is enforced centrally by ExecutionPort. Do not
+    # mutate HassClient actuator methods; transport and ownership remain separate.
 
     if not install_ui:
         return coordinator
@@ -717,58 +665,6 @@ def install_managed_live_adoption(
 
     def identity(call: Any) -> Optional[tuple[int, int]]:
         return confirmations.callback_identity(call)
-
-    import operator_hmi
-
-    if not getattr(operator_hmi, "_rd_managed_adoption_keyboard_wrapped", False):
-        original_keyboard = operator_hmi.build_operator_keyboard
-        original_state = operator_hmi.build_operator_hmi_state
-
-        def build_keyboard(
-            app_arg: Any,
-            state: Any,
-            *,
-            actions: Any = None,
-        ) -> InlineKeyboardMarkup:
-            markup = (
-                original_keyboard(app_arg, state, actions=actions)
-                if actions is not None
-                else original_keyboard(app_arg, state)
-            )
-            if actions is not None:
-                return markup
-            if (
-                state.process_state is operator_hmi.HmiProcessState.HANDS_OFF
-                and bool(state.output_on)
-                and not coordinator.active
-                and not coordinator.off_pending
-            ):
-                rows = [list(row) for row in markup.inline_keyboard]
-                rows.insert(
-                    1,
-                    [
-                        InlineKeyboardButton(
-                            text="🔒 Забрать под Pb-контроль",
-                            callback_data="rd_managed_adopt",
-                        )
-                    ],
-                )
-                return InlineKeyboardMarkup(inline_keyboard=rows)
-            return markup
-
-        def build_state(app_arg: Any, live: Any) -> Any:
-            state = original_state(app_arg, live)
-            if coordinator.active and state.authority is operator_hmi.HmiAuthority.MANUAL:
-                return replace(
-                    state,
-                    title="RD6018 · MANUAL ПОДХВАЧЕН",
-                    progress="Live adoption · исходные уставки — максимум, authority только вниз",
-                )
-            return state
-
-        operator_hmi.build_operator_keyboard = build_keyboard
-        operator_hmi.build_operator_hmi_state = build_state
-        operator_hmi._rd_managed_adoption_keyboard_wrapped = True
 
     @app.router.callback_query(F.data == "rd_managed_adopt")
     async def _adopt_menu(call: Any) -> None:
@@ -839,7 +735,7 @@ def install_managed_live_adoption(
         fp = item["fingerprint"]
         token = (
             f"d061:{item['nonce']}:{record.identity.battery_id}:"
-            f"{fp.set_voltage_v:.3f}:{fp.set_current_a:.3f}:{fp.ovp_v:.3f}:{fp.ocp_a:.3f}"
+            f"{fp.set_voltage_v:.3f}:{fp.set_current_a:.3f}"
         )
         preview = ManagedAdoptionPreview(
             token=token,
@@ -920,7 +816,7 @@ def install_managed_live_adoption(
         await call.answer("Live Output принят под PB_MANAGED")
         await call.message.answer(
             "🔒 <b>Adopted Manual активен.</b>\n"
-            "На точке adoption Output/V/I/OVP/OCP не переписывались. Локальный edge lease "
+            "На точке adoption Output/V/I не переписывались. Локальный edge lease "
             "подтверждён, PB_MANAGED включён, текущие live-уставки стали максимумом authority.",
             parse_mode=app.ParseMode.HTML,
         )

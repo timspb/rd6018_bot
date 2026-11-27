@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import tempfile
 import time
 from typing import Any, Optional
 
-from runtime_safety import RuntimeSafetyError
+from runtime.safety.runtime_guard import RuntimeSafetyError
 
 
 _RELEASE_VERSION = 1
@@ -52,7 +53,13 @@ def _read_intent(path: str) -> Optional[dict[str, Any]]:
             raw = json.load(handle)
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
         return None
-    if not isinstance(raw, dict) or int(raw.get("version") or 0) != _RELEASE_VERSION:
+    if not isinstance(raw, dict):
+        return None
+    # The marker is a narrowly scoped release capability, not a generic session
+    # breadcrumb. Require the exact schema/phase before it can retire D061 authority.
+    if raw.get("version") != _RELEASE_VERSION:
+        return None
+    if raw.get("phase") != "release_requested":
         return None
     session_id = str(raw.get("session_id") or "").strip()
     if not session_id:
@@ -101,15 +108,26 @@ def _retire_adopted_authority(coordinator: Any, *, reason: str) -> None:
         )
 
     task = getattr(coordinator, "_task", None)
-    coordinator._task = None
+    previous_state = state
+    previous_status = str(getattr(coordinator, "last_status", "") or "")
     coordinator.state = interrupted
     coordinator.last_status = str(reason)
     persist = getattr(coordinator, "_persist", None)
     if not callable(persist):
+        coordinator.state = previous_state
+        coordinator.last_status = previous_status
         raise RuntimeSafetyError(
             "D061 HANDS_OFF release blocked: adoption journal is not persistable"
         )
-    persist()
+    # Keep both the in-memory ACTIVE authority and monitor reference intact until
+    # the terminal journal is durable. A failed write must not half-retire D061.
+    try:
+        persist()
+    except Exception:
+        coordinator.state = previous_state
+        coordinator.last_status = previous_status
+        raise
+    coordinator._task = None
 
     if task is not None and not task.done():
         task.cancel()
@@ -236,6 +254,20 @@ def install_adopted_hands_off_release_retirement(
         _persist_intent(path, coordinator)
         try:
             result = bool(await original_enter_hands_off())
+        except asyncio.CancelledError:
+            # Match the same durable ordering as ordinary failures: before commit,
+            # discard only the intent; after commit, retire the exact D061 authority
+            # without Output change, then preserve task cancellation.
+            if bool(getattr(manager, "hands_off", False)) and _intent_matches(path, coordinator):
+                _retire_adopted_authority(
+                    coordinator,
+                    reason=(
+                        "intentional HANDS_OFF release committed before cancellation; "
+                        "D061 authority retired without Output change"
+                    ),
+                )
+            _clear_intent(path)
+            raise
         except Exception:
             if bool(getattr(manager, "hands_off", False)) and _intent_matches(path, coordinator):
                 _retire_adopted_authority(

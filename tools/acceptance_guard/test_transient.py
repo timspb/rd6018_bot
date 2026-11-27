@@ -48,7 +48,7 @@ class TransientCleanupTests(unittest.IsolatedAsyncioTestCase):
         tx = TransientAcceptance(client=client, lease=lease, stop_production=stop,
             verify_stopped=verify, prove_single_owner=owner, restore_production=restore_fn,
             independent_off=independent, target={'voltage_v': 13.8, 'current_a': 1,
-            'ovp_v': 15, 'ocp_a': 2}, duration_s=.01, sleep=lambda _: asyncio.sleep(0))
+            }, duration_s=.01, sleep=lambda _: asyncio.sleep(0))
         tx._wait_for_ordinary_on_dwell = lambda: asyncio.sleep(0)
         return tx, state
 

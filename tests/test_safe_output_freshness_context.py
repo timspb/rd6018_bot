@@ -2,12 +2,8 @@ import unittest
 from datetime import datetime, timezone
 from unittest.mock import patch
 
-from safe_output import (
-    OutputRequest,
-    SafeOutputCoordinator,
-    SafetySupervisor,
-    snapshot_from_live,
-)
+from runtime.safety.output_policy import OutputRequest, SafetySupervisor, snapshot_from_live
+from application.safe_output_coordinator import SafeOutputCoordinator
 
 
 NOW = datetime(2026, 8, 30, 14, 33, 10, tzinfo=timezone.utc)
@@ -134,7 +130,7 @@ class SafeOutputFreshnessContextTests(unittest.IsolatedAsyncioTestCase):
             ]
         )
         coordinator = SafeOutputCoordinator(adapter, SafetySupervisor(), readback_timeout_s=0.0)
-        request = OutputRequest(14.4, 2.0, 14.5, 2.1, 14.4)
+        request = OutputRequest(14.4, 2.0, 14.4)
 
         with patch("rd6018_telemetry.time.time", return_value=NOW.timestamp()):
             result = await coordinator.enable(request)
@@ -151,7 +147,7 @@ class SafeOutputFreshnessContextTests(unittest.IsolatedAsyncioTestCase):
             ]
         )
         coordinator = SafeOutputCoordinator(adapter, SafetySupervisor(), readback_timeout_s=0.0)
-        request = OutputRequest(14.4, 2.0, 14.5, 2.1, 14.4)
+        request = OutputRequest(14.4, 2.0, 14.4)
 
         with patch("rd6018_telemetry.time.time", return_value=NOW.timestamp()):
             result = await coordinator.enable(request)

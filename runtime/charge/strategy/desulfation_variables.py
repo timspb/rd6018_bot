@@ -61,20 +61,6 @@ DESULFATION_MIN_CURRENT_A = VariableSpec(
     maximum=1.0,
 )
 
-DESULFATION_OCP_MARGIN_A = VariableSpec(
-    key="charge.desulfation.ocp_margin_a",
-    default=1.0,
-    value_type=float,
-    unit="A",
-    description="Additional DESULFATION OCP headroom used during the accepted startup transient.",
-    owner="runtime.charge.strategy.desulfation",
-    provenance="accepted production DESULFATION protection margin",
-    override_policy=OverridePolicy.CONFIG_FILE,
-    change_effect=ChangeEffect.RESTART_REQUIRED,
-    minimum=0.0,
-    maximum=5.0,
-)
-
 
 def desulfation_duration_seconds() -> float:
     return float(DESULFATION_DURATION_HOURS.default) * 3600.0
@@ -85,6 +71,5 @@ __all__ = [
     "DESULFATION_CURRENT_C_RATE",
     "DESULFATION_DURATION_HOURS",
     "DESULFATION_MIN_CURRENT_A",
-    "DESULFATION_OCP_MARGIN_A",
     "desulfation_duration_seconds",
 ]

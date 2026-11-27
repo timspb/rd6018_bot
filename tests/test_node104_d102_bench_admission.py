@@ -8,6 +8,7 @@ import sys
 import tarfile
 import tempfile
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0,str(Path(__file__).parents[1]/"tools"))
 import node104_d102_bench_admission as d102
@@ -76,10 +77,11 @@ class D102BenchAdmissionTests(unittest.TestCase):
             d102.readiness(self.stage,pin=wrong)
 
     def test_directory_symlink_rejected(self):
-        import shutil
-        shutil.rmtree(self.stage/"tree")
-        (self.stage/"tree").symlink_to(Path(self.temp.name),target_is_directory=True)
-        with self.assertRaisesRegex(d102.AdmissionError,"unsafe"):
-            d102.readiness(self.stage,pin=self.pin)
+        tree = self.stage/"tree"
+        real_is_symlink = Path.is_symlink
+        with patch.object(Path, "is_symlink", autospec=True,
+                          side_effect=lambda path: path == tree or real_is_symlink(path)):
+            with self.assertRaisesRegex(d102.AdmissionError,"unsafe"):
+                d102.readiness(self.stage,pin=self.pin)
 
 if __name__=="__main__":unittest.main()

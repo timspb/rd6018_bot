@@ -389,8 +389,25 @@ async def _fresh_measured_sensor_callbacks(esp: Any, inventory: tuple[Any, ...],
     if not callable(original):
         raise ProofError('native state callback is unavailable')
 
-    def observe(state: Any) -> None:
-        original(state)
+    def observe(state: Any, *, connection_generation: int | None = None,
+                source_client: Any = None) -> None:
+        # Reject stale or foreign subscribed callbacks BEFORE collecting proof,
+        # matching ESPHomeTransport._on_state's generation/client rejection.
+        # Otherwise original() ignores the callback but this observer could
+        # accidentally accept its stale SensorState as a fresh physical read.
+        if connection_generation is not None:
+            if (type(connection_generation) is not int
+                    or type(getattr(esp, '_native_connection_generation', None)) is not int
+                    or connection_generation != esp._native_connection_generation
+                    or source_client is not esp.client):
+                return
+        elif source_client is not None and source_client is not esp.client:
+            return
+        if connection_generation is None and source_client is None:
+            original(state)
+        else:
+            original(state, connection_generation=connection_generation,
+                     source_client=source_client)
         if type(state).__name__ != 'SensorState':
             return
         match = selected.get(getattr(state, 'key', None))
@@ -403,6 +420,8 @@ async def _fresh_measured_sensor_callbacks(esp: Any, inventory: tuple[Any, ...],
                 'age_s': max(0.0, time.monotonic() - timestamp),
                 'subscription_timestamp_monotonic': timestamp,
                 'key': int(entity.key), 'device_id': int(entity.device_id)}
+        if type(connection_generation) is int:
+            meta['connection_generation'] = connection_generation
         captured[name] = (getattr(state, 'state', None), meta)
         if all(name in captured for name in selected_names):
             loop.call_soon_threadsafe(ready.set)

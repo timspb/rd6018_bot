@@ -1,6 +1,7 @@
+import asyncio
 import unittest
 
-from edge_safety_lease import (
+from runtime.safety.edge_lease import (
     EDGE_ENTITY_PREFIX,
     EdgeSafetyLease,
     EdgeSafetyLeaseConfig,
@@ -31,6 +32,10 @@ class FakeHass:
         self.renew_ack = True
         self.renew_remaining_s = 900.0
         self.disarm_ack = True
+        self.cancel_renew_after_apply = False
+        self.block_renew_after_apply = False
+        self.renew_started = asyncio.Event()
+        self.allow_renew = asyncio.Event()
 
     async def get_state(self, entity_id):
         return self.states.get(entity_id), {}
@@ -42,6 +47,11 @@ class FakeHass:
                 self.states[f"binary_sensor.{EDGE_ENTITY_PREFIX}_safety_lease_armed"] = "on"
                 self.states[f"sensor.{EDGE_ENTITY_PREFIX}_safety_lease_generation"] += 1
                 self.states[f"sensor.{EDGE_ENTITY_PREFIX}_safety_lease_remaining"] = self.renew_remaining_s
+            if self.block_renew_after_apply:
+                self.renew_started.set()
+                await self.allow_renew.wait()
+            if self.cancel_renew_after_apply:
+                raise asyncio.CancelledError()
             return True
         if entity_id.endswith("safety_lease_disarm"):
             if self.disarm_ack:
@@ -171,6 +181,104 @@ class EdgeSafetyLeaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(hass.presses), 1)
         self.assertIn("generation_changed:False", captured.output[0])
         self.assertIn("armed:False", captured.output[0])
+
+    async def test_background_renewal_cannot_establish_an_unarmed_lease(self):
+        hass, _clock, lease = self._lease()
+
+        with self.assertRaisesRegex(EdgeSafetyLeaseError, "only an explicit START ARM"):
+            await lease.renew_if_due()
+
+        self.assertEqual(hass.presses, [])
+        self.assertTrue(lease.renewals_suspended)
+
+        state = await lease.arm()
+        self.assertTrue(state.armed)
+        self.assertEqual(len(hass.presses), 1)
+        self.assertFalse(lease.renewals_suspended)
+
+    async def test_cancelled_arm_after_esp_apply_leaves_renewals_suspended(self):
+        hass, _clock, lease = self._lease()
+        hass.cancel_renew_after_apply = True
+
+        with self.assertRaises(asyncio.CancelledError):
+            await lease.arm()
+
+        self.assertEqual(
+            hass.states[f"binary_sensor.{EDGE_ENTITY_PREFIX}_safety_lease_armed"],
+            "on",
+        )
+        self.assertTrue(lease.renewals_suspended)
+        with self.assertRaisesRegex(EdgeSafetyLeaseError, "revoked"):
+            await lease.renew_if_due()
+
+        hass.cancel_renew_after_apply = False
+        state = await lease.arm()
+        self.assertTrue(state.armed)
+        self.assertFalse(lease.renewals_suspended)
+
+    async def test_failed_arm_closes_background_renewal_until_next_explicit_arm(self):
+        hass, _clock, lease = self._lease()
+        hass.renew_ack = False
+
+        with self.assertRaises(EdgeSafetyLeaseError):
+            await lease.arm()
+
+        self.assertTrue(lease.renewals_suspended)
+        with self.assertRaisesRegex(EdgeSafetyLeaseError, "revoked"):
+            await lease.renew_if_due()
+
+        hass.renew_ack = True
+        state = await lease.arm()
+        self.assertTrue(state.armed)
+        self.assertFalse(lease.renewals_suspended)
+
+    async def test_suspended_poll_does_not_mutate_new_owner_revocation_epoch(self):
+        hass, _clock, lease = self._lease()
+        lease.suspend_renewals()
+        suspended_epoch = lease._renewal_epoch
+
+        with self.assertRaisesRegex(EdgeSafetyLeaseError, "revoked"):
+            await lease.renew_if_due()
+
+        self.assertEqual(lease._renewal_epoch, suspended_epoch)
+        self.assertTrue(lease.renewals_suspended)
+
+        state = await lease.arm()
+        self.assertTrue(state.armed)
+        self.assertFalse(lease.renewals_suspended)
+
+    async def test_stop_revokes_arm_waiting_for_operation_lock(self):
+        hass, _clock, lease = self._lease()
+        await lease._operation_lock.acquire()
+        arm_task = asyncio.create_task(lease.arm())
+        await asyncio.sleep(0)
+
+        lease.suspend_renewals()
+        lease._operation_lock.release()
+
+        with self.assertRaisesRegex(EdgeSafetyLeaseError, "revoked"):
+            await arm_task
+        self.assertTrue(lease.renewals_suspended)
+        self.assertEqual(hass.presses, [])
+
+    async def test_stop_revokes_arm_while_esp_command_is_in_flight(self):
+        hass, _clock, lease = self._lease()
+        hass.block_renew_after_apply = True
+        arm_task = asyncio.create_task(lease.arm())
+        await asyncio.wait_for(hass.renew_started.wait(), timeout=1.0)
+
+        lease.suspend_renewals()
+        hass.allow_renew.set()
+
+        with self.assertRaisesRegex(EdgeSafetyLeaseError, "revoked"):
+            await arm_task
+        self.assertTrue(lease.renewals_suspended)
+        self.assertEqual(
+            hass.states[f"binary_sensor.{EDGE_ENTITY_PREFIX}_safety_lease_armed"],
+            "on",
+        )
+        with self.assertRaisesRegex(EdgeSafetyLeaseError, "revoked"):
+            await lease.renew_if_due()
 
     async def test_stale_direct_modbus_blocks_renew_before_button_press(self):
         hass, _clock, lease = self._lease()

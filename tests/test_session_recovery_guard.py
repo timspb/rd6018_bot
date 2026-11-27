@@ -47,9 +47,11 @@ class SessionRecoveryGuardTests(unittest.TestCase):
     def test_canonical_start_rejects_quarantine_before_live_io_or_rollback(self):
         source = Path("application/start_transaction_service.py").read_text(encoding="utf-8")
         start = source.index("async def start_profile_transactional")
-        end = source.index("live = await app.hass.get_all_live()", start)
+        end = source.index("live = await port.read_live()", start)
         preflight = source[start:end]
-        self.assertIn("session_recovery_guard.quarantined", preflight)
+        self.assertIn("port.session_recovery_guard.quarantined", preflight)
+        self.assertLess(preflight.index("port.session_recovery_guard.quarantined"),
+                        source.index("live = await port.read_live()", start))
         self.assertNotIn("_confirm_failed_start_is_off", preflight)
 
 
@@ -113,9 +115,7 @@ class ExecutionPortQuarantineTests(unittest.IsolatedAsyncioTestCase):
         port.session_recovery_guard.quarantine("current")
         result = await port.execute_controller_actions(
             {"turn_on": True, "set_voltage": 14.4, "set_current": 2.0}, {},
-            max_stage_current_a=20.0, ocp_offset_a=1.0, idle_safe_ocp_a=1.0,
-            stabilize_delay_s=0.0, recipe_voltage_ceiling_v=16.5,
-            has_ovp=False, has_ocp=False,
+            max_stage_current_a=20.0, recipe_voltage_ceiling_v=16.5,
         )
         self.assertFalse(result.enabled)
         self.assertEqual(owner.calls, [])

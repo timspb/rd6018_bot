@@ -30,6 +30,12 @@ from runtime.safety.thermal_variables import (
 from runtime.safety.voltage_variables import PB_PROFILE_WARNING_VOLTAGE_V
 
 
+from runtime.charge.runtime.support import (
+    output_is_known as _output_is_known,
+    output_is_on as _output_is_on,
+    phase_log as _phase_log,
+)
+
 logger = logging.getLogger("rd6018.charge.recovery_runtime")
 
 
@@ -142,35 +148,6 @@ def apply_recovery_safe_wait_authority(
     return AuthorityDecision(
         AuthorityAction.CONTINUE,
         f"recovery_safe_wait_enable_requested:{decision.reason}",
-    )
-
-
-def _output_is_known(value: Any) -> bool:
-    return value is not None and str(value).lower() not in {
-        "unavailable",
-        "unknown",
-        "",
-    }
-
-
-def _output_is_on(value: Any) -> bool:
-    return value is True or str(value).lower() == "on"
-
-
-def _phase_log(phase: str, voltage: float, current: float, temp: float) -> None:
-    try:
-        from time_utils import format_time_user_tz
-
-        stamp = format_time_user_tz()
-    except Exception:
-        stamp = "-"
-    logger.info(
-        "%s | %-12s | %5.2fВ | %5.2fА | %5.1f°C",
-        stamp,
-        phase,
-        voltage,
-        current,
-        temp,
     )
 
 
@@ -329,7 +306,7 @@ async def run_authoritative_recovery_scaffold(
 
     elapsed = max(0.0, now - host.stage_start_time)
     if now - host._last_log_time >= float(HISTORY_SAMPLE_INTERVAL_S.default):
-        _phase_log(host.current_stage, voltage, current, temp)
+        _phase_log(logger, host.current_stage, voltage, current, temp)
         host._last_log_time = now
 
     if not manual_off_active and now - host._last_hourly_report >= float(

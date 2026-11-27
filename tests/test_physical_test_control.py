@@ -189,6 +189,28 @@ class PhysicalTestControlTests(unittest.IsolatedAsyncioTestCase):
             await control.stop()
             self.assertFalse(os.path.exists(path))
 
+    @unittest.skipUnless(hasattr(socket, "AF_UNIX"), "Unix sockets unavailable")
+    async def test_second_instance_cannot_unlink_or_replace_active_listener(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = str(Path(directory) / "single-owner.sock")
+            first = PhysicalTestControl(FakeApp(), socket_path=path, enabled=True)
+            second = PhysicalTestControl(FakeApp(), socket_path=path, enabled=True)
+            await first.start()
+            try:
+                with self.assertRaisesRegex(
+                    Exception, "listener is already active"
+                ):
+                    await second.start()
+                await second.stop()
+                self.assertTrue(os.path.exists(path))
+                response = await asyncio.to_thread(
+                    client_request, path, {"op": "status"}
+                )
+                self.assertTrue(response["ok"])
+            finally:
+                await first.stop()
+            self.assertFalse(os.path.exists(path))
+
     @unittest.skipUnless(
         callable(getattr(asyncio, "start_unix_server", None)),
         "asyncio.start_unix_server is unavailable in this Python runtime",

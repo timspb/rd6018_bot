@@ -131,11 +131,26 @@ VOLTAGE_SAG_V_PER_MIN = VariableSpec(
     maximum=10.0,
 )
 
+MANUAL_DEFAULT_MAIN_TAIL_CURRENT_A = VariableSpec(
+    key="charge.evidence.first_stage.manual_default_main_tail_current_a",
+    default=0.30,
+    value_type=float,
+    unit="A",
+    description="Fallback Manual MAIN CV tail-current threshold when battery identity or capacity is unavailable.",
+    owner="runtime.charge.evidence.first_stage",
+    provenance="accepted profile-less Manual MAIN CV fallback threshold",
+    override_policy=OverridePolicy.CONFIG_FILE,
+    change_effect=ChangeEffect.RESTART_REQUIRED,
+    minimum=0.05,
+    maximum=5.0,
+)
+
 
 __all__ = [
     "AGM_TAIL_C_RATE",
     "CURRENT_NOT_FALLING_A_PER_MIN",
     "MAX_TAIL_A",
+    "MANUAL_DEFAULT_MAIN_TAIL_CURRENT_A",
     "MIN_MEASURABLE_TAIL_A",
     "NEAR_TARGET_MARGIN_V",
     "STANDARD_TAIL_C_RATE",

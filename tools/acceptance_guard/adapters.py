@@ -8,7 +8,9 @@ import time
 from datetime import datetime
 
 from hass_api import HassClient
-from managed_runtime_safety import ManagedRuntimeSafetyGuard
+from runtime.safety.managed_guard import ManagedRuntimeSafetyGuard
+from application.safe_output_coordinator import SafeOutputCoordinator
+from runtime.safety.output_policy import OutputRequest, SafetySupervisor
 from physical_test_control import PhysicalTestControl
 from runtime.physical.connectors.esp_direct import ESPDirectConnector
 from runtime.physical.connectors.ha_esp import HAESPConnector
@@ -109,11 +111,15 @@ class GuardedHassClient(HassClient):
             return await super().turn_on(entity_id)
 
     async def safe_enable_output(self, **kwargs):
-        self.guard.voltage(kwargs.get('voltage_v'))
-        # SafeOutputCoordinator's turn_off calls are failure rollback only.
-        # Keep its original transaction/policy implementation and immediate OFF.
+        """Acceptance-only guarded transaction; production Safety lives elsewhere."""
+        self.guard.voltage(kwargs.get("voltage_v"))
+        request = OutputRequest(
+            voltage_v=float(kwargs["voltage_v"]),
+            current_a=float(kwargs["current_a"]),
+            recipe_voltage_ceiling_v=float(kwargs["recipe_voltage_ceiling_v"]),
+        )
         with fault_off():
-            return await super().safe_enable_output(**kwargs)
+            return await SafeOutputCoordinator(self, SafetySupervisor()).enable(request)
 
 
 class GuardedD061Control(PhysicalTestControl):

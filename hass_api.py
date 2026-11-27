@@ -11,32 +11,13 @@ from typing import Any, Dict, List, Optional, Tuple
 import aiohttp
 
 from config import ENTITY_MAP, HA_INSECURE_LOCAL, HA_URL, HA_TOKEN
-from rd6018_telemetry import canonicalize_live, canonical_programmed_readback, finite_float
-from safe_output import (
-    EnableResult,
-    OutputRequest,
-    SafeOutputCoordinator,
-    SafetyPolicy,
-    SafetySupervisor,
-    snapshot_from_live,
-)
+from rd6018_telemetry import canonicalize_live
 
 logger = logging.getLogger("rd6018")
 
-PROGRAMMING_TRANSACTION_TTL_SEC = 30.0
-# Output State Code V2 is published by the ESPHome/Modbus polling loop.  The
-# physical node has demonstrated a 6.22 s worst-case publication latency after
-# the HA switch command, so keep a bounded margin without changing the
-# canonical-source or fail-closed requirements.
-OUTPUT_VERIFY_TIMEOUT_SEC = 10.0
-OUTPUT_VERIFY_DELAY_SEC = 0.20
-OUTPUT_VERIFY_RETRIES = int(OUTPUT_VERIFY_TIMEOUT_SEC / OUTPUT_VERIFY_DELAY_SEC) + 1
-OUTPUT_OFF_VERIFY_TIMEOUT_SEC = 10.0
-OUTPUT_OFF_VERIFY_DELAY_SEC = 0.20
-
 
 class HassClient:
-    """Асинхронный клиент для Home Assistant REST API."""
+    """Raw HA/selected-physical transport adapter; contains no Safety policy."""
 
     def __init__(self, base_url: str = HA_URL, token: str = HA_TOKEN, *, backend: Any = None) -> None:
         self.base_url = (base_url or "").rstrip("/")
@@ -44,8 +25,6 @@ class HassClient:
         self._session: Optional[aiohttp.ClientSession] = None
         self._timeout = aiohttp.ClientTimeout(total=10)
         self._disable_tls_verify = self._looks_like_local_url(self.base_url) and HA_INSECURE_LOCAL
-        self._programming_state: Dict[str, Tuple[float, float]] = {}
-        self._safety_supervisor = SafetySupervisor()
         self._physical_backend = backend
         # Preserve the native read-only button inventory capability only for a
         # backend that actually implements it. HA-only adapters keep the legacy
@@ -76,6 +55,26 @@ class HassClient:
     def _uses_physical_backend(self) -> bool:
         return self._physical_backend is not None
 
+    @property
+    def supports_typed_off_receipt(self) -> bool:
+        """Whether the selected connector can return the exact AD051 receipt."""
+        return callable(getattr(self._physical_backend, "disable_output_with_receipt", None))
+
+    @property
+    def native_connection_generation(self) -> Optional[int]:
+        generation = getattr(self._physical_backend, "native_connection_generation", None)
+        return generation if isinstance(generation, int) and not isinstance(generation, bool) else None
+
+    async def turn_off_with_receipt(self) -> Any:
+        """Return exact connector OFF evidence; unsupported adapters return None."""
+        if not self.supports_typed_off_receipt:
+            return None
+        try:
+            return await self._physical_backend.disable_output_with_receipt()
+        except Exception as ex:
+            logger.error("physical connector typed turn_off failed: %s", ex)
+            return None
+
     @staticmethod
     def _looks_like_local_url(base_url: str) -> bool:
         if not base_url:
@@ -100,11 +99,14 @@ class HassClient:
         return self._session
 
     async def close(self) -> None:
-        if self._physical_backend is not None:
-            await self._physical_backend.close()
-            return
-        if self._session and not self._session.closed:
-            await self._session.close()
+        try:
+            if self._physical_backend is not None:
+                await self._physical_backend.close()
+        finally:
+            # The selected connector and the independent HA REST sidecar can
+            # own separate sessions. Close both even if backend close fails.
+            if self._session and not self._session.closed:
+                await self._session.close()
 
     @staticmethod
     def _entity_metadata(entity_id: str, data: Dict[str, Any], status: str) -> Dict[str, Any]:
@@ -131,9 +133,10 @@ class HassClient:
         """Получить состояние сущности; HA source timestamps сохраняются в attrs."""
         if self._uses_physical_backend:
             reader = getattr(self._physical_backend, "get_state", None)
-            if not callable(reader):
-                return None, {"source": "physical_backend", "status": "unsupported"}
-            return await reader(entity_id)
+            if callable(reader):
+                return await reader(entity_id)
+            # HA remains an independent read sidecar when the selected physical
+            # connector has no native entity-state API (e.g. HAESPConnector).
         if not self.base_url or not self.token:
             logger.warning("HassClient not configured")
             return None, {}
@@ -178,6 +181,15 @@ class HassClient:
             return None
         return await reader()
 
+    def get_post_on_native_phase(self, receipt: Any) -> Dict[str, Any]:
+        """Return only same-ESPDirectTransport callbacks; HA has no Native proof."""
+        from runtime.physical.connectors.esp_direct import ESPDirectConnector
+
+        backend = self._physical_backend
+        if not isinstance(backend, ESPDirectConnector):
+            return {"status": "NOT_OBSERVED", "reason": "native_backend_unavailable"}
+        return backend.get_post_on_native_phase(receipt)
+
     async def get_native_guard_pre_on_snapshot(self) -> Dict[str, Any] | None:
         """Return the minimal direct ESP callback snapshot used by Guard assessment.
 
@@ -195,7 +207,7 @@ class HassClient:
             return None
         keys = (
             "output_state_code_v2", "set_current_readback_v2",
-            "ocp_readback_v2", "protection_code",
+            "protection_code",
         )
         source_meta = live.get("_meta")
         if not isinstance(source_meta, dict):
@@ -277,8 +289,6 @@ class HassClient:
             mapping = {
                 ENTITY_MAP.get("set_voltage"): self.set_voltage,
                 ENTITY_MAP.get("set_current"): self.set_current,
-                ENTITY_MAP.get("ovp"): self.set_ovp,
-                ENTITY_MAP.get("ocp"): self.set_ocp,
             }
             handler = mapping.get(entity_id)
             return bool(await handler(value)) if handler else False
@@ -303,140 +313,27 @@ class HassClient:
             logger.error("HA set_value %s: %s", entity_id, ex)
             return False
 
-    def _record_programming(self, key: str, value: float, ok: bool) -> None:
-        if ok:
-            self._programming_state[key] = (float(value), time.monotonic())
-        else:
-            self._programming_state.pop(key, None)
-
-    async def _tracked_set(self, key: str, entity_id: str, value: float) -> bool:
-        ok = await self.set_value(entity_id, value)
-        self._record_programming(key, value, ok)
-        return ok
-
     async def set_voltage(self, value: float) -> bool:
+        """Dispatch one raw voltage command to the selected transport."""
         if self._uses_physical_backend:
-            await self._physical_backend.set_voltage(float(value))
-            self._record_programming("voltage", value, True)
-            return True
-        return await self._tracked_set("voltage", ENTITY_MAP["set_voltage"], value)
+            try:
+                await self._physical_backend.set_voltage(float(value))
+                return True
+            except Exception as ex:
+                logger.error("physical connector voltage write failed: %s", ex)
+                return False
+        return await self.set_value(ENTITY_MAP["set_voltage"], value)
 
     async def set_current(self, value: float) -> bool:
+        """Dispatch one raw current command to the selected transport."""
         if self._uses_physical_backend:
-            await self._physical_backend.set_current(float(value))
-            self._record_programming("current", value, True)
-            return True
-        return await self._tracked_set("current", ENTITY_MAP["set_current"], value)
-
-    async def set_ovp(self, value: float) -> bool:
-        if self._uses_physical_backend:
-            await self._physical_backend.set_ovp(float(value))
-            self._record_programming("ovp", value, True)
-            return True
-        return await self._tracked_set("ovp", ENTITY_MAP["ovp"], value)
-
-    async def set_ocp(self, value: float) -> bool:
-        if self._uses_physical_backend:
-            await self._physical_backend.set_ocp(float(value))
-            self._record_programming("ocp", value, True)
-            return True
-        return await self._tracked_set("ocp", ENTITY_MAP["ocp"], value)
-
-    def _recent_programming_request(self) -> Optional[OutputRequest]:
-        now = time.monotonic()
-        required = ("voltage", "current")
-        values: Dict[str, float] = {}
-        timestamps: Dict[str, float] = {}
-        for key in required:
-            item = self._programming_state.get(key)
-            if item is None:
-                return None
-            value, timestamp = item
-            if now - timestamp > PROGRAMMING_TRANSACTION_TTL_SEC:
-                return None
-            values[key] = value
-            timestamps[key] = timestamp
-        for key in ("ovp", "ocp"):
-            item = self._programming_state.get(key)
-            if item is not None and now - item[1] <= PROGRAMMING_TRANSACTION_TTL_SEC:
-                values[key], timestamps[key] = item
-        if "ovp" in timestamps and timestamps["voltage"] < timestamps["ovp"]:
-            return None
-        return OutputRequest(
-            voltage_v=values["voltage"],
-            current_a=values["current"],
-            ovp_v=values.get("ovp"),
-            ocp_a=values.get("ocp"),
-            recipe_voltage_ceiling_v=self._safety_supervisor.policy.absolute_voltage_ceiling_v,
-        )
-
-    def _clear_programming_state(self) -> None:
-        self._programming_state.clear()
-
-    async def _retire_unrequested_protection_limits(
-        self, request: OutputRequest, before: Any,
-    ) -> bool:
-        """Remove *old* OVP/OCP only while OFF, before a new managed enable.
-
-        Riden retains protection registers between charging programs. A prior
-        OCP of 1.32 A tripped a new 6 A Iset (node104, 2026-11-06).
-        No protection programming is performed for a limit explicitly owned
-        by the current recipe (e.g. MIX OCP). Never infer a safe zero from
-        a missing readback, and never retry an Output ON here.
-        """
-        stale = []
-        for key, target, actual, setter in (
-            ("ovp", request.ovp_v, before.ovp_v, self.set_ovp),
-            ("ocp", request.ocp_a, before.ocp_a, self.set_ocp),
-        ):
-            if target is not None:
-                continue
-            if actual is None:
-                logger.error("START refused: missing old %s register readback", key)
-                return False
-            stale.append((key, setter))
-        if not stale:
-            return True
-
-        # A normal preflight has already proven fresh physical OFF and V/I.
-        # Revalidate immediately before touching retained registers.
-        live = await self.get_all_live()
-        snap = snapshot_from_live(live, require_programming_freshness=True)
-        if snap is None or snap.output_on or not self._safety_supervisor.preflight(request, snap).allowed:
-            logger.error("START refused: retained protection clearance lacks fresh OFF preflight")
-            return False
-        for key, setter in stale:
-            actual = canonical_programmed_readback(live, key)
-            if actual is None:
-                logger.error("START refused: %s V2 readback missing", key)
-                return False
-            if abs(actual) > 0.005:
-                try:
-                    if not await setter(0.0):
-                        logger.error("START refused: cannot retire old %s=%.2f", key, actual)
-                        return False
-                except Exception as exc:
-                    logger.error("START refused: %s retirement failed: %s", key, type(exc).__name__)
-                    return False
-                logger.info("START retired stale %s=%.2f while Output OFF", key, actual)
-
-        deadline = time.monotonic() + 10.0
-        while True:
-            live = await self.get_all_live()
-            snap = snapshot_from_live(live, require_programming_freshness=True)
-            if snap is None or snap.output_on or not self._safety_supervisor.preflight(request, snap).allowed:
-                logger.error("START refused: physical OFF/preflight lost during protection retirement")
-                return False
-            if all(
-                (value := canonical_programmed_readback(live, key)) is not None
-                and abs(value) <= 0.005
-                for key, _ in stale
-            ):
+            try:
+                await self._physical_backend.set_current(float(value))
                 return True
-            if time.monotonic() >= deadline:
-                logger.error("START refused: old OVP/OCP did not clear in readback window")
+            except Exception as ex:
+                logger.error("physical connector current write failed: %s", ex)
                 return False
-            await asyncio.sleep(0.25)
+        return await self.set_value(ENTITY_MAP["set_current"], value)
 
     async def _switch_service(self, service: str, entity_id: Optional[str] = None) -> bool:
         if self._uses_physical_backend:
@@ -468,162 +365,12 @@ class HassClient:
             return False
 
     async def turn_on(self, entity_id: Optional[str] = None) -> bool:
-        """Fail-closed enable after complete programming transaction + readback."""
-        request = self._recent_programming_request()
-        if request is None:
-            logger.error("HA turn_on blocked: no fresh complete OVP/OCP/V/I programming transaction")
-            return False
-
-        before = snapshot_from_live(
-            await self.get_all_live(),
-            require_programming_freshness=True,
-        )
-        if before is None:
-            logger.error("HA turn_on blocked: required live telemetry is invalid/stale")
-            self._clear_programming_state()
-            return False
-        decision = self._safety_supervisor.preflight(request, before)
-        if not decision.allowed:
-            logger.error("HA turn_on blocked by safety preflight: %s", decision.detail)
-            self._clear_programming_state()
-            return False
-        # Old RD6018 OVP/OCP registers persist across sessions. Retire only
-        # limits not explicitly requested by this recipe, while Output is OFF.
-        # Without this, a previous 1.32 A OCP can trip a fresh 6 A START.
-        if not await self._retire_unrequested_protection_limits(request, before):
-            self._clear_programming_state()
-            return False
-        coordinator = SafeOutputCoordinator(self, self._safety_supervisor)
-        _programmed, verified = await coordinator.confirm_programmed_readback(request)
-        if not verified.allowed:
-            logger.error("HA turn_on blocked by setpoint readback: %s", verified.detail)
-            self._clear_programming_state()
-            return False
-
-        enabled = await self._switch_service("turn_on", entity_id)
-        if not enabled:
-            self._clear_programming_state()
-            return False
-
-        final = None
-        for attempt in range(OUTPUT_VERIFY_RETRIES):
-            if attempt:
-                await asyncio.sleep(OUTPUT_VERIFY_DELAY_SEC)
-            final = snapshot_from_live(
-                await self.get_all_live(),
-                require_programming_freshness=True,
-            )
-            if final is not None and final.output_on:
-                break
-
-        final_decision = (
-            self._safety_supervisor.verify_live_output(request, final)
-            if final is not None
-            else None
-        )
-        if final_decision is None or not final_decision.allowed:
-            detail = "telemetry invalid/stale" if final_decision is None else final_decision.detail
-            logger.error("HA turn_on post-enable verification failed (%s); forcing output OFF", detail)
-            await self._switch_service("turn_off", entity_id)
-            self._clear_programming_state()
-            return False
-
-        self._clear_programming_state()
-        return True
-
-    async def verify_live_programming(
-        self,
-        *,
-        voltage_v: float,
-        current_a: float,
-        ovp_v: Optional[float] = None,
-        ocp_a: Optional[float] = None,
-        recipe_voltage_ceiling_v: float,
-    ) -> bool:
-        """Verify final programmed V/I and any explicitly requested limits.
-
-        Physical protection trip status and measured voltage/current envelope
-        remain mandatory regardless of whether protection-register readback was
-        requested by this transaction.
-        """
-        request = OutputRequest(
-            voltage_v=float(voltage_v),
-            current_a=float(current_a),
-            ovp_v=float(ovp_v) if ovp_v is not None else None,
-            ocp_a=float(ocp_a) if ocp_a is not None else None,
-            recipe_voltage_ceiling_v=float(recipe_voltage_ceiling_v),
-        )
-        coordinator = SafeOutputCoordinator(self, self._safety_supervisor)
-        programmed, readback = await coordinator.confirm_programmed_readback(request)
-        if not readback.allowed or programmed is None:
-            logger.error("Final programmed readback rejected: %s", readback.detail)
-            return False
-        live_decision = self._safety_supervisor.verify_live_output(request, programmed)
-        if not live_decision.allowed:
-            logger.error("Final live output verification rejected: %s", live_decision.detail)
-            return False
-        return True
+        """Issue one raw Output-ON transport command; Safety owns admission and verification."""
+        return await self._switch_service("turn_on", entity_id)
 
     async def turn_off(self, entity_id: Optional[str] = None) -> bool:
-        self._clear_programming_state()
-        requested = await self._switch_service("turn_off", entity_id)
-        if not requested:
-            return False
-        return await self.wait_for_output_off()
-
-    async def wait_for_output_off(
-        self,
-        *,
-        timeout_s: float = OUTPUT_OFF_VERIFY_TIMEOUT_SEC,
-        poll_interval_s: float = OUTPUT_OFF_VERIFY_DELAY_SEC,
-    ) -> bool:
-        """Poll one authoritative OFF readback after a single STOP write."""
-        loop = asyncio.get_running_loop()
-        deadline = loop.time() + max(0.0, float(timeout_s))
-        interval = max(0.01, float(poll_interval_s))
-        while True:
-            try:
-                live = await self.get_all_live()
-                code = live.get("output_state_code_v2")
-                if code not in (None, "", "unknown", "unavailable"):
-                    try:
-                        if float(code) == 0.0:
-                            return True
-                    except (TypeError, ValueError):
-                        pass
-                elif str(live.get("switch", "")).strip().lower() == "off":
-                    # Compatibility for older fixtures without the V2 register.
-                    return True
-            except Exception as exc:
-                logger.warning("Output OFF readback failed: %s", exc)
-
-            now = loop.time()
-            if now >= deadline:
-                return False
-            await asyncio.sleep(min(interval, max(0.0, deadline - now)))
-
-    async def safe_enable_output(
-        self,
-        *,
-        voltage_v: float,
-        current_a: float,
-        ovp_v: Optional[float] = None,
-        ocp_a: Optional[float] = None,
-        recipe_voltage_ceiling_v: float,
-        policy: Optional[SafetyPolicy] = None,
-        readback_delay_s: float = 0.0,
-    ) -> EnableResult:
-        supervisor = SafetySupervisor(policy or self._safety_supervisor.policy)
-        coordinator = SafeOutputCoordinator(self, supervisor, readback_delay_s=readback_delay_s)
-        return await coordinator.enable(
-            OutputRequest(
-                voltage_v=float(voltage_v),
-                current_a=float(current_a),
-                ovp_v=float(ovp_v) if ovp_v is not None else None,
-                ocp_a=float(ocp_a) if ocp_a is not None else None,
-                recipe_voltage_ceiling_v=float(recipe_voltage_ceiling_v),
-            )
-        )
+        """Issue one raw Output-OFF transport command; Safety owns confirmation."""
+        return await self._switch_service("turn_off", entity_id)
 
     async def _fetch_all_states_bulk(self) -> Optional[Dict[str, Any]]:
         if self._uses_physical_backend:

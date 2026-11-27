@@ -8,7 +8,7 @@ from runtime.output.bridge import (
 
 class V3PhysicalBridgeDiscoveryTests(unittest.TestCase):
     def test_capability_snapshot_and_limits(self):
-        capability = HardwareCapability(True, True, 0.0 + 0.1, 18.0, 0.01, 0.1, 12.0, 0.01, True, True, True, True, True, True)
+        capability = HardwareCapability(True, True, 0.1, 18.0, 0.01, 0.1, 12.0, 0.01, True, True, True)
         self.assertTrue(capability.supports_output_state_readback)
 
     def test_snapshot_readback_report_only(self):
@@ -24,7 +24,7 @@ class V3PhysicalBridgeDiscoveryTests(unittest.TestCase):
 
     def test_invalid_capability_rejected(self):
         with self.assertRaises(ValueError):
-            HardwareCapability(True, True, 10.0, 9.0, 0.1, 0.1, 1.0, 0.1, True, True, True, True, True, True)
+            HardwareCapability(True, True, 10.0, 9.0, 0.1, 0.1, 1.0, 0.1, True, True, True)
 
 
 if __name__ == "__main__":

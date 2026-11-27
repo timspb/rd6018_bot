@@ -20,7 +20,7 @@ class PhysicalSnapshotComparator:
         fields = []
         if abs(left.timestamp - right.timestamp) > timestamp_tolerance:
             fields.append("timestamp")
-        for name in ("output_state", "measured_voltage", "measured_current", "configured_voltage", "configured_current", "ovp", "ocp", "temperature"):
+        for name in ("output_state", "measured_voltage", "measured_current", "configured_voltage", "configured_current", "temperature"):
             a, b = getattr(left, name), getattr(right, name)
             if a is None and b is None:
                 continue

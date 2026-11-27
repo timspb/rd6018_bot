@@ -26,12 +26,18 @@ class EspHomeIntrinsicSafetyContractTests(unittest.TestCase):
             "temp_int >= ${rd6018_intrinsic_temp_cutoff_c}f",
             self.package,
         )
-        self.assertIn("switch.turn_off: rd6018_safety_output", self.package)
+        self.assertIn("switch.turn_off: rd6018_output_public", self.package)
 
-    def test_raw_rd_protection_status_is_local_off_authority(self):
+    def test_only_opp_or_unknown_nonzero_r16_can_trigger_intrinsic_off(self):
         self.assertIn("id(rd6018_protection_status_code).state", self.package)
-        self.assertIn("((uint16_t) protection) != 0U", self.package)
-        self.assertIn("switch.turn_off: rd6018_safety_output", self.package)
+        for required in (
+            "((uint16_t) protection) != 0U",
+            "((uint16_t) protection) != 1U",
+            "((uint16_t) protection) != 2U",
+        ):
+            self.assertEqual(self.executable_package.count(required), 2)
+        self.assertIn("switch.turn_off: rd6018_output_public", self.package)
+        self.assertIn("- interval: 5s", self.package)
 
     def test_intrinsic_guard_is_not_pb_or_control_plane_gated(self):
         executable = self.executable_package.lower()

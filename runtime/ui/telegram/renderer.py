@@ -57,6 +57,38 @@ def render_button(spec: ButtonSpec) -> InlineKeyboardButton:
     )
 
 
+def render_callback_rows(
+    rows: list[list[tuple[str, str]]],
+) -> InlineKeyboardMarkup:
+    """One Telegram button-construction boundary for legacy callback layouts."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=label, callback_data=callback) for label, callback in row]
+            for row in rows
+        ],
+    )
+
+
+
+def filter_callback_markup(markup: InlineKeyboardMarkup, blocked: set[str]) -> InlineKeyboardMarkup:
+    """Filter callbacks without rebuilding or losing other button attributes."""
+    rows = [
+        [button for button in row if str(button.callback_data or "") not in blocked]
+        for row in markup.inline_keyboard
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=[row for row in rows if row])
+
+
+def append_unique_callback(markup: InlineKeyboardMarkup, label: str, callback: str) -> InlineKeyboardMarkup:
+    """Append a callback button once at the sole framework rendering boundary."""
+    if any(str(button.callback_data or "") == callback for row in markup.inline_keyboard for button in row):
+        return markup
+    return InlineKeyboardMarkup(
+        inline_keyboard=[list(row) for row in markup.inline_keyboard]
+        + [[InlineKeyboardButton(text=label, callback_data=callback)]],
+    )
+
+
 def render_screen_markup(screen: ScreenSpec) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[

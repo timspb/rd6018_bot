@@ -28,10 +28,13 @@ class DashboardRefreshLifecycleTests(unittest.TestCase):
 
     def test_only_one_owner_for_timed_graph_refresh(self):
         source = (ROOT / "operator_dashboard.py").read_text(encoding="utf-8")
-        self.assertIn("owner.start_graph_refresh(refresh_graph_message)", source)
+        # Graph refresh scheduling belongs to TerminalPanelManager and starts
+        # only after a graph workspace has been published.
+        owner = (ROOT / "runtime/ui/telegram/panel_lifecycle.py").read_text(encoding="utf-8")
+        self.assertIn("self.start_graph_refresh(refresh_callback)", owner)
+        self.assertIn("def start_graph_refresh(self, refresh_callback)", owner)
         self.assertNotIn("async def graph_refresh_loop(", source)
         self.assertNotIn("ensure_graph_refresh_loop", source)
-        owner = (ROOT / "runtime/ui/telegram/panel_lifecycle.py").read_text(encoding="utf-8")
         self.assertIn("async with self._locks[chat_id]", owner)
         self.assertIn("async def publish_last(", owner)
         self.assertIn("async def refresh_graph(", owner)

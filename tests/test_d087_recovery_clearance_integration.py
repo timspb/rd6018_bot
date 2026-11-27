@@ -5,11 +5,12 @@ import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from runtime.ui.telegram.recovery_clearance import TelegramRecoveryAuthority, _approved_private_event
 from runtime.charge.persistence import retire_controller_session, restore_session
 from application.execution_port import ExecutionPort
+from application.execution_port import get_or_create_execution_port
 from datetime import datetime, timezone
 from application.controller_session_retirement import _ControllerSessionRetirement
 from application.operator_recovery_clearance import OperatorRecoveryClearanceService, VerifiedOffEvidence
@@ -19,6 +20,87 @@ from runtime.journal.recovery_quarantine import RecoveryQuarantineJournal
 
 
 class RecoveryClearanceAdmissionTests(unittest.TestCase):
+    def test_app_scoped_port_and_lock_follow_rebound_runtime_guard_adapter(self):
+        from runtime.safety.runtime_guard import RuntimeSafetyGuard
+
+        class Adapter:
+            def __init__(self, marker):
+                self.marker = marker
+
+            async def get_all_live(self):
+                return {"adapter": self.marker}
+
+            async def turn_on(self): return True
+            async def turn_off(self): return True
+            async def set_voltage(self, _value): return True
+            async def set_current(self, _value): return True
+
+        first_adapter = Adapter("composition")
+        app = SimpleNamespace(
+            hass=first_adapter,
+            charge_controller=SimpleNamespace(is_active=False),
+        )
+        guard = RuntimeSafetyGuard(app)
+        app.runtime_safety_guard = guard
+
+        port = get_or_create_execution_port(app)
+        lock = port._guard_owner_lock
+        current_adapter = Adapter("live")
+        app.hass = current_adapter
+        guard.bind_adapter(current_adapter)
+
+        self.assertIs(get_or_create_execution_port(app), port)
+        self.assertIs(app.execution_port, port)
+        self.assertIs(port._guard_owner_lock, lock)
+        self.assertIs(app.guard_execution_owner_lock, lock)
+        self.assertIs(port._execution_owner, guard)
+        self.assertIs(guard._raw_get_all_live.__self__, current_adapter)
+        self.assertIs(guard._raw_turn_on.__self__, current_adapter)
+        self.assertIs(guard._raw_turn_off.__self__, current_adapter)
+        self.assertIs(guard._raw_set_voltage.__self__, current_adapter)
+        self.assertIs(guard._raw_set_current.__self__, current_adapter)
+        self.assertEqual(asyncio.run(port.read_live()), {"adapter": "live"})
+
+    def test_production_control_callers_route_actuation_through_shared_port(self):
+        import ast
+
+        callers = (
+            "production_bootstrap.py",
+            "application/start_transaction_service.py",
+            "manual_mode.py",
+            "manual_runtime.py",
+            "mix_mode.py",
+            "rd_control_mode.py",
+            "rd_managed_adoption.py",
+            "rd_managed_mix.py",
+            "runtime/startup_recovery.py",
+            "runtime/production_lifecycle.py",
+            "runtime/safety/watchdog_runtime.py",
+            "diagnostic_persistence.py",
+        )
+        raw_writes = {"safe_enable_output", "turn_on", "turn_off", "set_voltage", "set_current"}
+
+        def attribute_chain(node):
+            chain = []
+            while isinstance(node, ast.Attribute):
+                chain.append(node.attr)
+                node = node.value
+            return chain
+
+        for relative_path in callers:
+            with self.subTest(path=relative_path):
+                source = Path(relative_path).read_text(encoding="utf-8")
+                self.assertIn("get_or_create_execution_port", source)
+                tree = ast.parse(source)
+                direct_hass_writes = [
+                    node for node in ast.walk(tree)
+                    if isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr in raw_writes
+                    and "hass" in attribute_chain(node.func.value)
+                ]
+                self.assertEqual([], direct_hass_writes)
+
     def test_cold_reboot_clearance_uses_persisted_identity_and_never_resumes(self):
         class Controller:
             STAGE_IDLE, STAGE_MAIN, STAGE_MIX = "IDLE", "MAIN", "MIX"
@@ -111,6 +193,105 @@ class RecoveryClearanceAdmissionTests(unittest.TestCase):
                 self.assertFalse(result.cleared)
                 self.assertEqual(port.calls, 0)
 
+    def test_absent_session_uses_exact_quarantine_identity_and_writes_only_journal_tombstone(self):
+        class Controller:
+            STAGE_IDLE, STAGE_MAIN, STAGE_MIX = "IDLE", "MAIN", "MIX"
+            def __init__(self):
+                self.current_stage = self.STAGE_IDLE
+                self._v2_trace_session_id = "S-ABSENT"
+                self._v2_battery_id = "B-EFB"
+                self._recovery_session_retirement_pending = True
+
+        class Owner:
+            def __init__(self):
+                self.off_calls = 0
+            async def turn_off(self):
+                self.off_calls += 1
+                return True
+            async def get_native_physical_output_report(self):
+                return 0, {
+                    "native_type": "SensorState", "status": "ok", "age_s": 0.1,
+                    "subscription_timestamp_monotonic": time.monotonic(),
+                }
+
+        with tempfile.TemporaryDirectory() as temp:
+            session_file = Path(temp) / "charge_session.json"
+            journal_file = Path(temp) / "quarantine.json"
+            controller = Controller()
+            app = SimpleNamespace(charge_controller=controller)
+            journal = RecoveryQuarantineJournal(journal_file, app)
+            journal.persist("main_guard_current_setpoint_transaction_unconfirmed:postflight_guard_ack_rejected")
+            # The production controller can retain the exact quarantined
+            # identity in memory while IDLE after charge_session.json vanished.
+            owner = Owner()
+            guard = SessionRecoveryGuard(
+                initial_state=RecoveryGuardState(True, "setpoint transaction unresolved"),
+                durable=True,
+            )
+            port = ExecutionPort(owner, guard)
+            port.bind_guard_owner_lock(GuardExecutionOwnerLock())
+            app.execution_port = port
+            app.recovery_quarantine_journal = journal
+            authority = TelegramRecoveryAuthority()
+            context = authority.issue(
+                user_id=42, chat_id=42,
+                incident_id=journal.incident_binding()["incident_id"],
+            )
+            retirement = _ControllerSessionRetirement(app, str(session_file))
+            service = OperatorRecoveryClearanceService(
+                execution_port=port, journal=journal,
+                operator_authority=authority, session_retirement=retirement,
+            )
+            result = asyncio.run(service.clear(context))
+            self.assertTrue(result.cleared, result.reason)
+            self.assertEqual(owner.off_calls, 1)
+            self.assertFalse(session_file.exists(), "must not synthesize charge_session.json")
+            retired = json.loads(journal_file.read_text())
+            self.assertEqual(retired["state"], "retired")
+            self.assertEqual(retired["retirement"]["session_id"], "S-ABSENT")
+            self.assertEqual(retired["retirement"]["battery_id"], "B-EFB")
+            self.assertEqual(retired["retirement"]["incident_reason"],
+                "main_guard_current_setpoint_transaction_unconfirmed:postflight_guard_ack_rejected")
+            self.assertFalse(guard.quarantined)
+            self.assertFalse(journal.load().quarantined)
+            self.assertIsNone(controller._v2_trace_session_id)
+            self.assertIsNone(controller._v2_battery_id)
+            self.assertFalse(controller._recovery_session_retirement_pending)
+
+    def test_absent_session_rejects_wrong_incident_or_non_idle_controller_without_off(self):
+        class Controller:
+            STAGE_IDLE, STAGE_MAIN = "IDLE", "MAIN"
+            def __init__(self):
+                self.current_stage = self.STAGE_IDLE
+                self._v2_trace_session_id = None
+                self._v2_battery_id = None
+
+        with tempfile.TemporaryDirectory() as temp:
+            session_file = Path(temp) / "charge_session.json"
+            journal_file = Path(temp) / "quarantine.json"
+            controller = Controller()
+            app = SimpleNamespace(charge_controller=controller)
+            journal = RecoveryQuarantineJournal(journal_file, app)
+            app.recovery_quarantine_journal = journal
+            # Seed an authentic journal identity from the canonical owner.
+            controller._v2_trace_session_id = "S-ABSENT"
+            controller._v2_battery_id = "B-EFB"
+            journal.persist("main_guard_current_setpoint_transaction_unconfirmed:postflight_guard_ack_rejected")
+            controller._v2_trace_session_id = None
+            controller._v2_battery_id = None
+            retirement = _ControllerSessionRetirement(app, str(session_file))
+            binding = journal.incident_binding()
+            self.assertTrue(retirement.validate(binding))
+            self.assertFalse(retirement.validate({**binding, "incident_id": "wrong"}))
+            controller._v2_trace_session_id = "OTHER"
+            self.assertFalse(retirement.validate(binding))
+            controller._v2_trace_session_id = None
+            controller._v2_battery_id = "OTHER-BATTERY"
+            self.assertFalse(retirement.validate(binding))
+            controller._v2_battery_id = None
+            controller.current_stage = controller.STAGE_MAIN
+            self.assertFalse(retirement.validate(binding))
+
     def test_private_allowlisted_only_allow_all_never_grants(self):
         private = SimpleNamespace(from_user=SimpleNamespace(id=42), chat=SimpleNamespace(id=42, type="private"))
         group = SimpleNamespace(from_user=SimpleNamespace(id=42), chat=SimpleNamespace(id=-10, type="group"))
@@ -178,9 +359,23 @@ class RecoveryClearanceAdmissionTests(unittest.TestCase):
             return value, {"subscription_timestamp_monotonic": time.monotonic() if timestamp is None else timestamp,
                            "age_s": age, "native_type": native_type, "status": status}
 
-        owner = Owner(lambda: native())
-        self.assertIsNotNone(asyncio.run(ExecutionPort(owner).request_verified_off_evidence()))
+        owner = Owner(lambda: native(timestamp=200.001))
+        with patch("application.execution_port.NATIVE_OFF_EVIDENCE_TIMEOUT_S", 0.0), \
+             patch("application.execution_port._time", SimpleNamespace(
+                 monotonic=Mock(side_effect=[200.0, 200.002, 200.003]),
+                 time_ns=lambda: 1,
+             )):
+            self.assertIsNotNone(asyncio.run(ExecutionPort(owner).request_verified_off_evidence()))
         self.assertEqual((owner.off_calls, owner.reports), (1, 1))
+
+        equal_owner = Owner(lambda: native(timestamp=200.0))
+        with patch("application.execution_port.NATIVE_OFF_EVIDENCE_TIMEOUT_S", 0.0), \
+             patch("application.execution_port._time", SimpleNamespace(
+                 monotonic=Mock(side_effect=[200.0, 200.001]),
+                 time_ns=lambda: 1,
+             )):
+            self.assertIsNone(asyncio.run(ExecutionPort(equal_owner).request_verified_off_evidence()))
+        self.assertEqual((equal_owner.off_calls, equal_owner.reports), (1, 1))
 
     def test_stale_native_callback_is_rejected_even_when_report_says_recent(self):
         class Owner:

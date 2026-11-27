@@ -17,12 +17,12 @@ from pathlib import Path
 TOOLS_DIR = str(Path(__file__).resolve().parent)
 if TOOLS_DIR not in sys.path:
     sys.path.insert(0, TOOLS_DIR)
-from node104_d090_transaction import TransactionError, TrialOffProof
+from node104_d106_proof_types import TransactionError, TrialOffProof
 
 FIELDS = (
     "output_r18", "voltage_v", "current_a", "protection_r16",
     "autonomous", "lease_armed", "lease_remaining_s", "lease_ttl_s",
-    "modbus_age_s", "set_voltage_v", "set_current_a", "ovp_v", "ocp_a",
+    "modbus_age_s", "set_voltage_v", "set_current_a",
 )
 # HA102 has the canonical register, setpoint and autonomous entities.
 # Lease remaining/TTL/modbus freshness are native ESP-only objects.
@@ -109,14 +109,13 @@ def project_off(raw: dict, *, now: float | None = None) -> TrialOffProof:
                 or not 0 <= _numeric(observed["modbus_age_s"]) <= 20):
             raise TransactionError("D106 unsafe native lease state")
     ha, esp = values["HA102"], values["ESP128"]
-    for key in ("voltage_v", "current_a", "set_voltage_v", "set_current_a", "ovp_v", "ocp_a"):
+    for key in ("voltage_v", "current_a", "set_voltage_v", "set_current_a"):
         if abs(_numeric(ha[key]) - _numeric(esp[key])) > .02:
             raise TransactionError("D106 HA/native disagreement: " + key)
     proof = TrialOffProof(
         captured, False, False, 0.0, 900, 0,
         float(esp["modbus_age_s"]), float(esp["set_voltage_v"]),
-        float(esp["set_current_a"]), float(esp["ovp_v"]),
-        float(esp["ocp_a"]), uuid.uuid4().hex,
+        float(esp["set_current_a"]), uuid.uuid4().hex,
     )
     proof.validate()
     return proof

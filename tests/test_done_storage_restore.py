@@ -104,18 +104,18 @@ class DoneStorageRestoreTests(unittest.TestCase):
 
         self.assertFalse(controller.is_active)
 
-    def test_explicit_storage_done_restore_reenables_only_existing_safe_enable_path(self):
+    def test_explicit_storage_done_restore_preserves_intent_through_canonical_commit(self):
         with tempfile.TemporaryDirectory() as tempdir:
             path = os.path.join(tempdir, "charge_session.json")
             self._write_storage_done(path)
 
             app, restored = self._installed_controller()
-            atomic_writer = __import__(
-                "runtime.charge.session_atomic", fromlist=["atomic_session_write"]
-            ).atomic_session_write
+            compare_replace = __import__(
+                "runtime.charge.session_atomic", fromlist=["compare_replace_session"]
+            ).compare_replace_session
             with self._patch_session_file(path), patch(
-                "runtime.charge.persistence.atomic_session_write",
-                wraps=atomic_writer,
+                "runtime.charge.session_atomic.compare_replace_session",
+                wraps=compare_replace,
             ) as writer:
                 ok, _ = restored.try_restore_session(
                     13.4,

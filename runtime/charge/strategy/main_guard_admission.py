@@ -7,18 +7,24 @@ charge_session.json or unmatched physical Iset is NOT a source of authority.
 from __future__ import annotations
 
 from dataclasses import dataclass
-import json
 import math
-from pathlib import Path
 from typing import Any, Mapping
 
-from rd6018_telemetry import canonical_programmed_readback, finite_float, telemetry_freshness
+from rd6018_telemetry import (
+    canonical_programmed_readback, finite_float,
+    telemetry_freshness, CURRENT_SETPOINT_READBACK_TOLERANCE_A,
+)
+from runtime.safety.protection_boundary import (
+    ProtectionVerdict,
+    assess_protection,
+)
 from runtime.charge.strategy.main_targets import select_main_target
 from runtime.charge.strategy.main_guard_session import GUARD_KEY, GuardJournalError, read_guard
 
 MAX_SESSION_AGE_S = 120.0
 MAX_NATIVE_AGE_S = 10.0
-READBACK_MARGIN_A = 0.02
+# Same physical Iset register tolerance used by MAIN Guard execution/resume.
+READBACK_MARGIN_A = CURRENT_SETPOINT_READBACK_TOLERANCE_A
 
 
 @dataclass(frozen=True)
@@ -29,17 +35,6 @@ class MainGuardAdmission:
     recipe_initial_current_a: float
     guard_revision: int | None = None
 
-
-def read_canonical_session(path: str | Path) -> Mapping[str, Any] | None:
-    """Read one snapshot without modifying the controller or file."""
-    file = Path(path)
-    try:
-        if file.is_symlink() or not file.is_file():
-            return None
-        document = json.loads(file.read_text(encoding="utf-8"))
-        return document if type(document) is dict else None
-    except (OSError, UnicodeError, ValueError, TypeError):
-        return None
 
 
 def _positive(value: Any) -> float | None:
@@ -139,9 +134,9 @@ def admit_main_guard_shadow(
     meta = live.get("_meta")
     if not isinstance(meta, Mapping):
         return None
-    keys = ("output_state_code_v2", "current", "set_current_readback_v2", "ocp_readback_v2")
-    # MAIN Guard is based on direct ESP Native callbacks only. HA's REST
-    # adapter can report age=0 at fetch time; that is not a Native receipt.
+    # MAIN Guard only verifies its own Native electrical evidence.
+    # Raw protection-register decoding is owned by the independent Safety boundary.
+    keys = ("output_state_code_v2", "current", "set_current_readback_v2")
     for key in keys:
         item = meta.get(key)
         if (not isinstance(item, Mapping)
@@ -155,17 +150,25 @@ def admit_main_guard_shadow(
         now_epoch_s=now
     ).valid:
         return None
+    protection = assess_protection(
+        live,
+        require_fresh=True,
+        require_native=True,
+        max_age_s=MAX_NATIVE_AGE_S,
+        max_skew_s=MAX_NATIVE_AGE_S,
+        now_epoch_s=now,
+    )
+    if protection.verdict is not ProtectionVerdict.CLEAR:
+        return None
     output = finite_float(live.get("output_state_code_v2"))
     if output != 1:
         return None
     programmed = canonical_programmed_readback(live, "set_current")
-    ocp = canonical_programmed_readback(live, "ocp")
-    if (programmed is None or ocp is None
+    if (programmed is None
             or abs(programmed-target) > READBACK_MARGIN_A
-            or programmed > baseline + READBACK_MARGIN_A
-            or abs(ocp-programmed-0.1) > READBACK_MARGIN_A):
+            or programmed > baseline + READBACK_MARGIN_A):
         return None
     return MainGuardAdmission(session_id, battery_id, capacity, recipe, guard_revision)
 
 
-__all__ = ["MainGuardAdmission", "admit_main_guard_shadow", "read_canonical_session"]
+__all__ = ["MainGuardAdmission", "admit_main_guard_shadow"]

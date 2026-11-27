@@ -5,7 +5,6 @@ exclusive-poller handover gates in REVIEW.md. It delegates lifecycle to the
 exact canonical bot.py composition. No import replacement or method patching.
 """
 import asyncio
-import fcntl
 import hashlib
 import json
 from pathlib import Path
@@ -61,6 +60,8 @@ def _noncooperating_acceptance_pids(proc_root=Path('/proc')):
 @contextmanager
 def node104_acceptance_gate():
     """Fail closed before production handover; retain through rollback/restore."""
+    import fcntl
+
     if os.geteuid() != 0:
         raise RuntimeError('global D061 acceptance gate requires node104 root')
     flags = os.O_RDWR | os.O_CREAT | os.O_CLOEXEC | getattr(os, 'O_NOFOLLOW', 0)
@@ -197,7 +198,7 @@ def assemble(source, manifest, *, canonical=None, attestation=None):
         base_url=HA_URL, token=HA_TOKEN)
     safety = GuardedRuntimeSafety(runtime)
     safety.acceptance_guard = guard
-    safety.install()
+    safety.install(patch_adapter=True)
     runtime.runtime_safety_guard = safety
     # Import AFTER binding: all canonical wrappers capture guarded dependencies.
     import bot
@@ -235,6 +236,8 @@ async def run_prepared(source, manifest, *, physical_ready, sole_poller_ready,
     # checks alone cannot detect another such launch. Keep one OS lock for
     # the complete unchanged canonical lifecycle.
     with (Path.cwd() / '.acceptance-poller.lock').open('a') as lock:
+        import fcntl
+
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:

@@ -5,7 +5,7 @@ import unittest
 
 from rd_control_mode import RdControlModeManager
 from rd_managed_mix import ManagedMixAdoptionCoordinator, ManagedMixState
-from managed_runtime_safety import ManagedRuntimeSafetyGuard
+from runtime.safety.managed_guard import ManagedRuntimeSafetyGuard
 
 
 class DummyHass:
@@ -125,6 +125,43 @@ class D062AmbiguousAckHandsOffDisarmTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("Output OFF verified; edge lease disarm may proceed", journal)
             self.assertIn("Edge safety lease disarm confirmed", journal)
 
+
+    async def test_unconfirmed_hands_off_output_off_keeps_residual_lease_armed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            mode_file = f"{tmp}/mode.json"
+            with open(mode_file, "w", encoding="utf-8") as handle:
+                json.dump({"version": 1, "mode": "hands_off", "updated_at": 1.0}, handle)
+
+            app = types.SimpleNamespace()
+            app.hass = DummyHass()
+            async def no_ack(entity_id=None):
+                app.hass.turn_off_calls += 1
+                return False
+            app.hass.turn_off = no_ack
+            app.ENTITY_MAP = {"switch": "switch.rd6018"}
+            app.charge_controller = types.SimpleNamespace(is_active=False)
+            app.manual_session_manager = None
+            app._charge_notify = lambda *args, **kwargs: None
+
+            guard = ManagedRuntimeSafetyGuard(app)
+            guard.OFF_CONFIRMATION_WINDOW_S = 0.0
+            guard.OFF_CONFIRMATION_POLL_S = 0.0
+            lease = ResidualLease()
+            guard.edge_safety_lease = lease
+            guard.edge_lease_enforced = True
+            app.runtime_safety_guard = guard
+
+            manager = RdControlModeManager(app, state_file=mode_file)
+            app.rd_control_mode_manager = manager
+            self.assertTrue(manager.hands_off)
+
+            from runtime.safety.runtime_guard import OutputOffNotConfirmed
+            with self.assertRaises(OutputOffNotConfirmed):
+                await manager.operator_output_off()
+
+            self.assertEqual(app.hass.turn_off_calls, 2)  # initial OFF plus bounded retry
+            self.assertEqual(lease.disarm_calls, 0)
+            self.assertTrue(lease.armed)
 
 if __name__ == "__main__":
     unittest.main()

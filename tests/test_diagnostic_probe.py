@@ -296,6 +296,19 @@ class DiagnosticProbeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.reason, "battery_temperature_not_suitable")
         self.assertAlmostEqual(hass.set_current_value, 7.0)
 
+    def test_any_confirmed_r16_trip_blocks_probe_preflight(self):
+        hass = FakeProbeHass()
+        for code in (1, 2, 3):
+            with self.subTest(code=code):
+                live = asyncio.run(hass.get_all_live())
+                live["protection_code"] = code
+                allowed, reason, configured = ControlledCurrentProbe(hass)._preflight(
+                    live, ProbePlan(step_current_a=3.0)
+                )
+                self.assertFalse(allowed)
+                self.assertEqual(reason, "hardware_protection_not_clear")
+                self.assertIsNone(configured)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -27,9 +27,8 @@ class ApplicationTickOwnershipTests(unittest.TestCase):
             self.assertNotIn(method_name, method_names)
 
     def test_diagnostic_and_mix_subclasses_have_no_stage_router_overrides(self):
-        diagnostic = (ROOT / "diagnostic_controller.py").read_text(encoding="utf-8")
         mix = (ROOT / "mix_active_authority.py").read_text(encoding="utf-8")
-        self.assertNotIn("class DiagnosticProductionChargeController", diagnostic)
+        self.assertFalse((ROOT / "diagnostic_controller.py").exists())
         self.assertNotIn("class MixActiveAuthorityMixin", mix)
 
         app = ast.parse((ROOT / "application/charge_stage_tick.py").read_text(encoding="utf-8"))
