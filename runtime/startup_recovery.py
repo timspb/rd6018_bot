@@ -134,11 +134,12 @@ class StartupRecovery:
                     or isinstance(receipt.terminal_completed_monotonic, bool)
                     or type(receipt.connection_generation) is not int):
                 raise RuntimeError("start_pending_off_receipt_unproven")
-            # The R18 state stream is periodic, not causally emitted by OFF.
-            # Await one *new* same-generation Native SensorState after the exact
-            # OFF/APPLIED receipt; otherwise a valid OFF races its next callback.
-            # Neither a cached/offline HA value nor a stale pre-command R18 proves
-            # this recovery transaction.
+            # AD051 APPLIED contains a post-FC06 *physical FC03 readback*
+            # correlated by the exact command request ID. Native R18 telemetry
+            # is a separate periodic mirror, which is not required to publish
+            # again after the APPLIED terminal receipt. Corroborate the receipt
+            # by one fresh, same-generation typed Native SensorState=OFF.
+            # Neither that sensor alone nor HA can prove the command applied.
             deadline = asyncio.get_running_loop().time() + 10.0
             while True:
                 try:
@@ -157,7 +158,6 @@ class StartupRecovery:
                             and isinstance(timestamp, (int, float))
                             and not isinstance(timestamp, bool)
                             and math.isfinite(timestamp)
-                            and receipt.terminal_completed_monotonic < timestamp
                             and 0.0 <= time.monotonic() - timestamp <= 8.0):
                         break
                 if asyncio.get_running_loop().time() >= deadline:

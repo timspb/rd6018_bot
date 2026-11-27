@@ -75,7 +75,7 @@ class _StartupPendingTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(port.off_calls, 1)
             self.assertEqual(path.read_text(encoding="utf-8"), json.dumps(prior))
 
-    async def test_periodic_r18_callback_after_off_receipt_settles_pending(self):
+    async def test_fresh_same_generation_r18_corrobates_fc03_off_receipt(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "charge_session.json"
             prior = b'{"stage":"IDLE","start_transaction_generation":0}'
@@ -101,7 +101,7 @@ class _StartupPendingTests(unittest.IsolatedAsyncioTestCase):
             with patch("runtime.startup_recovery.SESSION_FILE", path), \
                  patch("runtime.startup_recovery.get_or_create_execution_port", return_value=port):
                 self.assertTrue(await recovery._settle_start_pending_before_restore())
-            self.assertEqual(len(seen), 3)
+            self.assertEqual(len(seen), 1)
             self.assertEqual(port.off_calls, 1)
             self.assertEqual(path.read_bytes(), prior)
 
