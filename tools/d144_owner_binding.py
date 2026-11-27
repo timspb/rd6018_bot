@@ -229,7 +229,9 @@ def _restored_quarantine_contained(owner: d090.D090Transaction, *,
     import time
     from runtime.charge.persistence import SESSION_FILE, read_start_pending
     from runtime.journal.recovery_quarantine import RecoveryQuarantineJournal
-    from tools.node104_d090_release import validate_physical_off
+    # Preserve the D090 owner's exact PhysicalOffProof class identity; importing
+    # the sibling module under a second package name creates an incompatible type.
+    validate_physical_off = d090.release.validate_physical_off
     service = owner.service
     if not service.active():
         return False
@@ -254,9 +256,39 @@ def _restored_quarantine_contained(owner: d090.D090Transaction, *,
             continue
     if others != [pid]:
         return False
+    # The D144 state-preserving releases intentionally do not require the
+    # historical .deploy_sha marker. The canonical identity is instead the
+    # latest exact COMMITTED D144 installed-release receipt and its matching
+    # transaction, corroborated by the restored byte inventory in recover().
     marker = owner.root / ".deploy_sha"
-    if (marker.is_symlink() or not marker.is_file()
-            or marker.read_text().strip() != owner.pinned.old_source_sha):
+    if marker.is_symlink() or (marker.exists() and (
+            not marker.is_file()
+            or marker.read_text().strip() != owner.pinned.old_source_sha)):
+        return False
+    receipts = list(owner.root.glob("D144_INSTALLED_RELEASE_*.json"))
+    try:
+        releases = sorted((int(x.stem.rsplit("_", 1)[-1]), x)
+                           for x in receipts if x.stem.rsplit("_", 1)[-1].isdigit())
+    except (OSError, ValueError):
+        return False
+    if not releases or len(releases) != len(receipts):
+        return False
+    slot, release_path = releases[-1]
+    transaction_path = owner.root / f"D144_TRANSACTION_{slot}.json"
+    if (release_path.is_symlink() or transaction_path.is_symlink()
+            or not transaction_path.is_file()):
+        return False
+    try:
+        release_id = json.loads(release_path.read_text())
+        committed = json.loads(transaction_path.read_text())
+    except (OSError, ValueError):
+        return False
+    if (release_id.get("source_sha") != owner.pinned.old_source_sha
+            or committed.get("phase") != "COMMITTED"
+            or committed.get("slot") != slot
+            or committed.get("transaction") != release_id.get("transaction")
+            or committed.get("release_identity", {}).get("source_sha")
+            != owner.pinned.old_source_sha):
         return False
     state = owner.root / "state"
     session = state / "charge_session.json"

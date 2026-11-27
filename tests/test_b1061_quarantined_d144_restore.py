@@ -9,8 +9,9 @@ from unittest.mock import patch
 
 from runtime.charge.persistence import begin_start_pending
 from runtime.journal.recovery_quarantine import RecoveryQuarantineJournal
-from tools.d144_owner_binding import _restored_quarantine_contained
-from tools.node104_d090_release import PhysicalOffProof, MACHINE_ID
+from tools.d144_owner_binding import _restored_quarantine_contained, d090
+PhysicalOffProof = d090.release.PhysicalOffProof
+MACHINE_ID = d090.release.MACHINE_ID
 
 
 class RestoreOnlyProofTests(unittest.TestCase):
@@ -32,6 +33,12 @@ class RestoreOnlyProofTests(unittest.TestCase):
         (root / "app").mkdir()
         (root / "app/bot.py").write_text("# immutable test fixture")
         (root / ".deploy_sha").write_text("old_sha\n")
+        receipt={"source_sha":"old_sha","transaction":"tx-d144-24"}
+        (root / "D144_INSTALLED_RELEASE_24.json").write_text(json.dumps(receipt))
+        (root / "D144_TRANSACTION_24.json").write_text(json.dumps({
+            "phase":"COMMITTED","slot":24,"transaction":"tx-d144-24",
+            "release_identity":{"source_sha":"old_sha"},
+        }))
         self.logs = "START_PENDING recovery quarantined: RuntimeError"
         class Service:
             def active(_): return True

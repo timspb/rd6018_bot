@@ -17,3 +17,5 @@ Successful D144 RESTORED then only means original bytes and safe isolated state 
 ## Tests
 
 B1061 D144 recovery, entrypoint, D137 and negative identity/lease proof: 52 PASS + 22 subtests; tests assert no changes to original session or durable quarantine bytes. Retain physical P3/P8 HOLD.
+
+B1062 correction: the original source is bound to the most recent authentic D144_INSTALLED_RELEASE_N + matching COMMITTED transaction (the historical .deploy_sha may legitimately be absent). The physical proof validator is taken from the exact D090 owner module instance, not reimported under a second alias. Both checks passed on node104 in read-only mode, restored_contained=true.
