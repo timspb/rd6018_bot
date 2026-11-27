@@ -1,8 +1,11 @@
-"""D106 strict, read-only projection of independently sourced trial OFF evidence.
+"""D106 read-only projection of independently sourced trial OFF evidence.
 
-This pure adapter neither polls hardware nor accepts caller-assigned proof fields:
-callers must provide fresh HA REST and native ESPHome callback envelopes.
-A producer must acquire these envelopes from the real transports independently.
+This pure adapter neither polls hardware nor accepts caller-assigned proof fields.
+All ESP Native fields and physical HA REST fields must be fresh. Only an unchanged
+HA autonomous binary field may be explicitly stale/advisory, because the HA
+integration may not republish identical states; fresh typed Native autonomous
+remains mandatory and HA false/true disagreement still fails closed.
+A producer must acquire envelopes from the real transports independently.
 No CLI, actuator operation, socket listener or release enablement is defined.
 """
 from __future__ import annotations
@@ -47,9 +50,19 @@ def _field(source: dict, field: str, source_id: str, now: float) -> Any:
     if type(meta) is not dict or meta.get("source") != source_id:
         raise TransactionError("D106 source provenance missing/incorrect: " + field)
     reported = _numeric(meta.get("reported_at_epoch"))
-    if not 0 <= now - reported <= MAX_AGE:
+    age = now - reported
+    # HA's unchanged autonomous binary sensor may not be republished.
+    # Keep its true timestamp and only admit an explicitly marked stale
+    # advisory when the fresh, typed ESP Native autonomous evidence is still
+    # independently required below. No other field gets this exception.
+    stale_advisory = (
+        source_id == "ha102_rest" and field == "autonomous"
+        and meta.get("status") == "stale_advisory" and age > MAX_AGE
+    )
+    if not 0 <= age <= MAX_AGE and not stale_advisory:
         raise TransactionError("D106 stale source report: " + field)
-    if meta.get("object_id") != field or meta.get("status") != "ok":
+    expected_status = "stale_advisory" if stale_advisory else "ok"
+    if meta.get("object_id") != field or meta.get("status") != expected_status:
         raise TransactionError("D106 source identity/quality incorrect: " + field)
     if source_id == "esp_native_api":
         required_type = "BinarySensorState" if field in BOOLEAN_FIELDS else "SensorState"

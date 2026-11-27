@@ -76,12 +76,26 @@ def _physical_value(field: str, value: object, *, ha: bool) -> object:
 def _ha_record(field: str, entity_id: str, data: dict, now: float) -> dict:
     if not entity_id or type(data) is not dict:
         raise ro.ProofError("missing HA mapped state: " + field)
-    ro._ha_freshness(data, now)
+    # A stable ESPHome binary sensor may not re-publish an unchanged value.
+    # HA last_reported then ages even while ESP Native independently reports
+    # fresh autonomous=False. Only this secondary HA field is advisory when
+    # stale; all other HA fields still require the original strict freshness.
+    if field != "autonomous":
+        ro._ha_freshness(data, now)
     last = data.get("last_reported")
-    reported = datetime.fromisoformat(last.replace("Z", "+00:00")).timestamp()
+    if type(last) is not str:
+        raise ro.ProofError("HA last_reported missing: " + field)
+    try:
+        reported = datetime.fromisoformat(last.replace("Z", "+00:00")).timestamp()
+    except (ValueError, OverflowError) as exc:
+        raise ro.ProofError("HA last_reported invalid: " + field) from exc
+    if not math.isfinite(reported) or reported > now:
+        raise ro.ProofError("HA last_reported invalid/future: " + field)
+    stale_advisory = field == "autonomous" and now - reported > ro.MAX_SOURCE_AGE_S
     return {"value": _physical_value(field, data.get("state"), ha=True),
             "meta": {"source": "ha102_rest", "object_id": field,
-                     "actual_object_id": entity_id, "status": "ok",
+                     "actual_object_id": entity_id,
+                     "status": "stale_advisory" if stale_advisory else "ok",
                      "reported_at_epoch": reported}}
 
 
@@ -294,6 +308,11 @@ async def collect_live(*, phase_observation: bool = False) -> dict:
             "d090_journal_exists": (ro.ROOT / "D090_TRANSACTION.json").exists(),
             "source_provenance": {
                 "ha102": "HA REST entity last_reported, per-field",
+                "ha102_autonomous": {
+                    "status": ha_snapshot["autonomous"]["meta"]["status"],
+                    "last_reported_epoch": ha_snapshot["autonomous"]["meta"]["reported_at_epoch"],
+                    "role": "advisory_when_stale; fresh ESP Native remains mandatory",
+                },
                 "esp128": "native ESPHome typed callback monotonic age, per-field",
                 "native_device_count": len(ids),
             },
