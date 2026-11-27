@@ -663,6 +663,72 @@ class V2StartupTests(unittest.IsolatedAsyncioTestCase):
                 self.assertFalse(app.charge_controller.started)
                 self.assertIsNotNone(app.charge_controller._main_current_guard)
 
+    async def test_new_start_ignores_old_off_device_setpoint_without_erasing_readback(self):
+        # Real node104 2026-11-27: OFF R18 but previous physical V/I setpoints
+        # 2.4V/1.7A remain in the live controller. Detached constructor has None.
+        # START must persist the *new requested* profile, not these old values.
+        app = FakeApp(EnableResult(enabled=True))
+        app.session_path = self.session_path
+        live = app.charge_controller
+        live._device_set_voltage = 2.4
+        live._device_set_current = 1.7
+        message = FakeMessage()
+
+        outcome = await start_profile_transactional_result(app, message, PENDING)
+
+        self.assertTrue(outcome.started, message.answers)
+        self.assertEqual(outcome.persistence_status.value, "COMMITTED")
+        self.assertEqual(live._device_set_voltage, 2.4)
+        self.assertEqual(live._device_set_current, 1.7)
+        self.assertAlmostEqual(app.hass.enable_kwargs["voltage_v"], 14.8)
+        self.assertAlmostEqual(app.hass.enable_kwargs["current_a"], 7.0)
+        document = json.loads(self.session_path.read_text(encoding="utf-8"))
+        self.assertAlmostEqual(document["target_voltage"], 14.8)
+        self.assertAlmostEqual(document["target_current"], 7.0)
+
+    async def test_new_start_does_not_inherit_old_session_target_from_prior_document(self):
+        # A retired/finished previous document can contain another program.
+        # Even when new live telemetry has no setpoint, a NEW start must use
+        # its new profile, not accidentally reuse a prior file's target.
+        prior = b'{"stage": "DONE", "target_voltage": 2.4, "target_current": 1.7}\n'
+        self.session_path.write_bytes(prior)
+        app = FakeApp(EnableResult(enabled=True))
+        app.session_path = self.session_path
+        message = FakeMessage()
+
+        outcome = await start_profile_transactional_result(app, message, PENDING)
+
+        self.assertTrue(outcome.started, message.answers)
+        self.assertAlmostEqual(app.hass.enable_kwargs["voltage_v"], 14.8)
+        self.assertAlmostEqual(app.hass.enable_kwargs["current_a"], 7.0)
+        document = json.loads(self.session_path.read_text(encoding="utf-8"))
+        self.assertAlmostEqual(document["target_voltage"], 14.8)
+        self.assertAlmostEqual(document["target_current"], 7.0)
+
+    async def test_non_start_projection_still_preserves_fresh_observed_device_setpoints(self):
+        # The new start flag is not a general override for ordinary saves.
+        app = FakeApp(EnableResult(enabled=True))
+        controller = app.charge_controller
+        controller.start("EFB", 70, now_s=1000.0, clear_session=False)
+        from runtime.charge.session import set_current_stage
+        set_current_stage(controller, controller.STAGE_MAIN, now_s=1000.0)
+        controller._device_set_voltage = 2.4
+        controller._device_set_current = 1.7
+        from runtime.charge.persistence import project_session_document
+        regular = project_session_document(
+            controller, 12.6, 0.0, 0.0,
+            session_file=str(self.session_path), now_s=1000.0)
+        new_start = project_session_document(
+            controller, 12.6, 0.0, 0.0,
+            session_file=str(self.session_path), now_s=1000.0,
+            new_start_target=True)
+        self.assertAlmostEqual(regular["target_voltage"], 2.4)
+        self.assertAlmostEqual(regular["target_current"], 1.7)
+        self.assertAlmostEqual(new_start["target_voltage"], 14.8)
+        self.assertAlmostEqual(new_start["target_current"], 7.0)
+        self.assertAlmostEqual(controller._device_set_voltage, 2.4)
+        self.assertAlmostEqual(controller._device_set_current, 1.7)
+
     async def test_live_projection_parity_mismatch_rolls_back_before_enable(self):
         app = FakeApp(EnableResult(enabled=True))
         app.session_path = self.session_path
