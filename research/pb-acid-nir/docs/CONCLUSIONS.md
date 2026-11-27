@@ -89,3 +89,12 @@ C72 — Additional carbon may accelerate hydrogen evolution, increase water loss
 C73 — Lignosulfonate/BaSO4/carbon expander mixture has separate effects, a 2006 study ranked synthetic lignin ahead of other modifiers for its cells; R17-S08 abstract.
 C74 — PAM carbon is distinct from NAM; some 2025–26 AGM studies report benefits but generality and oxidative stability are unproven, do not override manufacturing controls; R17-S02/S10/S11/S12.
 C75 — DCA transient charge acceptance ≠ C20, CCA, capacity retention, water loss or long-term resource; R17-S01/S04/S05/S13.
+
+C76 — Electrode inversion, negative terminal Ucell and negative entire U12V are distinct events; observations of one do not establish simultaneous others. R18-S01/S02.
+C77 — A weak cell in series can reverse under discharge while Utotal remains positive; total U alone does not certify every cell state. R18-S01/S03.
+C78 — Negative-electrode inversion can oxidize organic lignosulfonate expanders and cause severe polarization heating; not automatically reversible even if U recovers. R18-S01.
+C79 — pH disturbance during advanced discharge was observed on flooded Planté and SLI cells, but no general safe early cutoff threshold for AGM/EFB validated. R18-S02.
+C80 — Two carbon-fibre PV 12V batteries survived accidental terminal polarity inversion with apparent short-term C10 restoration (2004), but long-term life not established (only one accelerated PV cycle at publication). R18-S05.
+C81 — Karami 2009 observed five flooded 40Ah batteries improve mean measured Ah from 7.2 to 35.0Ah after multi-stage inverse/chemical prep, but effect of inverse charge not separated from acid replacement/standard recharge, and safe long-term resource not validated. R18-S06.
+C82 — Karami 2009 text 'all <25%' before vs Table1 13/40=32.5%, 10/40=25% is an internal report inconsistency. R18-S06.
+C83 — Short reverse pulses superimposed on normal charging are not whole-cell reverse charging or polarity inversion; different evidence required, R18-S09/R03.

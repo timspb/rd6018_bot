@@ -63,3 +63,9 @@
 | H46 | Early DCA tests overpredict preservation of rankings after months and prolonged rest | OPEN | R17-S01; prospective manufacturer held-out run-in |
 | H47 | PAM carbon effects and oxidative stability/water-loss are different from NAM carbon | OPEN | R17-S10/S12; independent AGM lab C20/waterloss |
 | H48 | Factory carbon-additive results cannot support any safe retrofit or high-voltage 'carbon treatment' of an existing battery | OPEN, negative safety assumption | R17-S01/S02 and absence of retrofit controls |
+
+| H49 | Whole-pack voltage hides weak-cell inversion more often than per-cell U under known heterogeneous SOC/Cmax | OPEN | R18; offline 6-cell synthetic and labeled archival datasets |
+| H50 | pH disturbance has insufficient early warning relative to safe cutoff across mixed AGM/EFB/T without precise sensor/chemistry | OPEN | R18-S02; retrospective data, no deliberate reversal |
+| H51 | Reported Ah recovery in Karami can partly arise from acid/recharge/selection independently of reverse charge | OPEN | R18-S06; matched independent controls |
+| H52 | Carbon-fibre plate structure increases resilience to accidental reversal for that specific construction, not all carbon additives | OPEN | R18-S05; long-life field followup |
+| H53 | Quality/UNKNOWN diagnostics with independent cell evidence reduces unsupported confident short/reversal diagnosis | OPEN | R18-R13; safe synthetic holdout |

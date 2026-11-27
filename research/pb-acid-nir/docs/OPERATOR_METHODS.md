@@ -37,7 +37,8 @@
 - tools/r12_identifiability.py — математика SOC/SOH (synthetic PASS).
 - tools/r13_short_diagnostics_offline.py — модельный short/self-discharge (synthetic PASS).
 - tools/r16_nbs_solubility_analysis.py, r16_validate_checkpoint.py — таблица NBS и хеши (PASS).
-- tools/r17_quantitative_provenance.py, r17_validate_checkpoint.py — количественные результаты carbon/DCA, хеши и checkpoint (PASS).
+- tools/r17_quantitative_provenance.py, r17_validate_checkpoint.py — carbon/DCA, хеши и checkpoint (PASS).
+- tools/r18_reversal_evidence_offline.py — Karami 2009 Table 1 и ограничения Utotal, синтетическая проверка (PASS).
 - tools/r14_source_archive.py, r15_archive_sources.py, r16_archive_nist.py, r17_archive_public_sources.py — примеры архивирования публичных PDF с проверкой формата/хешей; файлы HTTP403/429/URLError считать недоступными, не архивированными.
 При переходе в новый чат повторно проверять актуальный код и нужные тесты.
 
@@ -50,10 +51,10 @@
 
 ## Новый чат — обязательное чтение
 AGENTS.md → 00_CANON.md → HANDOFF_NEW_CHAT.md → RUNBOOK.md → OPERATOR_METHODS.md → ROADMAP.md → хвост CURRENT_CHECKPOINT.md → последний отчёт Rxx.
-Не заниматься повторной археологией; продолжать R18, если HANDOFF и ROADMAP не изменены. Проверить сохранённые инструменты/файлы и сделать безопасный smoke test. Никаких незаявленных фоновых работ.
+Не заниматься повторной археологией; продолжать следующий OPEN-этап из HANDOFF и ROADMAP, не возвращаясь к пройденным Rxx. Проверить сохранённые инструменты/файлы и сделать безопасный smoke test. Никаких незаявленных фоновых работ.
 
 ## Проверка передачи контекста перед выходом из чата
 Запустить в Windows на HOME-PC: python.exe <RESEARCH_ROOT>\tools\validate_handoff.py. Этот тест сверяет AGENTS/RUNBOOK/HANDOFF/ROADMAP/checkpoint/регистры, файлы плагина и текущую локальную Git-ситуацию. Вывод HANDOFF_CONSISTENCY_PASS подтверждает только согласованность документов и наличие файлов; это НЕ Telegram-auth smoke test и не бэкап. После создания Git-репозитория пересмотреть утверждение о .git в самом тесте и handoff.
 
 ## GitHub NIR branch
-Canonical RD6018 repository: `timspb/rd6018_bot`, default `main`. Dedicated NIR branch created 2026-11-28: `research/pb-acid-nir`, based on main SHA `70074de154b4c6f44614f2b4cfddf6ac77c55fbb`. Verified with branch search and compare (identical to main immediately after creation). URL https://github.com/timspb/rd6018_bot/tree/research/pb-acid-nir. Branch creation does not mean local Pb-Research is connected or content synchronized. Until explicit file sync, local <RESEARCH_ROOT> is canonical. Before uploading, inspect files for secrets/private Telegram content; exclude private/, .env.secrets, Telegram session, raw Telegram message dumps/media, local .venv and caches. Keep NIR artifacts in a dedicated subdirectory (e.g. research/pb-acid-nir/) and avoid production code/docs unless the user explicitly asks. Never merge to main or deploy from this branch by implication.
+Canonical RD6018 repository: `timspb/rd6018_bot`, default `main`. Dedicated NIR branch created 2026-11-28: `research/pb-acid-nir`, based on main SHA `70074de154b4c6f44614f2b4cfddf6ac77c55fbb`. Verified with branch search and compare (identical to main immediately after creation). URL https://github.com/timspb/rd6018_bot/tree/research/pb-acid-nir. The first vetted research snapshot (50 files) is committed to GitHub as 4b0a9e5ab581c42e53ecac048ec9dbde5d20186b, strictly under research/pb-acid-nir/. The local <RESEARCH_ROOT> still has no .git and stays canonical for new work; subsequent updates need an explicit reviewed export/commit (no automatic sync). Before uploading, inspect files for secrets/private Telegram content; exclude private/, .env.secrets, Telegram session, raw Telegram message dumps/media, local .venv and caches. Keep NIR artifacts in a dedicated subdirectory (e.g. research/pb-acid-nir/) and avoid production code/docs unless the user explicitly asks. Never merge to main or deploy from this branch by implication.

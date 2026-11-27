@@ -41,3 +41,7 @@
 2026-11-28: по ревизии сохранения контекста добавлены OPERATOR_METHODS.md и HANDOFF_NEW_CHAT.md, RUNBOOK/AGENTS/README обновлены; исправлен stale R02 в AGENTS; локальная документация подтверждена, удалённая Git-синхронизация отсутствует/не подтверждена. Следующий R18, оборудование не трогали.
 
 2026-11-28: Created dedicated GitHub branch `research/pb-acid-nir` in `timspb/rd6018_bot` from `main` SHA 70074de154b4c6f44614f2b4cfddf6ac77c55fbb. Verified branch exists and compare is identical (0 commits ahead/behind). No research content committed; local Pb-Research remains authoritative pending reviewed safe transfer. No main/production changes.
+
+2026-11-28: NIR branch initial source import committed 4b0a9e5ab581c42e53ecac048ec9dbde5d20186b (50 safe new files, research/pb-acid-nir only); GitHub compare main verified ahead1/behind0; no sensitive data/PDFs/production modifications. Local handoff/runbook corrected: manual GitHub snapshot exists, auto-sync absent.
+
+2026-11-28: R18 научная ревизия инверсии свинцовых элементов, предприняты и проверены 11 sources. Four primary/official original PDFs archived locally with SHA256; Nguyen thesis full web Ch3 only (local HTTPError), web screenshot cache miss. Independent positive counterexamples Perujo 2004 and Karami 2009 retained with limits; detected Karami baseline '<25%' conflict. OFFLINE math tools/r18_reversal_evidence_offline.py PASS. C76–C83 / H49–H53; roadmap R18 PARTIAL; R19 next. No physical, firmware or RD/BV actions.

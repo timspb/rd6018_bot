@@ -14,8 +14,8 @@
     },
     {
       "path": "docs/01_SOURCES.md",
-      "bytes": 9939,
-      "sha256": "8011e78bf6aa2c57c222ae561848a95e0bf8dd4276da1806094b52c64b9c9e29"
+      "bytes": 11298,
+      "sha256": "5f4a459e2637749d869a093a4bd3bf6d2fd8eb40edc398a2ce0effe8f1a2d12b"
     },
     {
       "path": "docs/02_EXPERIMENTS.md",
@@ -39,8 +39,8 @@
     },
     {
       "path": "docs/06_R04_DENDRITES.md",
-      "bytes": 10320,
-      "sha256": "ffca7a5ef570f21d10292482944e9a58094f5cf7c169b93450daec54edcd014b"
+      "bytes": 11068,
+      "sha256": "1d0c5374458309be3ecd4e617edf473ede993124b4c87a789e60032f897bb26b"
     },
     {
       "path": "docs/07_R04_MIX.md",
@@ -59,8 +59,8 @@
     },
     {
       "path": "docs/10_R07_DIFFERENTIAL.md",
-      "bytes": 8005,
-      "sha256": "5548d5713aa181addb16b9c5e441c8ee37171295d69582ecc9e4fb372296b336"
+      "bytes": 8870,
+      "sha256": "bde72334eb348b26f812483aac8dfdcd00bdc24108bee1527d0f85ad825589ba"
     },
     {
       "path": "docs/11_R08_MAIN.md",
@@ -113,24 +113,29 @@
       "sha256": "2c1f81e998d5c4cd2ec449cfc553eb9a6fe06736dfcd85e53ec099b5ceeb37b7"
     },
     {
+      "path": "docs/21_R18_POLARITY_REVERSAL.md",
+      "bytes": 33514,
+      "sha256": "7b7bf7fd30051bacd030d8d778f218cf617910727b95b749e336949cad249f3e"
+    },
+    {
       "path": "docs/AGENTS.md",
-      "bytes": 4100,
-      "sha256": "48107a4bc1b6eba8062414871ea3821f4c46fdd574f78b4d7b502312e19f06de"
+      "bytes": 4209,
+      "sha256": "3c99d3667e3d700830c383ae5432f3941ba4c5e3184074c14a1f8b7a5657d5a7"
     },
     {
       "path": "docs/CHANGELOG.md",
-      "bytes": 5001,
-      "sha256": "7902c7fd31c8567a19a5cc8f25e3aca686402a756c2173af73151e908ef0d6fa"
+      "bytes": 5907,
+      "sha256": "d56a39962bf2f0d7f4db0ca59622ade5775655f58f45f7888b187a18788de320"
     },
     {
       "path": "docs/CONCLUSIONS.md",
-      "bytes": 17217,
-      "sha256": "aa76dc2ee59d1a8a5766b924c39470589ad5c5ddeeb9ca8a4a7600850251babc"
+      "bytes": 18682,
+      "sha256": "a339bda837bff21f119a6a61bfacde78117c6589ac2e0e4e83708d2019d07a74"
     },
     {
       "path": "docs/CURRENT_CHECKPOINT.md",
-      "bytes": 13755,
-      "sha256": "483ce5d67b574496368eba5f61efc4311399dc55dddafe33e551e6f42648b7e4"
+      "bytes": 15444,
+      "sha256": "49c3afe813e03ceebb2fb71cc1ef2ac9106eaf9ab9b7ffa7a52d2558b7ac6b97"
     },
     {
       "path": "docs/DECISIONS.md",
@@ -139,43 +144,43 @@
     },
     {
       "path": "docs/EXPERIMENT_PROTOCOL.md",
-      "bytes": 11296,
-      "sha256": "469b416ae63a156618e5be281b4a488cfd26327046598fa66f178a9a6d1a536f"
+      "bytes": 12827,
+      "sha256": "749cbecbfe520848c85f58b638976e2bce4ee0ff2e7b06db7d7559e601f45f03"
     },
     {
       "path": "docs/HANDOFF_NEW_CHAT.md",
-      "bytes": 6771,
-      "sha256": "53287b4a4a6e2c01018ea06317174b011b2eb795507daec3a744d4b00327a20a"
+      "bytes": 5008,
+      "sha256": "6ff1d317b5f3c33d201bcf5d746f9479841561d33b7cb111e931d2864a3cd4d3"
     },
     {
       "path": "docs/HYPOTHESES.md",
-      "bytes": 9901,
-      "sha256": "6d120a409644dbe56fd55a8bfda4354ed967953ae0793a4c059cdd02758012a8"
+      "bytes": 10799,
+      "sha256": "ccf437ee2cd4bbb5d9400d3b14a037d008387f2df9cc428322dc93d46266e0a9"
     },
     {
       "path": "docs/INTEGRATION_RD6018.md",
-      "bytes": 6043,
-      "sha256": "0835f9cfa77122fabd5815c0d374fb7b7658c8ccb2bded9493f04d0e54d6d2df"
+      "bytes": 7115,
+      "sha256": "d68fb80f2d34007a93e48dd506bd55d2f01ad3a3c4fb33d242028c7c11cdcbdd"
     },
     {
       "path": "docs/OPERATOR_METHODS.md",
-      "bytes": 13413,
-      "sha256": "d5eb061b5e79bd981a4f80f049ab7ac027a88c24f0bb7e1049977e05922416c7"
+      "bytes": 13735,
+      "sha256": "0fd74acb717ab70a463bf121cbf8ef721815c717a8da9befc2cf38a03b947439"
     },
     {
       "path": "docs/README.md",
-      "bytes": 1393,
-      "sha256": "82d745ec19d6fc7da54acacf3766177e371d92dcf0d7a01e4b4cd11737e29f2f"
+      "bytes": 1516,
+      "sha256": "e9cd05b847ddfd1ed2580e5c3b054fb9ced97444176c10ec0a854a36b2dcc0ca"
     },
     {
       "path": "docs/ROADMAP.md",
-      "bytes": 2851,
-      "sha256": "203661e9033c9c00665718954b67d4a8a5b7d006ae06b249e6df735841bb9b83"
+      "bytes": 2879,
+      "sha256": "74b726fd0b677e47456fbc3c1f70c957f432705ba3b7fbd4fb38d7cc2d96c6b2"
     },
     {
       "path": "docs/RUNBOOK.md",
-      "bytes": 8740,
-      "sha256": "ade548ad44c87b35bfd2f14146f5709f93cfcabb544deae05574fe10bbaf931d"
+      "bytes": 8981,
+      "sha256": "4223856d2c63242f50821087548a8345bb0602c6f2b772773d7484aa502e07c9"
     },
     {
       "path": "docs/TELEGRAM_CONNECTOR.md",
@@ -246,6 +251,11 @@
       "path": "tools/r17_validate_checkpoint.py",
       "bytes": 1481,
       "sha256": "013383ba26963249ef08ce7501de23c723b52f1a81355ec60935bfc93e8a4efa"
+    },
+    {
+      "path": "tools/r18_reversal_evidence_offline.py",
+      "bytes": 1782,
+      "sha256": "d2112fcb61c7f65f5803b69ce6236bc2d5715246b80550aa440cbbd1e4910b59"
     }
   ],
   "omitted": []
