@@ -215,6 +215,93 @@ def execute_under_owner(owner: d090.D090Transaction, *, stage: Path,
             owner.proof = previous_proof
 
 
+def _restored_quarantine_contained(owner: d090.D090Transaction, *,
+                                   evidence) -> bool:
+    """D144 RESTORED means original bytes are safely back, not charge readiness.
+
+    Only the interrupted, exact D084 START_PENDING/active journal with a fresh
+    independent D151 OFF proof may be classified as safely restored. This
+    method cannot authorize a release, managed START, or Output ON.
+    """
+    import json
+    import math
+    import subprocess
+    import time
+    from runtime.charge.persistence import SESSION_FILE, read_start_pending
+    from runtime.journal.recovery_quarantine import RecoveryQuarantineJournal
+    from tools.node104_d090_release import validate_physical_off
+    service = owner.service
+    if not service.active():
+        return False
+    pid = service.main_pid()
+    if pid <= 0 or service._run(
+        "systemctl", "show", d090.release.SERVICE,
+        "-p", "NRestarts", "--value",
+    ) != "0":
+        return False
+    process_argv = Path("/proc").joinpath(str(pid), "cmdline").read_bytes().split(b"\0")
+    expected_app = str(owner.root / "app/bot.py").encode()
+    if expected_app not in process_argv:
+        return False
+    others = []
+    for directory in Path("/proc").iterdir():
+        if not directory.name.isdigit():
+            continue
+        try:
+            if expected_app in directory.joinpath("cmdline").read_bytes().split(b"\0"):
+                others.append(int(directory.name))
+        except OSError:
+            continue
+    if others != [pid]:
+        return False
+    marker = owner.root / ".deploy_sha"
+    if (marker.is_symlink() or not marker.is_file()
+            or marker.read_text().strip() != owner.pinned.old_source_sha):
+        return False
+    state = owner.root / "state"
+    session = state / "charge_session.json"
+    if session.is_symlink():
+        return False
+    raw, pending, error = read_start_pending(session)
+    if error or pending is None or pending.get("previous_exists") is not False:
+        return False
+    candidate = pending.get("candidate")
+    if type(candidate) is not dict:
+        return False
+    journal = RecoveryQuarantineJournal(state / "session_recovery_quarantine.json")
+    try:
+        incident = journal.incident_binding()
+    except Exception:
+        return False
+    if (incident.get("reason") != "start_enable_off_receipt_invalid"
+            or incident.get("session_id") != candidate.get("v2_trace_session_id")
+            or incident.get("battery_id") != candidate.get("v2_battery_id")):
+        return False
+    # The pre-existing D151 runner is the sole observer for the current
+    # generation. It reports ESP Native and HA independently and includes
+    # the running service PID, active session and lease state.
+    proof = evidence(require_stopped=False)
+    validate_physical_off(proof, now=time.time(),
+                          require_service_stopped=False,
+                          allow_active_session=True, software_release=True)
+    if proof.service_main_pid != pid or proof.active_session is not True:
+        return False
+    # The old B1056 process intentionally has no Telegram ready marker while
+    # durable START_PENDING blocks startup. This is a contained restoration,
+    # never an operational release or a health claim.
+    started = service._run("systemctl", "show", d090.release.SERVICE,
+                           "-p", "ActiveEnterTimestamp", "--value")
+    if not started or started == "n/a":
+        return False
+    logs = service._run("journalctl", "-u", d090.release.SERVICE,
+                        "--since", started, "--no-pager", "-o", "cat")
+    if any(word in logs for word in (
+            "Traceback (most recent call last)", "Unauthorized", "database is locked",
+            "Start polling", "Run polling for bot")):
+        return False
+    return "START_PENDING recovery quarantined" in logs
+
+
 def recover_under_owner(owner: d090.D090Transaction, *,
                         expected_candidate_identity_sha256: str) -> dict:
     """Recover an interrupted D144 ledger under canonical D090 lock.
@@ -278,7 +365,10 @@ def recover_under_owner(owner: d090.D090Transaction, *,
             expected_candidate=candidate_manifest,
             legacy_journal_sha256=d090.digest(owner.journal),
             candidate_stable=lambda: owner.service.stable(owner.pinned.source_sha),
-            restored_stable=lambda: owner.service.stable(owner.pinned.old_source_sha),
+            restored_stable=lambda: (
+                owner.service.stable(owner.pinned.old_source_sha)
+                or _restored_quarantine_contained(owner, evidence=fresh_recovery_proof)
+            ),
             release_identity=identity, slot=slot)
         try:
             return transition.recover()
