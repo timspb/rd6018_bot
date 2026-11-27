@@ -368,6 +368,7 @@ async def start_profile_transactional_result(app: Any, event: Any, pending: Any)
         candidate_document = project_session_document(
             candidate, battery_v, current, ah_now,
             session_file=projection_file, now_s=saved_at,
+            new_start_target=True,
         )
         after_projection = Path(SESSION_FILE).read_bytes() if Path(SESSION_FILE).exists() else None
         if candidate_document is None or after_projection != before_bytes:
@@ -505,6 +506,7 @@ async def start_profile_transactional_result(app: Any, event: Any, pending: Any)
             return project_session_document(
                 live_controller, battery_v, current, ah_now,
                 session_file=str(projection_path), now_s=saved_at,
+                new_start_target=True,
             )
 
     try:
