@@ -98,3 +98,5 @@ C80 — Two carbon-fibre PV 12V batteries survived accidental terminal polarity 
 C81 — Karami 2009 observed five flooded 40Ah batteries improve mean measured Ah from 7.2 to 35.0Ah after multi-stage inverse/chemical prep, but effect of inverse charge not separated from acid replacement/standard recharge, and safe long-term resource not validated. R18-S06.
 C82 — Karami 2009 text 'all <25%' before vs Table1 13/40=32.5%, 10/40=25% is an internal report inconsistency. R18-S06.
 C83 — Short reverse pulses superimposed on normal charging are not whole-cell reverse charging or polarity inversion; different evidence required, R18-S09/R03.
+
+C91 — R18-S06 Karami 2009 дополнительно сообщает 40 циклов сравнительного теста и авторское утверждение ≥80% cycle endurance относительно свежей батареи; точная метрика, n и EOL не определены, поэтому это короткий screening, а не доказательство multi-year service life. R19-S01.

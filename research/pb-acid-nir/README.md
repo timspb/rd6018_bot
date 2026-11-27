@@ -2,7 +2,7 @@
 
 This branch stores a research-only documentation snapshot (2026-11-28), not a charger profile, production release, deployment or physical acceptance.
 
-Read docs/00_CANON.md, docs/HANDOFF_NEW_CHAT.md, docs/RUNBOOK.md, docs/OPERATOR_METHODS.md, docs/ROADMAP.md and reports R01–R17. R18 is next.
+Read docs/00_CANON.md, docs/HANDOFF_NEW_CHAT.md, docs/RUNBOOK.md, docs/OPERATOR_METHODS.md, docs/ROADMAP.md and reports R01–R19. R20 is next.
 
 Excluded: secret files, session files, Telegram raw caches/media, local cases, local Python environments and third-party PDF originals. Research citations use links/DOIs. Evidence statuses including PARTIAL are preserved. Some offline checks require separately obtained source PDFs.
 

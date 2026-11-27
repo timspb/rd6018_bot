@@ -69,3 +69,10 @@
 | H51 | Reported Ah recovery in Karami can partly arise from acid/recharge/selection independently of reverse charge | OPEN | R18-S06; matched independent controls |
 | H52 | Carbon-fibre plate structure increases resilience to accidental reversal for that specific construction, not all carbon additives | OPEN | R18-S05; long-life field followup |
 | H53 | Quality/UNKNOWN diagnostics with independent cell evidence reduces unsupported confident short/reversal diagnosis | OPEN | R18-R13; safe synthetic holdout |
+
+| H54 | Immediate Ah gain overstates durable benefit if water loss, gassing, active-mass shedding and porosity are not monitored | OPEN | R19; matched longitudinal datasets |
+| H55 | Recovery response is non-monotonic and depends on baseline defect and charging environment | OPEN | R19-S03; controlled replication needed |
+| H56 | Calendar time and storage SOC/T explain degradation variance beyond cycle count alone | OPEN | R19-S09 benchmark; restored matched samples |
+| H57 | C20+CCA+pulse R+self-discharge+gas/water+∆T predicts usable recovery better than one Ah value | OPEN | R19; multivariate longitudinal data |
+| H58 | 40-cycle screening does not reliably rank multi-year life | OPEN | R19-S01/S02 vs 18–24 month/EOL outcomes |
+| H59 | Recovery percentages cannot be pooled across Gel/AGM/GFM/Ca-Ca/EFB without chemistry-matched controls | OPEN | R19-S02/S03/S06/S07/S08 |

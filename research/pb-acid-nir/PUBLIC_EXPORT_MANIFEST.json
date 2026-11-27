@@ -5,7 +5,7 @@
     {
       "path": "README.md",
       "bytes": 809,
-      "sha256": "36a302dbe81c6e0dbbc2a6e97a6286e5cafd83d5e26176d2fc9736adab01fee9"
+      "sha256": "d099028b27c422958cce8572c0f692127a1dc009585cfa99c29d445081f16309"
     },
     {
       "path": "docs/00_CANON.md",
@@ -14,8 +14,8 @@
     },
     {
       "path": "docs/01_SOURCES.md",
-      "bytes": 11298,
-      "sha256": "5f4a459e2637749d869a093a4bd3bf6d2fd8eb40edc398a2ce0effe8f1a2d12b"
+      "bytes": 13910,
+      "sha256": "32e8b1c38d9804694a14fb99a99204935b203f96976267b85fa36b7c4e7f9384"
     },
     {
       "path": "docs/02_EXPERIMENTS.md",
@@ -114,8 +114,13 @@
     },
     {
       "path": "docs/21_R18_POLARITY_REVERSAL.md",
-      "bytes": 33514,
-      "sha256": "7b7bf7fd30051bacd030d8d778f218cf617910727b95b749e336949cad249f3e"
+      "bytes": 34440,
+      "sha256": "751748667010873072418054597ad13855dbdc1bd23f774ec7f0609e4ea6473d"
+    },
+    {
+      "path": "docs/22_R19_RECOVERY_DURABILITY.md",
+      "bytes": 30176,
+      "sha256": "488ff814e03b3e657f0325a39d18a25ef5ac50d3b1c46d04e714ed787d5f342e"
     },
     {
       "path": "docs/AGENTS.md",
@@ -124,18 +129,18 @@
     },
     {
       "path": "docs/CHANGELOG.md",
-      "bytes": 6189,
-      "sha256": "fe3c945ed55f76ea9600d608c8bafa6439c5eff8f324492ec126ff9a7eccffe2"
+      "bytes": 6860,
+      "sha256": "14a0d64cae502c4080cb7922eae372276d35f980c79645dbbcaa11d20dfb764e"
     },
     {
       "path": "docs/CONCLUSIONS.md",
-      "bytes": 18682,
-      "sha256": "a339bda837bff21f119a6a61bfacde78117c6589ac2e0e4e83708d2019d07a74"
+      "bytes": 19119,
+      "sha256": "2afa4f3b01c28cd544ff4741aad6a3f8626e29ffa7742ef78bd405fa348bfb03"
     },
     {
       "path": "docs/CURRENT_CHECKPOINT.md",
-      "bytes": 15898,
-      "sha256": "294a2ee5023360d7bd1590ad33440ac26e2dd171b7e9267ffef79f60bf6a7b4a"
+      "bytes": 17444,
+      "sha256": "f7d7d6d1f90a3853fd92f370a97531e97c5ff543bdfab597d0cd5c129c752828"
     },
     {
       "path": "docs/DECISIONS.md",
@@ -144,18 +149,18 @@
     },
     {
       "path": "docs/EXPERIMENT_PROTOCOL.md",
-      "bytes": 12827,
-      "sha256": "749cbecbfe520848c85f58b638976e2bce4ee0ff2e7b06db7d7559e601f45f03"
+      "bytes": 14930,
+      "sha256": "2b5d0a2d28d02c0cf16f8bcaf9bd77ebd48b88ddb4f9c0e22486a44da0213ee1"
     },
     {
       "path": "docs/HANDOFF_NEW_CHAT.md",
-      "bytes": 5016,
-      "sha256": "5b1d342170acb8f43ebef386159adb69558d697375605e60155c616015daf91f"
+      "bytes": 5416,
+      "sha256": "40b0449e6cb46a109b4f1f3e8e6791850cac040ed90ea178352ede96d7b6ec68"
     },
     {
       "path": "docs/HYPOTHESES.md",
-      "bytes": 10799,
-      "sha256": "ccf437ee2cd4bbb5d9400d3b14a037d008387f2df9cc428322dc93d46266e0a9"
+      "bytes": 11688,
+      "sha256": "c8b716de3b8698fe06fe3017284d4c0328a714f25e34e2abe544b4861ee64d18"
     },
     {
       "path": "docs/INTEGRATION_RD6018.md",
@@ -164,18 +169,18 @@
     },
     {
       "path": "docs/OPERATOR_METHODS.md",
-      "bytes": 13735,
-      "sha256": "0fd74acb717ab70a463bf121cbf8ef721815c717a8da9befc2cf38a03b947439"
+      "bytes": 13845,
+      "sha256": "b8cb32b1fdc4be45560a13180c34828bfc5fd1b219897e1b8c10b5cf29d59530"
     },
     {
       "path": "docs/README.md",
-      "bytes": 1516,
-      "sha256": "e9cd05b847ddfd1ed2580e5c3b054fb9ced97444176c10ec0a854a36b2dcc0ca"
+      "bytes": 2820,
+      "sha256": "7f1fcb63ee7846c3e90427119de81ea15d2274808413823ddc896ef186dad04c"
     },
     {
       "path": "docs/ROADMAP.md",
-      "bytes": 2879,
-      "sha256": "74b726fd0b677e47456fbc3c1f70c957f432705ba3b7fbd4fb38d7cc2d96c6b2"
+      "bytes": 2909,
+      "sha256": "b30e01b7063d1797f39fe865dfd68cbd4448258f05955bb7d4c638bf66a724d5"
     },
     {
       "path": "docs/RUNBOOK.md",
@@ -189,8 +194,8 @@
     },
     {
       "path": "docs/TELEGRAM_TRIAGE_001.md",
-      "bytes": 12836,
-      "sha256": "022724127598beaf011f6a587e4f3e928516747bcacdf8ca611c516ab2d45d7b"
+      "bytes": 14818,
+      "sha256": "eeeca6a414193e3b6068a603fa31432c4a024380f4484e36e65af0a48f6e3dfb"
     },
     {
       "path": "tools/r11_capacity_analysis.py",
@@ -256,6 +261,11 @@
       "path": "tools/r18_reversal_evidence_offline.py",
       "bytes": 1782,
       "sha256": "d2112fcb61c7f65f5803b69ce6236bc2d5715246b80550aa440cbbd1e4910b59"
+    },
+    {
+      "path": "tools/r19_durability_analysis.py",
+      "bytes": 1818,
+      "sha256": "de9cb73260b72b0d41ae3da37d506023a0a1e2c61373213af85fc973a576a57d"
     }
   ],
   "omitted": []

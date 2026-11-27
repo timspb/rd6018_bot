@@ -39,6 +39,7 @@
 - tools/r16_nbs_solubility_analysis.py, r16_validate_checkpoint.py — таблица NBS и хеши (PASS).
 - tools/r17_quantitative_provenance.py, r17_validate_checkpoint.py — carbon/DCA, хеши и checkpoint (PASS).
 - tools/r18_reversal_evidence_offline.py — Karami 2009 Table 1 и ограничения Utotal, синтетическая проверка (PASS).
+- tools/r19_durability_analysis.py — Karami/Ohajianya/Shi/PNNL arithmetic and PDF SHA256 provenance (PASS).
 - tools/r14_source_archive.py, r15_archive_sources.py, r16_archive_nist.py, r17_archive_public_sources.py — примеры архивирования публичных PDF с проверкой формата/хешей; файлы HTTP403/429/URLError считать недоступными, не архивированными.
 При переходе в новый чат повторно проверять актуальный код и нужные тесты.
 
