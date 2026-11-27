@@ -10,7 +10,8 @@ from typing import Any
 from application.operator_recovery_clearance import RetiredControllerSession, VerifiedOffEvidence
 from runtime.charge.persistence import (
     SESSION_FILE,
-    read_canonical_session,
+    StartPendingAction, StartPendingStatus,
+    read_canonical_session, read_start_pending, finish_start_pending,
     retire_controller_session,
 )
 
@@ -28,7 +29,46 @@ class _ControllerSessionRetirement:
             raise ValueError("canonical session is unreadable or invalid")
         return document
 
+    def _pending_start_binding(self):
+        """Bind exactly one valid pending START to its durable incident, read-only.
+
+        No previous session can be retired by this branch. It neither writes a
+        pending document nor grants Output authority.
+        """
+        raw, pending, error = read_start_pending(self.session_file)
+        if error or pending is None or pending.get("previous_exists") is not False:
+            return None
+        candidate = pending.get("candidate")
+        if not isinstance(candidate, dict):
+            return None
+        session_id = candidate.get("v2_trace_session_id")
+        battery_id = candidate.get("v2_battery_id")
+        if (not isinstance(session_id, str) or not session_id.strip()
+                or not isinstance(battery_id, str) or not battery_id.strip()):
+            return None
+        controller = self.app.charge_controller
+        if getattr(controller, "current_stage", None) != getattr(controller, "STAGE_IDLE", object()):
+            return None
+        memory_session = getattr(controller, "_v2_trace_session_id", None)
+        memory_battery = getattr(controller, "_v2_battery_id", None)
+        if ((memory_session is not None and memory_session != session_id)
+                or (memory_battery is not None and memory_battery != battery_id)):
+            return None
+        journal = getattr(self.app, "recovery_quarantine_journal", None)
+        try:
+            incident = journal.incident_binding()
+        except Exception:
+            return None
+        if (incident.get("reason") != "start_enable_off_receipt_invalid"
+                or incident.get("session_id") != session_id
+                or incident.get("battery_id") != battery_id):
+            return None
+        return (raw, pending, session_id, battery_id, incident)
+
     def session_id(self):
+        pending = self._pending_start_binding()
+        if pending is not None:
+            return pending[2]
         try:
             data = self._document()
         except FileNotFoundError:
@@ -117,6 +157,17 @@ class _ControllerSessionRetirement:
                 "document_sha256": hashlib.sha256(raw).hexdigest()}
 
     def validate(self, binding):
+        pending = self._pending_start_binding()
+        if pending is not None:
+            incident = pending[4]
+            return (
+                isinstance(binding, dict)
+                and binding.get("incident_id") == incident.get("incident_id")
+                and binding.get("session_id") == pending[2]
+                and binding.get("battery_id") == pending[3]
+                and binding.get("reason") == incident.get("reason")
+                and binding.get("document_sha256") is None
+            )
         controller = self.app.charge_controller
         try:
             data = self._document()
@@ -143,10 +194,10 @@ class _ControllerSessionRetirement:
                 and incident.get("battery_id") == binding.get("battery_id")
                 and (memory_session is None or memory_session == binding.get("session_id"))
                 and (memory_battery is None or memory_battery == binding.get("battery_id"))
-                and str(incident.get("reason", "")).startswith((
+                and (str(incident.get("reason", "")).startswith((
                     "main_guard_current_setpoint_transaction_unconfirmed:",
                     "main_guard_current_ocp_transaction_unconfirmed:",
-                ))
+                )) or incident.get("reason") == "start_enable_off_receipt_invalid")
             )
         except (OSError, ValueError, TypeError):
             return False
@@ -215,6 +266,27 @@ class _ControllerSessionRetirement:
         return True
 
     def retire(self, session_id, *, binding, off_evidence):
+        pending = self._pending_start_binding()
+        if pending is not None:
+            raw, envelope, exact_id, _battery, _incident = pending
+            if (session_id != exact_id or not isinstance(off_evidence, VerifiedOffEvidence)
+                    or not self.validate(binding)):
+                return None
+            # Existing atomic START owner restores the exact embedded previous
+            # bytes (for this incident: previous_exists=False). No file deletion
+            # shortcut or reinterpretation of the pending wrapper is permitted.
+            try:
+                outcome = finish_start_pending(
+                    raw, envelope, action=StartPendingAction.ROLLBACK, path=self.session_file
+                )
+                after_raw, after_pending, after_error = read_start_pending(self.session_file)
+            except (OSError, ValueError, TypeError):
+                return None
+            if (outcome.status is not StartPendingStatus.COMMITTED
+                    or after_error is not None or after_pending is not None
+                    or after_raw is not None):
+                return None
+            return RetiredControllerSession(session_id)
         try:
             data = self._document()
         except FileNotFoundError:

@@ -239,6 +239,17 @@ async def start_profile_transactional_result(app: Any, event: Any, pending: Any)
         )
         return outcome(False)
 
+    # Reject incompatible installed firmware before START_PENDING, V/I and lease.
+    # Recheck within the same owning START admission on every attempt.
+    try:
+        await port.verify_managed_start_output_contract()
+    except Exception as exc:
+        await message.answer(
+            "❌ START заблокирован: Native Output API несовместим с прошивкой ESP. "
+            + str(exc)
+        )
+        return outcome(False)
+
     live = await port.read_live()
     snapshot = snapshot_from_live(live)
     if snapshot is None:

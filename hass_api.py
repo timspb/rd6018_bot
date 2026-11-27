@@ -55,6 +55,13 @@ class HassClient:
     def _uses_physical_backend(self) -> bool:
         return self._physical_backend is not None
 
+    async def verify_output_command_contract(self) -> None:
+        """Delegate mandatory Native action inventory to the selected physical owner."""
+        checker = getattr(self._physical_backend, "verify_output_command_contract", None)
+        if not callable(checker):
+            raise RuntimeError("selected physical backend lacks correlated Native Output contract")
+        await checker()
+
     @property
     def supports_typed_off_receipt(self) -> bool:
         """Whether the selected connector can return the exact AD051 receipt."""

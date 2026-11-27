@@ -13,6 +13,7 @@ from functools import wraps
 import hashlib
 import json
 import logging
+import math
 from pathlib import Path
 import time
 from typing import Any
@@ -133,19 +134,37 @@ class StartupRecovery:
                     or isinstance(receipt.terminal_completed_monotonic, bool)
                     or type(receipt.connection_generation) is not int):
                 raise RuntimeError("start_pending_off_receipt_unproven")
-            report = await self.app.hass.get_native_physical_output_report()
-            if not isinstance(report, tuple) or len(report) != 2:
-                raise RuntimeError("start_pending_native_output_report_missing")
-            value, meta = report
-            timestamp = meta.get("subscription_timestamp_monotonic") if isinstance(meta, dict) else None
-            if (type(value) is bool or value != 0
-                    or not isinstance(meta, dict) or meta.get("status") != "ok"
-                    or meta.get("native_type") != "SensorState"
-                    or type(meta.get("connection_generation")) is not int
-                    or meta["connection_generation"] != receipt.connection_generation
-                    or not isinstance(timestamp, (int, float)) or isinstance(timestamp, bool)
-                    or timestamp <= receipt.terminal_completed_monotonic):
-                raise RuntimeError("start_pending_post_receipt_native_off_unproven")
+            # AD051 APPLIED contains a post-FC06 *physical FC03 readback*
+            # correlated by the exact command request ID. Native R18 telemetry
+            # is a separate periodic mirror, which is not required to publish
+            # again after the APPLIED terminal receipt. Corroborate the receipt
+            # by one fresh, same-generation typed Native SensorState=OFF.
+            # Neither that sensor alone nor HA can prove the command applied.
+            deadline = asyncio.get_running_loop().time() + 10.0
+            while True:
+                try:
+                    report = await self.app.hass.get_native_physical_output_report()
+                except Exception:
+                    report = None
+                if isinstance(report, tuple) and len(report) == 2:
+                    value, meta = report
+                    timestamp = (meta.get("subscription_timestamp_monotonic")
+                                 if isinstance(meta, dict) else None)
+                    if (type(value) in (int, float) and math.isfinite(value) and value == 0
+                            and isinstance(meta, dict) and meta.get("status") == "ok"
+                            and meta.get("native_type") == "SensorState"
+                            and type(meta.get("connection_generation")) is int
+                            and meta["connection_generation"] == receipt.connection_generation
+                            and isinstance(timestamp, (int, float))
+                            and not isinstance(timestamp, bool)
+                            and math.isfinite(timestamp)
+                            and 0.0 <= time.monotonic() - timestamp <= 8.0):
+                        break
+                if asyncio.get_running_loop().time() >= deadline:
+                    raise RuntimeError("start_pending_post_receipt_native_off_unproven")
+                await asyncio.sleep(min(0.1, max(
+                    0.0, deadline - asyncio.get_running_loop().time()
+                )))
             result = finish_start_pending(
                 raw, pending, action=StartPendingAction.ROLLBACK, path=SESSION_FILE,
             )
@@ -164,7 +183,7 @@ class StartupRecovery:
                 )
             except Exception:
                 pass
-            logger.error("START_PENDING recovery quarantined: %s", type(exc).__name__)
+            logger.error("START_PENDING recovery quarantined: %s (%s)", type(exc).__name__, str(exc)[:160])
             return False
 
     @_serialized_deferred_restore

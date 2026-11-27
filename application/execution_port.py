@@ -239,6 +239,16 @@ class ExecutionPort:
         if mix is not None:
             mix.ratchet_after_managed_write(field, value)
 
+    async def verify_managed_start_output_contract(self) -> None:
+        """Read-only physical capability admission; no V/I, lease or R18 commands."""
+        if self._recovery_quarantined() or self.guarded_restore_activated_off:
+            raise RuntimeSafetyError("managed START blocked by recovery quarantine")
+        checker = getattr(getattr(self._execution_owner, "adapter", None),
+                          "verify_output_command_contract", None)
+        if not callable(checker):
+            raise RuntimeSafetyError("managed START lacks Native Output contract checker")
+        await checker()
+
     def authorize_managed_start(self) -> None:
         """Authorize controller session creation before any START state mutation."""
         if self._recovery_quarantined() or self.guarded_restore_activated_off:

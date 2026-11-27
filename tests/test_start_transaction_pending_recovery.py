@@ -1,5 +1,6 @@
 import json
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -56,7 +57,7 @@ class _StartupPendingTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(pending.status.value, "COMMITTED")
             receipt = SimpleNamespace(
                 requested_target=False, terminal_status="APPLIED", observed_r18=0,
-                terminal_completed_monotonic=20.0, connection_generation=7,
+                terminal_completed_monotonic=time.monotonic(), connection_generation=7,
             )
             port = _Port(receipt)
             app = SimpleNamespace(hass=SimpleNamespace(
@@ -65,7 +66,7 @@ class _StartupPendingTests(unittest.IsolatedAsyncioTestCase):
             async def report():
                 return 0, {"status": "ok", "native_type": "SensorState",
                            "connection_generation": 7,
-                           "subscription_timestamp_monotonic": 20.01}
+                           "subscription_timestamp_monotonic": time.monotonic()}
             app.hass.get_native_physical_output_report = report
             recovery = StartupRecovery(app, object(), object())
             with patch("runtime.startup_recovery.SESSION_FILE", path), \
@@ -73,6 +74,36 @@ class _StartupPendingTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(await recovery._settle_start_pending_before_restore())
             self.assertEqual(port.off_calls, 1)
             self.assertEqual(path.read_text(encoding="utf-8"), json.dumps(prior))
+
+    async def test_fresh_same_generation_r18_corrobates_fc03_off_receipt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "charge_session.json"
+            prior = b'{"stage":"IDLE","start_transaction_generation":0}'
+            path.write_bytes(prior)
+            begin_start_pending({"stage": "PREP"}, transaction_id="r18-periodic", path=path)
+            receipt_at = time.monotonic()
+            receipt = SimpleNamespace(
+                requested_target=False, terminal_status="APPLIED", observed_r18=0,
+                terminal_completed_monotonic=receipt_at, connection_generation=7,
+            )
+            port = _Port(receipt)
+            samples = iter((receipt_at - 1.0, receipt_at, None))
+            seen = []
+            async def report():
+                sample = next(samples)
+                stamp = time.monotonic() if sample is None else sample
+                seen.append(stamp)
+                return 0.0, {"status": "ok", "native_type": "SensorState",
+                             "connection_generation": 7,
+                             "subscription_timestamp_monotonic": stamp}
+            app = SimpleNamespace(hass=SimpleNamespace(get_native_physical_output_report=report))
+            recovery = StartupRecovery(app, object(), object())
+            with patch("runtime.startup_recovery.SESSION_FILE", path), \
+                 patch("runtime.startup_recovery.get_or_create_execution_port", return_value=port):
+                self.assertTrue(await recovery._settle_start_pending_before_restore())
+            self.assertEqual(len(seen), 1)
+            self.assertEqual(port.off_calls, 1)
+            self.assertEqual(path.read_bytes(), prior)
 
     async def test_stale_native_report_quarantines_and_preserves_pending_bytes(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -21,6 +21,49 @@ except ModuleNotFoundError:
     from d136_observed_venv import inventory as venv_inventory
 
 
+def _validated_d142_physical_off(proof: dict[str, object] | None, *, pid: int) -> bool:
+    """Validate the exact already-existing D142/D091 witness, never inferred OFF.
+
+    Transient witness bytes are re-observed each phase and excluded from stable
+    source identity. A physical snapshot alone never clears managed ownership.
+    """
+    required = {
+        "schema", "captured_at_epoch", "service_main_pid", "native_sensor_state_fresh",
+        "ha102_output_off", "ha102_current_a", "esp128_output_off",
+        "esp128_current_a", "edge_lease_armed", "edge_boot_quarantine",
+        "physical_node_owner_count", "active_session", "source_nonces",
+    }
+    if type(proof) is not dict or set(proof) != required:
+        return False
+    try:
+        captured = proof["captured_at_epoch"]
+        nonces = proof["source_nonces"]
+        def zero(key: str) -> bool:
+            value = proof[key]
+            return type(value) in (int, float) and math.isfinite(value) and abs(value) <= .05
+        return (
+            proof["schema"] == "D142_VALIDATED_D091_OFF_V1"
+            and type(captured) in (int, float) and math.isfinite(captured)
+            and 0 <= time.time() - captured <= 8.0
+            and type(proof["service_main_pid"]) is int
+            and proof["service_main_pid"] == pid
+            and proof["native_sensor_state_fresh"] is True
+            and proof["ha102_output_off"] is True
+            and proof["esp128_output_off"] is True
+            and zero("ha102_current_a") and zero("esp128_current_a")
+            and proof["edge_lease_armed"] is False
+            and proof["edge_boot_quarantine"] is False
+            and type(proof["physical_node_owner_count"]) is int
+            and proof["physical_node_owner_count"] == 1
+            and proof["active_session"] is True
+            and type(nonces) is list and len(nonces) == 2
+            and all(type(n) is str and n for n in nonces)
+            and nonces[0] != nonces[1]
+        )
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return False
+
+
 def observed_preimage(root: Path, *, pid: int,
                       physical_off_reconciliation: dict[str, object] | None = None) -> dict[str, object]:
     if not isinstance(pid, int) or pid <= 0 or root.is_symlink() or not root.is_dir():
@@ -205,6 +248,61 @@ def observed_preimage(root: Path, *, pid: int,
             "session_absent": True,
             "quarantine_sha256": before[str(quarantine_path)],
         }
+    elif session_present and isinstance(session, dict) and "start_transaction_pending_v1" in session:
+        # Release inspection does not retire a session: preserve the exact
+        # pending envelope and matching active durable quarantine byte-for-byte.
+        # This previously unrecognized but valid state must not bypass D137/D142.
+        from runtime.charge.start_pending import read_start_pending
+        raw_pending, envelope, pending_error = read_start_pending(session_path)
+        from datetime import datetime
+        from uuid import UUID
+        incident = quarantine if type(quarantine) is dict else {}
+        candidate = envelope.get("candidate") if isinstance(envelope, dict) else None
+        identity = incident.get("identity")
+        try:
+            incident_valid = (
+                set(incident) == {
+                    "owner", "schema_version", "quarantined", "reason",
+                    "incident_id", "incident_utc", "identity",
+                }
+                and incident.get("owner") == "runtime.charge.recovery_quarantine_journal"
+                and type(incident.get("schema_version")) is int
+                and incident["schema_version"] == 1
+                and incident.get("quarantined") is True
+                and incident.get("reason") == "start_enable_off_receipt_invalid"
+                and type(incident.get("incident_id")) is str
+                and str(UUID(incident["incident_id"])) == incident["incident_id"]
+                and type(incident.get("incident_utc")) is str
+                and datetime.fromisoformat(incident["incident_utc"].replace("Z", "+00:00")).tzinfo is not None
+                and type(identity) is dict
+                and set(identity) == {"session_id", "battery_id"}
+                and all(type(identity[k]) is str and identity[k].strip() for k in identity)
+            )
+        except (KeyError, TypeError, ValueError, OverflowError):
+            incident_valid = False
+        if (pending_error is not None or raw_pending is None
+                or hashlib.sha256(raw_pending).hexdigest() != before[str(session_path)]
+                or not isinstance(envelope, dict)
+                or envelope.get("previous_exists") is not False
+                or not isinstance(candidate, dict)
+                or not incident_valid
+                or candidate.get("v2_trace_session_id") != identity["session_id"]
+                or candidate.get("v2_battery_id") != identity["battery_id"]
+                or not _validated_d142_physical_off(physical_off_reconciliation, pid=pid)):
+            raise ValueError("pending START/durable quarantine lacks exact identity or fresh D142 OFF proof")
+        preserved_quarantine = {
+            "incident_id": incident["incident_id"],
+            "incident_utc": incident["incident_utc"],
+            "reason": incident["reason"],
+            "session_id": identity["session_id"],
+            "battery_id": identity["battery_id"],
+            "pending_transaction_id": envelope["transaction_id"],
+            "pending_generation": envelope["generation"],
+            "pending_sha256": before[str(session_path)],
+            "session_absent": False,
+            "automatic_resume_authorized": False,
+            "quarantine_sha256": before[str(quarantine_path)],
+        }
     elif session_present and session.get("stage") in {
         "Main Charge", "Mix Mode", "Безопасное ожидание",
     }:
@@ -267,43 +365,9 @@ def observed_preimage(root: Path, *, pid: int,
         # to False because restart breaks continuity. Preserve and inspect the
         # sealed historical snapshot separately; never rewrite it here.
         persisted_last_output_on = guard_record["snapshot"].get("last_output_on")
-        reconciliation_fields = {
-            "schema", "captured_at_epoch", "service_main_pid", "native_sensor_state_fresh",
-            "ha102_output_off", "ha102_current_a", "esp128_output_off",
-            "esp128_current_a", "edge_lease_armed", "edge_boot_quarantine",
-            "physical_node_owner_count", "active_session", "source_nonces",
-        }
-        reconciliation_valid = False
-        if isinstance(physical_off_reconciliation, dict):
-            try:
-                captured = physical_off_reconciliation["captured_at_epoch"]
-                nonces = physical_off_reconciliation["source_nonces"]
-                def zero_reading(key):
-                    value = physical_off_reconciliation.get(key)
-                    return (type(value) in (int, float) and math.isfinite(value)
-                            and abs(value) <= .05)
-                reconciliation_valid = (
-                    set(physical_off_reconciliation) == reconciliation_fields
-                    and physical_off_reconciliation.get("schema") == "D142_VALIDATED_D091_OFF_V1"
-                    and type(captured) in (int, float) and math.isfinite(captured)
-                    and 0 <= time.time() - captured <= 8.0
-                    and type(physical_off_reconciliation.get("service_main_pid")) is int
-                    and physical_off_reconciliation.get("service_main_pid") == pid
-                    and physical_off_reconciliation.get("native_sensor_state_fresh") is True
-                    and physical_off_reconciliation.get("ha102_output_off") is True
-                    and physical_off_reconciliation.get("esp128_output_off") is True
-                    and all(zero_reading(key) for key in (
-                        "ha102_current_a", "esp128_current_a"))
-                    and physical_off_reconciliation.get("edge_lease_armed") is False
-                    and physical_off_reconciliation.get("edge_boot_quarantine") is False
-                    and type(physical_off_reconciliation.get("physical_node_owner_count")) is int
-                    and physical_off_reconciliation.get("physical_node_owner_count") == 1
-                    and physical_off_reconciliation.get("active_session") is True
-                    and type(nonces) is list and len(nonces) == 2
-                    and all(type(n) is str and n for n in nonces) and nonces[0] != nonces[1]
-                )
-            except (KeyError, TypeError, ValueError, OverflowError):
-                reconciliation_valid = False
+        reconciliation_valid = _validated_d142_physical_off(
+            physical_off_reconciliation, pid=pid
+        )
         reconciled_historical_on = persisted_last_output_on is True and reconciliation_valid
         if (revision <= 0 or guard.pending is not None or guard.fault is not None
                 or (persisted_last_output_on is not False and not reconciled_historical_on)

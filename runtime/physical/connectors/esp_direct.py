@@ -70,6 +70,9 @@ class ESPDirectConnector(IndependentPhysicalConnector):
     async def set_current(self, value: float) -> None:
         await self._set_number("control_current", value)
 
+    async def verify_output_command_contract(self) -> None:
+        await self.transport.verify_output_command_contract()
+
     async def enable_output(self) -> None:
         await self.transport.command_output(True)
 

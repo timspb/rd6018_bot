@@ -187,6 +187,26 @@ class RdStartupAuthorityGate:
         self.manager._record_edge_autonomous(False)
         logger.info("Managed startup authority ready: reconciliation and recovery complete")
 
+    def _durable_quarantine_ui_eligible(self) -> bool:
+        """Permit only operator UI while a durable recovery incident blocks control.
+
+        No managed-ready flag is set. Only an exact real journal and the same
+        app-scoped durable SessionRecoveryGuard qualify; UNKNOWN/AUTONOMOUS
+        edge states are handled before this method is called.
+        """
+        port = getattr(self.app, "execution_port", None)
+        guard = getattr(port, "session_recovery_guard", None)
+        journal = getattr(self.app, "recovery_quarantine_journal", None)
+        if (guard is None or guard.quarantined is not True
+                or getattr(guard, "_durable", False) is not True
+                or journal is None):
+            return False
+        try:
+            durable = journal.load()
+        except Exception:
+            return False
+        return getattr(durable, "quarantined", False) is True
+
     async def reconcile(
         self,
         recover: Callable[[], Awaitable[bool]],
@@ -241,6 +261,15 @@ class RdStartupAuthorityGate:
                 self.reconciliation_error = "managed startup recovery did not prove containment"
                 self.reconciliation_complete = False
                 self.managed_recovery_complete = False
+                if self._durable_quarantine_ui_eligible():
+                    # Escaping the startup retry loop is NOT grant of managed
+                    # control: managed_actuation_ready remains false, deferred
+                    # restore is discarded, and ExecutionPort stays quarantined.
+                    # Start the existing operator UI so /recovery_clear can
+                    # perform the authenticated, verified-OFF retirement.
+                    self.discard_deferred_restore_request()
+                    logger.error("Durable recovery quarantine: operator UI only, all managed actuation denied")
+                    return "managed_quarantined"
                 await asyncio.sleep(managed_retry_delay)
                 continue
             self.mark_managed_recovered()

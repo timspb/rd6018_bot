@@ -669,6 +669,41 @@ class ESPHomeTransport(ReadOnlyTransport):
             observe_applied_on(receipt, source_transport=self, source_client=getattr(self, "client", None))
         return json.loads(receipt.raw_terminal_identity)
 
+    async def verify_output_command_contract(self) -> None:
+        """Inspect the active firmware's mandatory AD051 Native API before START writes.
+
+        Merely observing R18 or SwitchInfo(output) is not command/receipt support.
+        This read-only check never executes the firmware action.
+        """
+        await self._ensure_connected()
+        if self.client is None or not bool(getattr(self.client, "is_connected", True)):
+            raise RuntimeError("ESPHome Native Output contract unavailable: transport disconnected")
+        if self._reconnecting_subscription:
+            await self._ensure_state_subscription()
+            if self._reconnecting_subscription:
+                raise RuntimeError("ESPHome Native Output contract unavailable: reconnect baseline pending")
+        matches = [
+            service for service in self.services
+            if str(getattr(service, "name", "")) == "rd6018_output_command"
+        ]
+        if len(matches) != 1:
+            raise RuntimeError("ESPHome Native Output contract unavailable: rd6018_output_command absent/ambiguous")
+        from aioesphomeapi.model import UserServiceArgType
+        arguments = getattr(matches[0], "args", None)
+        if arguments is None or {
+            str(getattr(arg, "name", "")): getattr(arg, "type", None)
+            for arg in arguments
+        } != {"request_id": UserServiceArgType.STRING, "enabled": UserServiceArgType.BOOL}:
+            raise RuntimeError("ESPHome Native Output contract unavailable: action arguments incompatible")
+        status_id = self.config.entities.get("output_command_status")
+        status_entities = [
+            entity for entity in self.entities
+            if str(getattr(entity, "object_id", "")) == status_id
+            and type(entity).__name__ == "TextSensorInfo"
+        ]
+        if not status_id or len(status_entities) != 1:
+            raise RuntimeError("ESPHome Native Output contract unavailable: receipt status TextSensor absent")
+
     async def command_output_with_receipt(self, enabled: bool) -> OutputCommandReceipt:
         """Send one correlated static firmware action and await its subscribed receipt."""
         await self._ensure_state_subscription()

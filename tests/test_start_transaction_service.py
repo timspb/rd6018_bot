@@ -163,6 +163,12 @@ class FakePort:
     def authorize_managed_start(self):
         return True
 
+    async def verify_managed_start_output_contract(self):
+        # Test fixture emulates a valid installed Native ABI unless explicitly
+        # configured to model missing firmware capability.
+        if getattr(self, "output_contract_error", None) is not None:
+            raise RuntimeError(self.output_contract_error)
+
     async def read_live(self):
         self.live_read_calls += 1
         owner = self.live_owner or self.hass
@@ -456,6 +462,22 @@ class V2StartupTests(unittest.IsolatedAsyncioTestCase):
         safety_owner.get_all_live.assert_awaited_once()
         app.hass.get_all_live.assert_not_awaited()
         self.assertEqual(app.execution_port.live_read_calls, 1)
+
+    async def test_missing_firmware_action_rejects_before_pending_or_physical_start(self):
+        app = FakeApp(EnableResult(enabled=True))
+        app.execution_port.output_contract_error = "rd6018_output_command absent"
+        prior = b'{ "stage": "DONE", "start_transaction_generation": 3 }\n'
+        self.session_path.write_bytes(prior)
+        msg = FakeMessage()
+        outcome = await start_profile_transactional_result(app, msg, PENDING)
+        self.assertFalse(outcome.started)
+        self.assertEqual(self.session_path.read_bytes(), prior)
+        self.assertEqual(outcome.persistence_status.value, "NOT_ATTEMPTED")
+        self.assertEqual(app.execution_port.live_read_calls, 0)
+        self.assertEqual(app.execution_port.off_calls, 0)
+        self.assertEqual(app.charge_controller.start_calls, 0)
+        self.assertFalse(app.execution_port.session_recovery_guard.quarantined)
+        self.assertIn("Native Output API", msg.answers[-1][0])
 
     async def test_initial_voltage_at_or_above_12_starts_main_atomically(self):
         app = FakeApp(EnableResult(enabled=True))
