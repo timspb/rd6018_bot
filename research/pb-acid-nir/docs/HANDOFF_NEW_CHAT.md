@@ -1,7 +1,7 @@
 # HANDOFF_NEW_CHAT — Pb-Research
 Дата обновления: 2026-11-29.
 NEXT_STAGE: R20
-CURRENT_REPORT: 48_S4_DCA_SULFATE_ACCESSIBILITY.md (parent 23_R20_SYNTHESIS.md; RESEARCH_ACCEPTANCE.md)
+CURRENT_REPORT: 50_S5_D09_AND_DECISION_MATRIX.md (parent 23_R20_SYNTHESIS.md; RESEARCH_ACCEPTANCE.md)
 Не начинать повторно R01–R20; использовать отчёты, источники и ledgers.
 
 ## Среда и порядок
@@ -98,3 +98,6 @@ Read report47 and RESEARCH_ACCEPTANCE.md. C187/H92, 59/88. R15/R16-K bounded PAS
 
 ## S4 exit / S5 handoff
 Read report48 and RESEARCH_ACCEPTANCE.md. C192/H93, 61/88. R01/R02-K bounded PASS. Four originals in sources/S4 verified; no universal size or DCA threshold. S5 statement-level evidence/transfer, D09 cases including negatives, explicit residual Q/K, actionable test plans with controls and criteria; distinguish protocol PASS and physical approval, no repeated model fitting or denied downloads. Prior verified HEAD a6735a38441dd8ac66350e67ed03953684ffa84f. No production edits.
+
+## S5 block1 handoff
+Read reports49–50 and RESEARCH_ACCEPTANCE.md. C192/H93 unchanged, 62/88. E/T grades scoped, six E1 are archival facts only; eight D09 cases remain E4. R20-K PASS. Next common protocol and direction-specific annexes, explicitly track Q R04-D/R09, K R05/R06/R12 and P gaps; protocol design separate from physical permission. No production edits. Prior verified HEAD 4bef98d61f1e03f601f96b711b798c99cb435952.

@@ -207,3 +207,6 @@ C01–C187 / H01–H92. Report47 heat accounting and independent spatial thermom
 
 ## S4 exit
 C01–C192 / H01–H93. Report48: independent DCA history comparison, spatial acid/potential, model counterexample, morphology/accessibility. R01/R02-K bounded documentary accepted; S4 main deliverable complete, S5 next. No physical acceptance.
+
+## S5 block1
+C01–C192 / H01–H93 unchanged. Report49 explicit statement-level E/T matrix with source text and corrections, report50 D09 eight-case reconciliation, bounded D08 documentation requirements. R20-K documentary PASS; no new physical claim. R20-P remains OPEN, next consolidated protocols.

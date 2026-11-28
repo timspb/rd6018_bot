@@ -60,3 +60,5 @@ S3 exit/S4: tools/s4_temperature_audit.py reproduces Cao temperature-capacity ta
 S4 block2: tools/s4_heat_material_audit.py reproduces published heat accounting and NBS ratios. Separate inferred heat components, spatial T and measured capacity; do not resolve publication contradictions by guessing. See report47.
 
 S4 exit: tools/s4_dca_accessibility_audit.py archived four originals and checked Table3/4 arithmetic and approximate Fig7 ratios. Do not treat disappearance from local AFM field as chemical conversion; do not count particles as independent specimens. S5 next.
+
+S5 block1: tools/s5_evidence_matrix.py regenerates statement index and checks all192 IDs and E/T assignments. Corrections and source limits retained. Read report50 D09 and requirements; no new raw Telegram access.

@@ -1,5 +1,5 @@
 # CURRENT_CHECKPOINT
-CURRENT_STAGE: R20 PARTIAL / S5 — C01–C192/H01–H93; report 48_S4_DCA_SULFATE_ACCESSIBILITY.md. RESEARCH_ACCEPTANCE.md 61/88.
+CURRENT_STAGE: R20 PARTIAL / S5 — C01–C192/H01–H93; report 50_S5_D09_AND_DECISION_MATRIX.md. RESEARCH_ACCEPTANCE.md 62/88.
 R19 REPORT: 22_R19_RECOVERY_DURABILITY.md. Two 40-cycle follow-ups found (Karami 2009 inverse charge, metric/n/EOL unclear; Lee 2023 extracted 2V cells, 89% rated at cycle40 with porosity loss); one non-monotonic 10-week four-Gel series without controls; Shi/Ferone/Rahn 2012/2013 one sulfated cell +41% after 313h but 64% nominal and 3 other cells dehydrated; PNNL 2022 aging benchmark 18–28 months/289–728 EFC. R18 erratum documents the missed Karami 40-cycle section.
 R20 validator tools/r20_validate_synthesis.py PASS: 192 unique conclusions and 93 unique hypotheses, no gaps. R19 arithmetic tool tools/r19_durability_analysis.py PASS. No physical tests; no RD6018/ESP/node104/BV-600 changes. Production integration remains on hold pending separate owner decision. Working catalog exclusively <RESEARCH_ROOT>. Following lines below are historical stage log, not current next-stage instructions.
 
@@ -126,3 +126,5 @@ S3 exit/S4 block1: report46, C180–183/H91, 57/88. Cao p70 visual checked, Q(T)
 S4 block2 report47 C184–187/H92, 59/88. Jaworski original archived and method page visually verified; Bača arithmetic residuals, Pavlov2004 original machine text timeout. R15/R16-K only accepted, R01/R02-K remain open. Prior published 2c78714e14f32285ccf0c589a5767eecb3657129. No equipment.
 
 S4 exit report48 C188–192/H93, 61/88. Four originals archived, Smith and Arai visual checked, Aihara/Yamashita text only. R01/R02-K accepted, no P advanced. S5 next E/T matrix and protocol consolidation, D08 bounded recommendations. Prior published a6735a38441dd8ac66350e67ed03953684ffa84f. No hardware.
+
+S5 block1 reports49–50: all192 conclusions indexed E/T, 93 hypotheses retained; D09 eight previously documented cases reconciled, no new raw Telegram access. R20-K accepted; next testable protocol consolidation and D08 bounded packet. Prior verified 4bef98d61f1e03f601f96b711b798c99cb435952.

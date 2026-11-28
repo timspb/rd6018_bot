@@ -124,8 +124,8 @@
     },
     {
       "path": "docs/23_R20_SYNTHESIS.md",
-      "bytes": 39881,
-      "sha256": "138e2b61264270a20d376245db357c795072adbba9c95e0b247d533663cfc305"
+      "bytes": 40184,
+      "sha256": "4065edc700a1364a797b26ae4788965075dc53a5bd375f00ffd04e84c8db736a"
     },
     {
       "path": "docs/24_R20_EVIDENCE_GAP_AUDIT.md",
@@ -253,14 +253,24 @@
       "sha256": "1683820ccefe6733c3bc199adc15c867f391e669d439fb4326a9a4531bc96f56"
     },
     {
+      "path": "docs/49_S5_STATEMENT_EVIDENCE_MATRIX.md",
+      "bytes": 58125,
+      "sha256": "e61a54187a7e045ebd6238a1c4d338affa2ad30b7addbbaf960535b6d0e971d1"
+    },
+    {
+      "path": "docs/50_S5_D09_AND_DECISION_MATRIX.md",
+      "bytes": 7549,
+      "sha256": "5d311ea6cc6183f80176089ac586db5df229370914ee1f0ae5e4d4133f43f04e"
+    },
+    {
       "path": "docs/AGENTS.md",
       "bytes": 4209,
       "sha256": "3c99d3667e3d700830c383ae5432f3941ba4c5e3184074c14a1f8b7a5657d5a7"
     },
     {
       "path": "docs/CHANGELOG.md",
-      "bytes": 12246,
-      "sha256": "2166c514758a9afff9d1bb84e81ebce8e960e988583985f7eddfb2b2b855d0e7"
+      "bytes": 12353,
+      "sha256": "f06136ad7ae301ab1a19acf7030ce07d738d7f593c6148d11e6ef4271bda54eb"
     },
     {
       "path": "docs/CONCLUSIONS.md",
@@ -269,8 +279,8 @@
     },
     {
       "path": "docs/CURRENT_CHECKPOINT.md",
-      "bytes": 29867,
-      "sha256": "579ff829cb0b2f5c9e7d435ac72e5ecd0df8f7ddbe321887c149be9811b64a75"
+      "bytes": 30160,
+      "sha256": "78ef8106d5182da10cd011fc45d6b500029d88ee36665780119589286f1c5542"
     },
     {
       "path": "docs/DECISIONS.md",
@@ -284,8 +294,8 @@
     },
     {
       "path": "docs/HANDOFF_NEW_CHAT.md",
-      "bytes": 18979,
-      "sha256": "59116d042f9086cdd2ec1c53017645baefbe17577d7d2cd48e1f90a022130fe2"
+      "bytes": 19407,
+      "sha256": "c2c88bc5ea3f705753f45f16ecbf046ebd137bf1056ea193fb9aa5a3446a3c4e"
     },
     {
       "path": "docs/HYPOTHESES.md",
@@ -309,18 +319,18 @@
     },
     {
       "path": "docs/RESEARCH_ACCEPTANCE.md",
-      "bytes": 19332,
-      "sha256": "2fc90e88dbcb655c46ac0a6a15822fe5728d8fa35be2c2d8a9c107e4b9634141"
+      "bytes": 19533,
+      "sha256": "a4f565957bad518e2bafa85cc1179e0bf577385d4b6e8b7f7f9a553eb283db08"
     },
     {
       "path": "docs/ROADMAP.md",
-      "bytes": 6911,
-      "sha256": "99eee1e4db979f1466dc608af174084faa5c8c1e72acbdada784d3e073ce0562"
+      "bytes": 7142,
+      "sha256": "b907d81d9b8a8c06cf07343998349d53fa7663b290edf8ab78e03b4a8d6f05a5"
     },
     {
       "path": "docs/RUNBOOK.md",
-      "bytes": 14158,
-      "sha256": "b53a7b274346256e51492d3eb321fdb1e7e7d80417a41fe8cb28dd19cef5f655"
+      "bytes": 14373,
+      "sha256": "75bd3ac14ad431657923314e47c0ca05349a9a5dfa55d6badf81b61087d49623"
     },
     {
       "path": "docs/TELEGRAM_CONNECTOR.md",
@@ -583,9 +593,14 @@
       "sha256": "10a2f6429087198b261d7767ac98d2de633da861bf42cc4c1e14282fc64cbd33"
     },
     {
+      "path": "tools/s5_evidence_matrix.py",
+      "bytes": 8753,
+      "sha256": "6c332024d4c821227f3efef624b03766188df2c4a21858b7c4414d5ea525479e"
+    },
+    {
       "path": "tools/validate_research_acceptance.py",
       "bytes": 971,
-      "sha256": "45948671012ef97040b7d8bf1fdabb708ffe1b8122627f0e1c89ca345f10e875"
+      "sha256": "b922b7e10dcf5c6acb1f97ae17d9cb559b7895ee6b0863623af7a8552045292e"
     }
   ],
   "omitted": []

@@ -99,3 +99,5 @@
 2026-11-29 S4 block2 report47, C184–187/H92, 59/88, R15/R16-K bounded accepted. Jaworski original archived, arithmetic audited. Prior published 2c78714e. No equipment.
 
 2026-11-29 S4 exit report48, C188–192/H93, 61/88, R01/R02-K bounded accepted; four originals archived. S5 intake. Prior published a6735a38. No equipment.
+
+2026-11-29 S5 block1: reports49–50, 62/88, C192/H93 unchanged, R20-K documentary accepted. No hardware.

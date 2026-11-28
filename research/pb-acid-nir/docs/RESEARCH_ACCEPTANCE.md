@@ -24,7 +24,7 @@
 | R17 | Углерод/NAM/PAM | PASS (20_R17_CARBON_ACTIVE_MASS.md) | PASS | Первичные открытые PDF + r17_quantitative_provenance.py | PASS | R17/reports36,40,41: carbon dose and structure, NAM/PAM, DCA/HER/water/corrosion, opposite effects; optimal material UNKNOWN | OPEN | Материалы/производство/ресурс, отдельно NAM и PAM; не retrofit |
 | R18 | Переполюсовка | PASS (21_R18_POLARITY_REVERSAL.md) | PASS | R18 primary source review, R19 Lee 2023 40-cycle series | PASS | R18/R19/report41: separate electrode potential, cell and pack reversal; accidental survivability and bundled restoration do not establish durable efficacy | OPEN | Наблюдение имеющихся архивных событий; без намеренной инверсии |
 | R19 | Устойчивость восстановления | PASS (22_R19_RECOVERY_DURABILITY.md) | PASS | R20-A03/A04 Lam, Bopp, Hund; R19 longitudinal outcomes | PASS | R19/reports26–27/40: separate immediate, retention, functional EFC/calendar and EOL; ordinary-charge comparator; durable superiority NOT_ESTABLISHED; censored outcomes explicit | OPEN | Протокол retention и заранее заданный минимальный полезный эффект |
-| R20 | Синтез и доказательность | PASS (23_R20_SYNTHESIS.md) | PASS | A06–A10 raw data and executed grouped baseline, external admission | OPEN | Поутвержденческая матрица E/T, D09, раздельные UNKNOWN и доказанные результаты | OPEN | Консолидированная программа/рекомендации D08 только по подтвержденным выводам |
+| R20 | Синтез и доказательность | PASS (23_R20_SYNTHESIS.md) | PASS | A06–A10 raw data and executed grouped baseline, external admission | PASS | Reports49–50: C01–C192 E/T matrix, D09 eight cases, negative and unknown evidence, bounded transfer | OPEN | Консолидированная программа/рекомендации D08 только по подтвержденным выводам |
 
 ## Исходное состояние
 PASS 39/88 (44.3%). D 22/22; Q 15/22; K 1/22; P 1/22. Исходные ROADMAP DONE 1/22, PARTIAL 21/22, не изменены. Лабораторная приёмка собственных физических опытов: 0; отдельное разрешение и протокол.
@@ -78,3 +78,6 @@ Current PASS 59/88 (67.0%); D22 Q20 K16 P1. R15-K/R16-K bounded documentary acce
 
 ## S4 exit / S5 intake
 Current PASS 61/88 (69.3%); D22 Q20 K18 P1. R01-K/R02-K bounded documentary accepted; all other open gates retained. S4 main deliverable complete. S5: statement-level evidence/transfer matrix, review open Q R04-D/R09, K R05/R06/R12/R20 and P program; protocol acceptance does not require physical execution but must meet original controls/metrology/decision criteria. No denominator change or physical permission.
+
+## S5 block1
+Current PASS 62/88 (70.5%); D22 Q20 K19 P1. R20-K documentary PASS on reports49–50; Q R04-D/R09, K R05/R06/R12 and 21 P remain OPEN. No empirical acceptance or denominator change. All 93 hypotheses remain separate.
