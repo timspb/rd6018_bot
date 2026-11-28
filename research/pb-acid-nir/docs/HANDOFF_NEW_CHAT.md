@@ -1,7 +1,7 @@
 # HANDOFF_NEW_CHAT — Pb-Research
 Дата обновления: 2026-11-28.
 NEXT_STAGE: R20
-CURRENT_REPORT: 23_R20_SYNTHESIS.md
+CURRENT_REPORT: 24_R20_EVIDENCE_GAP_AUDIT.md (parent synthesis 23_R20_SYNTHESIS.md)
 Не начинать повторно R01–R20; использовать отчёты, источники и ledgers.
 
 ## Среда и порядок
@@ -20,9 +20,9 @@ No physical experiments, intentional cell reversal, reverse charge, VRLA opening
 Prioritize the highest-impact open hypotheses and close source-quality gaps; do not turn the synthesis into a recipe. All H01–H61 remain open except H09 limited SUPPORTED in individual sources. R20 remains PARTIAL because full primary texts, independent replications and multi-month/multi-year matched data are incomplete.
 
 ## GitHub NIR
-Repo timspb/rd6018_bot, branch research/pb-acid-nir, only research/pb-acid-nir/ paths. Latest published branch tip before R20: b83a1b3313fbcbe2a16bee69ece9bb599a587615 (verify current tip and compare main before next update). Local <RESEARCH_ROOT> has no .git and no auto sync. Export tools/prepare_github_nir.py; audit tools/verify_public_export.py; handoff validator tools/validate_handoff.py; synthesis validator tools/r20_validate_synthesis.py.
+Repo timspb/rd6018_bot, branch research/pb-acid-nir, only research/pb-acid-nir/ paths. R20-A01 опубликован в GitHub branch commit 3774ba35dd071156eb3f0a800262f81e80b7a229 (main ahead6/behind0, 58 files only under research/pb-acid-nir/). Перед новым обновлением проверить актуальный tip; automatic sync отсутствует. Local <RESEARCH_ROOT> has no .git and no auto sync. Export tools/prepare_github_nir.py; audit tools/verify_public_export.py; handoff validator tools/validate_handoff.py; synthesis validator tools/r20_validate_synthesis.py.
 Exclude PDFs, Telegram raw/cache/media, private/, .env.secrets, session/QR, local venv and private case data from public export. Never modify main, RD6018 runtime, ESP, node104 or BV-600 as part of this research task.
 
 ## R20-A01 — новый аудит качества источников (28.11.2026)
 Новый отчёт 24_R20_EVIDENCE_GAP_AUDIT.md: Cleland2000 n126 new stored SLA, immediate +17% после опасного treatment, контроль и сроки отсутствуют, abstract 47/36.5% vs Results 46/36.5% (проверка Table2 OPEN); Mankov2026 новые AGM9Ah n2/300 циклов 7.8Ah/+4.5/+6.7% — профилактика, не восстановление; Catherino2004 критика мифа «80% излечимых» не равна статистике; Frenander2026 npj Clean Energy n54 — Li-ion, исключено. C92–C96, H60–H61. tools/r20_source_quality_audit.py PASS. Следующий предметный шаг: найти оригинальные таблицы/разметку групп и longitudinal matched C20/CCA/EFC data, а не переносить методы на оборудование.
-GitHub sync этого блока и R20 ранее не был подтверждён; всегда проверять ветку research/pb-acid-nir перед записью. Локальный источник — <RESEARCH_ROOT>. Не синхронизировать private/Telegram/raw/PDF. RD6018/БВ-600/ESP/node104 без изменений.
+R20-A01 успешно опубликован коммитом 3774ba35dd071156eb3f0a800262f81e80b7a229, включая отчет 24, скрипт и реестры; проверено compare с main. Не считать дальнейшие изменения автоматически синхронизированными. Локальный источник — <RESEARCH_ROOT>. Не синхронизировать private/Telegram/raw/PDF. RD6018/БВ-600/ESP/node104 без изменений.

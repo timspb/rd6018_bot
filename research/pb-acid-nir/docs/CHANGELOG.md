@@ -55,3 +55,5 @@
 2026-11-28: R20 PARTIAL — 23_R20_SYNTHESIS.md consolidates C01–C91 and H01–H59, evidence levels E1–E4, transferability T1–T4, no-go boundaries, metrology and diagnostic requirements. R20 validator confirms 91 unique conclusions and 59 unique hypotheses. Roadmap R20 PARTIAL; no charger algorithm, firmware or hardware changes. Next work stays inside R20: prioritize and close source/data gaps; physical validation requires separate owner decision.
 
 2026-11-28: R20-A01 new source-quality audit A01–A04, identified Cleland count 46/47 inconsistency, small-n Mankov 300-cycle prevention vs restoration, Catherino 80% sulfation myth as unmeasured claim, excluded new Nature Li-ion pulse article; C92–C96 H60–H61. R20 scientific priority matrix, offline arithmetic PASS, no hardware. Pending NIR branch sync.
+
+2026-11-28: R20-A01 published commit 3774ba35dd071156eb3f0a800262f81e80b7a229; GitHub ahead6/behind0, all paths research/pb-acid-nir. Local handoff/checkpoint metadata refreshed to published state (followup metadata sync separate).
