@@ -2,7 +2,7 @@
 CURRENT_LIBRARY: KNOWLEDGE_START.md — authoritative compact navigation; historical notes below, not current counts.
 Дата обновления: 2026-11-29.
 NEXT_STAGE: R20
-CURRENT_REPORT: 58_S5_DATASET_ADMISSION_M5BAT.md (parent 23_R20_SYNTHESIS.md; RESEARCH_ACCEPTANCE.md)
+CURRENT_REPORT: 59_S5_BULK_PORE_TRANSPORT.md (parent 23_R20_SYNTHESIS.md; RESEARCH_ACCEPTANCE.md)
 Не начинать повторно R01–R20; использовать отчёты, источники и ledgers.
 
 ## Среда и порядок
@@ -127,3 +127,5 @@ Library optimization: KNOWLEDGE_START.md is the compact current entry; KNOWLEDGE
 Report57: independent VRLA field cohort Siekierski2026; Mohsin2022 Table III error recalculation from indexed copy, macro MAE0.8524Ah/MAPE16.32%, reported abs signed bias per rated22Ah; no blind C20 or external calibration. Pilatowicz relaxation and alternative mechanical shorts reviewed; Zeng/Mamadou full evidence still unavailable. Five theoretical gates OPEN (61/66, total62/88). S019–S022 indexed. Next independent raw relaxation/capacity candidate and targeted primary sources. No device work.
 
 Report58: M5BAT full article and data dictionary inspected (4 PDF pages visually); one 300/299-cell OCSM string, active vs reserve DCIR/throughput contrast, archive version and sensor/label limitations. Direct PDF acquisition returned non-PDF, raw parquet not acquired. BulyK47/Ali wrong chemistry; Hassan/Nayyer repeated C172 excluded as duplicate. S023–S025 indexed. Five theory gates remain OPEN,61/66, total62/88. Next Zeng/Mamadou full primary sources or independently labeled laboratory dataset; no repeated known-data downloads. No device work.
+
+Report59: Tomantschger1984 primary full PDF text, bulk/pore circulation distinction and temperature-dependent reversal of energy effect; figures not visually confirmed. Zeng/Mamadou previews rechecked, full evidence unavailable. Current documentary search pass bounded-complete; five empirical gates remain OPEN,61/66 theory,total62/88. S026–S027 indexed. Next P3/P4/P5 protocol consolidation; reopen targeted evidence gaps on genuinely new sources only. No device or physical tests.

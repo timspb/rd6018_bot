@@ -81,3 +81,7 @@ Current PASS 61/88 (69.3%); D22 Q20 K18 P1. R01-K/R02-K bounded documentary acce
 
 ## S5 block1
 Current PASS 62/88 (70.5%); D22 Q20 K19 P1. R20-K documentary PASS on reports49–50; Q R04-D/R09, K R05/R06/R12 and 21 P remain OPEN. No empirical acceptance or denominator change. All 93 hypotheses remain separate.
+
+
+## Report59 bounded literature-pass exit
+Five residual gates R04-D-Q, R09-Q, R05-K, R06-K, R12-K remain OPEN (EXPERIMENTAL_EVIDENCE_REQUIRED). Original criteria unchanged. Theoretical 61/66; total62/88. Proceed with P3/P4/P5 documentary protocols; reopen on new independent evidence, not repeated searches.
