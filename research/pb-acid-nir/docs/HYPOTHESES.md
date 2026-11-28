@@ -118,3 +118,5 @@
 | H85 | Matched multi-endpoint longitudinal tests may detect functional charge-acceptance decline despite unchanged reference capacity | OPEN | S2 report40; independent controls, fixed preparation |
 
 | H86 | Joint NAM/PAM structure, gas/water and capacity endpoints may distinguish interface/transport improvements from apparent current gains | OPEN | S2 report41; independent matched factory specimens |
+
+| H87 | Independent waveform bandwidth/energy calibration and matched functional charge may reduce waveform comparison bias | OPEN | Report42; actual measurement system not validated |

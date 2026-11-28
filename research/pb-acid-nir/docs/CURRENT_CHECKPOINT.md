@@ -1,7 +1,7 @@
 # CURRENT_CHECKPOINT
-CURRENT_STAGE: R20 PARTIAL / S2 — C01–C164/H01–H86; report 41_S2_MATERIAL_REVERSAL_EVIDENCE.md. RESEARCH_ACCEPTANCE.md 52/88.
+CURRENT_STAGE: R20 PARTIAL / S3 — C01–C166/H01–H87; report 42_S2_EXIT_S3_ADMISSION.md. RESEARCH_ACCEPTANCE.md 52/88.
 R19 REPORT: 22_R19_RECOVERY_DURABILITY.md. Two 40-cycle follow-ups found (Karami 2009 inverse charge, metric/n/EOL unclear; Lee 2023 extracted 2V cells, 89% rated at cycle40 with porosity loss); one non-monotonic 10-week four-Gel series without controls; Shi/Ferone/Rahn 2012/2013 one sulfated cell +41% after 313h but 64% nominal and 3 other cells dehydrated; PNNL 2022 aging benchmark 18–28 months/289–728 EFC. R18 erratum documents the missed Karami 40-cycle section.
-R20 validator tools/r20_validate_synthesis.py PASS: 164 unique conclusions and 86 unique hypotheses, no gaps. R19 arithmetic tool tools/r19_durability_analysis.py PASS. No physical tests; no RD6018/ESP/node104/BV-600 changes. Production integration remains on hold pending separate owner decision. Working catalog exclusively <RESEARCH_ROOT>. Following lines below are historical stage log, not current next-stage instructions.
+R20 validator tools/r20_validate_synthesis.py PASS: 166 unique conclusions and 87 unique hypotheses, no gaps. R19 arithmetic tool tools/r19_durability_analysis.py PASS. No physical tests; no RD6018/ESP/node104/BV-600 changes. Production integration remains on hold pending separate owner decision. Working catalog exclusively <RESEARCH_ROOT>. Following lines below are historical stage log, not current next-stage instructions.
 
 R02: литературный этап выполнен частично, отчет 04_R02.md записан; 12 записей источников, 4 гипотезы. Полные тексты и архив вложений остаются открытой задачей. Следующий этап R03: сравнительные испытания импульсного, постоянного и малотокового заряда, анализ контрольных групп и долговременного результата. Работы только в Pb-Research.
 
@@ -112,3 +112,5 @@ S2 block1: report39, C154–157/H84, 49/88. James gas per approximate Ah and his
 S2 block2: report40, C158–161/H85, 50/88. Sandia original archived and visual evidence checked; INL text only, archive403; 697-battery storage case 72% denominator unverified. R19-K bounded documentary only. Next R17/R18 and protocols. S2 block1 published 58f5226ac0c3511fd1a14b5e3585be986ce32c26; block2 publication separate. No equipment.
 
 S2 block3: report41, C162–164/H86, 52/88. Hu original archived; Cattelan 2026 original methods/results text, local403; Ruetschi original machine text, local timeout. R17/R18-K bounded documentary only. P gates open. Next comparative waveform/retention plan then S3. Block2 published 27d0735fd03b4dbbdf97a9d12597577a91cd055f; block3 publication separate. No hardware.
+
+S2 exit/S3 admission: C165–166/H87, report42, 52/88 unchanged. Synthetic integration and alias tests PASS, strict OPzS no hour-long low-current blocks; BBOXX set10/GITT HTTP403. S3 in progress, no P advanced. Prior published c2d1e3b69085491e6fd2def19e6796609e179814. Next primary short evidence, independent datasets and diagnostic uncertainty. No equipment.

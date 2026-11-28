@@ -46,3 +46,5 @@ S2 block1: tools/s2_pulse_comparison.py reproduces Table1/3 descriptive arithmet
 S2 block2: tools/s2_retention_audit.py archives primary reports and computes descriptive changes; report40. Distinguish scheduled cycle cap, actual failure, shallow cycle count and measured throughput EFC; recovery yield denominator must be known.
 
 S2 block3: tools/s2_material_archive.py verifies public archive and horizon arithmetic; report41. Separate inferred reaction currents, measured gas and actual corrosion; right-censored 400-cycle observation is not measured lifetime. No chemical or reverse-charge intervention.
+
+S2 exit/S3: report42 and scripts s2_waveform_metrology.py, s3_bboxx_acquire.py, s3_opzs_rest_screen.py. Signed integrals on synthetic synchronous traces only. OPzS named-test alignment, gap rejection, no admitted hour rest. BBOXX normal direct acquisition HTTP403; do not bypass. Preserve raw locally.

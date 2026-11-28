@@ -186,3 +186,6 @@ C01–C161 / H01–H85. Report40: retained capacity can coexist with declining P
 
 ## S2 block3
 C01–C164 / H01–H86. Report41: material-dependent HER sign, PAM/NAM coupled reaction and corrosion behavior, electrode-resolved discharge/reversal distinctions. R17-K/R18-K bounded documentary accepted; no optimal additive, reverse-charge efficacy or physical protocol accepted. No production actions.
+
+## S2 exit / S3 admission
+C01–C166 / H01–H87. Report42: synthetic signed waveform metrology and retention design, strict OPzS rest screen negative, BBOXX acquisition denied. S2 deliverable complete with open P criteria; S3 started. 52/88 unchanged. No new physical evidence or mechanism classification.

@@ -14,8 +14,8 @@
     },
     {
       "path": "docs/01_SOURCES.md",
-      "bytes": 25816,
-      "sha256": "52d08883e19d399e21ecb1c832f1bc3a47be79ad987bfdbd73f9e6d749bb91e8"
+      "bytes": 26220,
+      "sha256": "b7eca9d415e7ce663016a61ac21be0290e6b53e65c90c2815da622460f583aa9"
     },
     {
       "path": "docs/02_EXPERIMENTS.md",
@@ -124,8 +124,8 @@
     },
     {
       "path": "docs/23_R20_SYNTHESIS.md",
-      "bytes": 37720,
-      "sha256": "ad79f90cf9a6f4f49f6f1d6e9d40aeed7f8c3ad3f7af3f478a717215f7a751d4"
+      "bytes": 38028,
+      "sha256": "88761375bde4c1eed6b7a42e1a36957461ed849834b3db89898c8b183d319b10"
     },
     {
       "path": "docs/24_R20_EVIDENCE_GAP_AUDIT.md",
@@ -218,24 +218,29 @@
       "sha256": "c023742ae054632cdf6374be1bf27070dccd0559d6362f57490d4a1a0399c164"
     },
     {
+      "path": "docs/42_S2_EXIT_S3_ADMISSION.md",
+      "bytes": 7100,
+      "sha256": "61ef000dd41e81dee0dd1c1b8527c69480109e727c8781405cf159b8f387aadd"
+    },
+    {
       "path": "docs/AGENTS.md",
       "bytes": 4209,
       "sha256": "3c99d3667e3d700830c383ae5432f3941ba4c5e3184074c14a1f8b7a5657d5a7"
     },
     {
       "path": "docs/CHANGELOG.md",
-      "bytes": 11013,
-      "sha256": "cdc4652deeab9ca6c81c7472fbd9575b53034b134f500aadeab54c436b0f21a3"
+      "bytes": 11199,
+      "sha256": "c8ba94db98d07fb2dd3b1fcb70264000745639c188073f249014a35b266e14c9"
     },
     {
       "path": "docs/CONCLUSIONS.md",
-      "bytes": 34603,
-      "sha256": "2c493456a8ade30f3487960856f161a6565568e6c9e3a96ab5af529a8a4de257"
+      "bytes": 34971,
+      "sha256": "fc653ebb9e1dbdf7e6e5a9d39b26b2f981cc4b847faabf7d99d04de7e62e9f87"
     },
     {
       "path": "docs/CURRENT_CHECKPOINT.md",
-      "bytes": 27384,
-      "sha256": "caf7bbc866914880f5ec40fa9927556a1ecbf3bba3a899de9622c4c1be047eb6"
+      "bytes": 27737,
+      "sha256": "b44c47b11378ec516dc40a1dd440ac4f1da6f789e3617fab46f5df85904ec59a"
     },
     {
       "path": "docs/DECISIONS.md",
@@ -244,18 +249,18 @@
     },
     {
       "path": "docs/EXPERIMENT_PROTOCOL.md",
-      "bytes": 22422,
-      "sha256": "97e585299f12dc9f5404d41487f1101af223f5d827cc44f2867137a2fb41d8e6"
+      "bytes": 22827,
+      "sha256": "17959e384d8e85494568a42fd54b60c70f3ad3ef05dc2c5d45be3d58e284c41c"
     },
     {
       "path": "docs/HANDOFF_NEW_CHAT.md",
-      "bytes": 15570,
-      "sha256": "02458aca9044188a2d5622e86c827c1cbb9b5faa068253410f0660bdd33c2e28"
+      "bytes": 16120,
+      "sha256": "6fab7355cce911f4a60cc712b3fcb102c972e1623b7f0735c064500b2f35bb75"
     },
     {
       "path": "docs/HYPOTHESES.md",
-      "bytes": 17070,
-      "sha256": "18b18ffbceefb4b1a4fefad75f7b3eb977f15ab32ca3f889a2244580c2b4be11"
+      "bytes": 17256,
+      "sha256": "522cc6c332db7f2f40a34087e13c304ef3c5b666ce257fb9604c8e3da23be9e6"
     },
     {
       "path": "docs/INTEGRATION_RD6018.md",
@@ -274,18 +279,18 @@
     },
     {
       "path": "docs/RESEARCH_ACCEPTANCE.md",
-      "bytes": 16870,
-      "sha256": "22d6e96de3056db1812edf7e63c1782ad98d3bd194eb27a3a3a4a53a84e7af3a"
+      "bytes": 17212,
+      "sha256": "51827ee02c6477cb77d260b25da404194d865677731929c7bdce4c95b1c32a4a"
     },
     {
       "path": "docs/ROADMAP.md",
-      "bytes": 5162,
-      "sha256": "448f5f0f5ae14666b6353b03e4c6149107a5c4d2bc3b5d54e7d6b44a460862e0"
+      "bytes": 5447,
+      "sha256": "6cbe0a9861c13e290ccaf410c198567f3d1f11305f1cbb667ea72617d29616f9"
     },
     {
       "path": "docs/RUNBOOK.md",
-      "bytes": 12176,
-      "sha256": "6d453c900be60098131c8d80e9a2fb15e076bd384298e77fe66fc37712744a23"
+      "bytes": 12479,
+      "sha256": "981000e74e00032114260d9a12c87a2d36f485f98306c77e07fdc6dd52ab1c55"
     },
     {
       "path": "docs/TELEGRAM_CONNECTOR.md",
@@ -450,7 +455,7 @@
     {
       "path": "tools/r20_validate_synthesis.py",
       "bytes": 1368,
-      "sha256": "bd8023afe70f434656620a9899c3a3ed9ec4bcd0f10bed1db2d9613716d21d47"
+      "sha256": "ed5a007b3a07b30c7cd83e063cb8781fb2b943492a4be3afd341294732e0563a"
     },
     {
       "path": "tools/s1_charge_evidence_math.py",
@@ -491,6 +496,21 @@
       "path": "tools/s2_retention_audit.py",
       "bytes": 1743,
       "sha256": "caa85b4f472a26d36c286dae56c726be8cacfc0e22d74d3f8d2c2c4eba4c2520"
+    },
+    {
+      "path": "tools/s2_waveform_metrology.py",
+      "bytes": 3331,
+      "sha256": "10cded7adea48e4fca60f451d84d8c14dff89a80c2b8dd524634d238a55ecf01"
+    },
+    {
+      "path": "tools/s3_bboxx_acquire.py",
+      "bytes": 1804,
+      "sha256": "8c5724852ae1116780d9b3a22c678de4a290ecca98077ae820a12b9f0844c738"
+    },
+    {
+      "path": "tools/s3_opzs_rest_screen.py",
+      "bytes": 2329,
+      "sha256": "f94310b6056f171e9b212621bf04ccacf73067ea8acc58132ee0b7a08247a9ff"
     },
     {
       "path": "tools/validate_research_acceptance.py",

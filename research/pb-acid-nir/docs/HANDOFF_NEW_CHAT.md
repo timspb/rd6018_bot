@@ -1,7 +1,7 @@
 # HANDOFF_NEW_CHAT — Pb-Research
 Дата обновления: 2026-11-29.
 NEXT_STAGE: R20
-CURRENT_REPORT: 41_S2_MATERIAL_REVERSAL_EVIDENCE.md (parent 23_R20_SYNTHESIS.md; RESEARCH_ACCEPTANCE.md)
+CURRENT_REPORT: 42_S2_EXIT_S3_ADMISSION.md (parent 23_R20_SYNTHESIS.md; RESEARCH_ACCEPTANCE.md)
 Не начинать повторно R01–R20; использовать отчёты, источники и ledgers.
 
 ## Среда и порядок
@@ -77,3 +77,6 @@ Read report40 and RESEARCH_ACCEPTANCE.md. C161/H85, 50/88. R19-K bounded PASS, n
 
 ## S2 block3 current handoff
 Read report41 and RESEARCH_ACCEPTANCE.md. C164/H86, 52/88. R17/R18-K bounded PASS, no material recipe or reverse-charge benefit accepted. Hu original archived; Cattelan/Ruetschi full machine text only, figures unverified. Next finalize comparative waveform/retention analysis plan (not physical permission), then S3. No equipment/production. Previous verified HEAD 27d0735fd03b4dbbdf97a9d12597577a91cd055f.
+
+## S2 exit / S3 current handoff
+Read report42 and RESEARCH_ACCEPTANCE.md. C166/H87, 52/88. S2 done as literature/design deliverable; P gates remain open. Three scripts executed: s2_waveform_metrology.py (synthetic PASS), s3_bboxx_acquire.py (both public files HTTP403), s3_opzs_rest_screen.py (77651 matched keys, no hour-long rest). S3: primary dendrite/short evidence, independent capacity and relaxation data; no repeated BBOXX denial or four-cell model fitting. No physical/production edits. Prior verified HEAD c2d1e3b69085491e6fd2def19e6796609e179814.

@@ -57,3 +57,6 @@ Current PASS 50/88 (56.8%); D22 Q19 K8 P1. R19-K bounded documentary accepted fr
 
 ## S2 block 3
 Current PASS 52/88 (59.1%); D22 Q19 K10 P1. R17-K/R18-K bounded documentary accepted; R17-P/R18-P/R03-P/R19-P remain OPEN. S2 comparative design constraints recorded; actual sample size, calibrated metrology and model-specific limits unresolved. No change to denominator or physical acceptance.
+
+## S2 exit / S3 admission
+Current PASS 52/88 (59.1%); D22 Q19 K10 P1 unchanged. S2 main deliverable completed (reports39–42), R03/R17/R18/R19 P open pending model-specific metrology and validation; S3 begun. No valid hour rest in strict OPzS screen, no BBOXX telemetry downloaded. No criterion promoted for synthetic tests or absent data.

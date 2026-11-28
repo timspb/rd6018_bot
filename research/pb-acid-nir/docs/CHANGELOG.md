@@ -85,3 +85,5 @@
 2026-11-29 S2 block2 report40, C158–161/H85, 50/88, R19-K bounded documentary accepted. Sandia original archived; INL archive blocked. Block1 published 58f5226a. No hardware.
 
 2026-11-29 S2 block3 report41, C162–164/H86, 52/88, R17/R18-K documentary accepted; Hu original archived. Block2 published 27d0735f. No equipment.
+
+2026-11-29 S2 exit/S3 admission report42, C165–166/H87, 52/88 unchanged; signed metrology synthetic PASS; OPzS rest screen negative; BBOXX download denied. Block3 published c2d1e3b6.

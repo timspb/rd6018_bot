@@ -129,3 +129,6 @@ Sandia/EESAT 2009 Large Format Carbon Enhanced VRLA Battery Test Results officia
 
 ## S2 block3
 Hu et al. 2016 Int J Electrochem Sci 11:1416–1433 https://www.electrochemsci.org/papers/vol11/110201416.pdf original machine text §§2.4/3.4, locally archived SHA256 report41; screenshot timeout. Cattelan et al. 2026 DOI 10.1016/j.electacta.2026.148994 University of Padova original methods/results machine text, local HTTP403, screenshot cache miss; same research lineage R17-S11, not independent repeat. Ruetschi 2003 DOI 10.1016/S0378-7753(02)00683-3 original mirror machine text §3, local timeout, screenshot cache miss. Report41 records limitations.
+
+## S2 exit / S3 intake
+Oxford DOI 10.5287/bodleian:aVR4oDV4N set_10 and GITT direct acquisition denied HTTP403, existing metadata only. OPzS DOI 10.5281/zenodo.17252822 strict matched-test rest screen report42. Zeng et al. 2015 DOI 10.1016/j.jpowsour.2015.03.139 and Chang/Jochim 2000 DOI 10.1016/S0378-7753(00)00470-5 publisher abstracts only; full original methods not verified, R04-D-Q remains open.

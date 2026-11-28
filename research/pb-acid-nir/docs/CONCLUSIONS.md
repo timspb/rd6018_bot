@@ -195,3 +195,6 @@ C161 — Alipour/Nasseri 2025 screen 697 warehouse VRLA; claimed 72% recovery ef
 C162 — Hu 2016 observed material-dependent opposite HER effects and different capacity/water trajectories; positive grid corrosion at comparison failure; no universal additive benefit. S2 report41.
 C163 — Cattelan 2026 three prototype batches show >5% normalized specific C20 improvement for selected PAM materials and different post-test structure; gas-current partition model-based, no measured EOL. S2 report41.
 C164 — Ruetschi 2003 half-cell observations distinguish positive/negative limiting electrodes and complex reversal; terminal voltage cannot uniquely identify electrode state. S2 report41.
+
+C165 — Signed Ah and Wh require separate sign-aware integration; zero net Ah can coexist with nonzero net Wh; sparse synchronous sampling may alias mean-square I. Synthetic verification only. Report42.
+C166 — Strict six-channel OPzS same-test screening admitted no continuous hour-long rest at .1 or 1A; max 15/46min, no defect or relaxation inference. Report42.
