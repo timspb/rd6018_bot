@@ -69,3 +69,5 @@
 2026-11-28 R20-A06–A08: reports 29–31, raw EIS, zHit and residual capacity, multifeature baselines; C118–C129/H73–H76 appended. No hardware changes.
 
 2026-11-28 R20-A09: 32_R20_REST_HISTORY.md, r20_rest_history_audit.py, C130–C132/H77. Prelabel rest/history features, common-case joint models. A06–A08 published c253fc44e933d7baa9fe0defb518860c2ca28b52.
+
+2026-11-28 R20-A10: report 33, coverage audit, independent dataset admission, C133–C135/H78. A09 published 84e8d84e573ad3eb0be63dc09baf7e09d6ba2711.

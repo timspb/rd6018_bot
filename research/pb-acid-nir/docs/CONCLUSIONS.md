@@ -155,3 +155,7 @@ C129 — Three-frequency subset (24 rows) shows metric-dependent results; adding
 C130 — Same four-hour quasi-rest voltage 2.165V at 15/135 FCE in one model cell with 10.403/0.922Ah residual capacity. Not fully charged C20. R20-A09.
 C131 — On 31 residual-capacity records, tested rest, relaxation, temperature and prior-file throughput models do not beat FCE ridge; narrow/confounded conditions. R20-A09.
 C132 — On 26 selected common cases, fixed FCE+two-band+rest model improves macro and pooled MAE but loses one held-out cell; exploratory selection-dependent signal, no external validation. R20-A09.
+
+C133 — Frozen joint+fallback model on all 31 cases reduces macro MAE 1.39013→1.10533Ah, loses one of four cells; severe-degradation fallback error exceeds 4Ah. No independent validation. R20-A10.
+C134 — BBOXX metadata 1027 selected VRLA, 491 repair and 536 censored outcomes; not population incidence, C20 or chemical labels. Raw sign convention differs from paper. R20-A10.
+C135 — OPzS 110 CSV/579448 rows, six series cells in one bank. Released data lack density, overlapping/conflicting timestamps and temperature header mismatch require source-aware alignment. R20-A10.

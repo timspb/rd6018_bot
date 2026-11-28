@@ -101,3 +101,5 @@
 | H76 | Independent pre-discharge resting voltage and history features improve residual capacity prediction over FCE | OPEN | R20-A08; verify timestamps and independent cells |
 
 | H77 | Complementarity of rest relaxation and multiband EIS may improve cross-cell prediction with known cycle history | OPEN | R20-A09; predefine model, coverage-aware baseline, independent cohort |
+
+| H78 | Invalid measurements or missingness may signal severe degradation | OPEN | R20-A10; distinguish protocol/instrument confounders; independent prospective coverage and abstention |

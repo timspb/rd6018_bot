@@ -51,3 +51,6 @@ Split by physical specimen. Compare fixed models on identical rows, standardize 
 
 ## R20-A09 feature chronology
 Extract only zero-current samples before load transition, verify rest duration and sample gaps; quasi-rest voltage not equilibrium. Pre-record throughput is not lifetime throughput. Report invalid EIS coverage by cell and compare on all eligible cases with a defined fallback. Independent test cohort before diagnostic approval.
+
+## R20-A10 coverage and source admission
+Compare predictions on all eligible cases with fixed fallback and report missingness by specimen. No silent timestamp deduplication; preserve test ID, source and conflicts. Repair event and censoring labels are not capacity measurements. Treat series cells in one bank as dependent.

@@ -1,7 +1,7 @@
 # CURRENT_CHECKPOINT
-CURRENT_STAGE: R20 PARTIAL — C01–C132/H01–H77; report 32_R20_REST_HISTORY.md. Four-hour rest and joint features; exploratory only.
+CURRENT_STAGE: R20 PARTIAL — C01–C135/H01–H78; report 33_R20_COVERAGE_EXTERNAL_DATA.md. Coverage and external data admission; no hardware approval.
 R19 REPORT: 22_R19_RECOVERY_DURABILITY.md. Two 40-cycle follow-ups found (Karami 2009 inverse charge, metric/n/EOL unclear; Lee 2023 extracted 2V cells, 89% rated at cycle40 with porosity loss); one non-monotonic 10-week four-Gel series without controls; Shi/Ferone/Rahn 2012/2013 one sulfated cell +41% after 313h but 64% nominal and 3 other cells dehydrated; PNNL 2022 aging benchmark 18–28 months/289–728 EFC. R18 erratum documents the missed Karami 40-cycle section.
-R20 validator tools/r20_validate_synthesis.py PASS: 132 unique conclusions and 77 unique hypotheses, no gaps. R19 arithmetic tool tools/r19_durability_analysis.py PASS. No physical tests; no RD6018/ESP/node104/BV-600 changes. Production integration remains on hold pending separate owner decision. Working catalog exclusively <RESEARCH_ROOT>. Following lines below are historical stage log, not current next-stage instructions.
+R20 validator tools/r20_validate_synthesis.py PASS: 135 unique conclusions and 78 unique hypotheses, no gaps. R19 arithmetic tool tools/r19_durability_analysis.py PASS. No physical tests; no RD6018/ESP/node104/BV-600 changes. Production integration remains on hold pending separate owner decision. Working catalog exclusively <RESEARCH_ROOT>. Following lines below are historical stage log, not current next-stage instructions.
 
 R02: литературный этап выполнен частично, отчет 04_R02.md записан; 12 записей источников, 4 гипотезы. Полные тексты и архив вложений остаются открытой задачей. Следующий этап R03: сравнительные испытания импульсного, постоянного и малотокового заряда, анализ контрольных групп и долговременного результата. Работы только в Pb-Research.
 
@@ -96,3 +96,5 @@ Read 30_R20_ZHIT_AND_CAPACITY.md after report 29. zHit Python transcription: 210
 R20-A08: fixed multiband models evaluated; primary 26 cases, four held-out physical cells. FCE ridge macro MAE .7994Ah; FCE+two-band .8919; FCE+1k+ratio .8277. Three-frequency sensitivity 24 cases, macro/pooled distinction. C118–C129/H73–H76 now in local ledgers. Next verify pre-discharge rest/temperature and time alignment, external data; publication separate.
 
 R20-A09: 31 four-hour pre-discharge rest records; FCE ridge beats tested rest-only/history models on all 31. Selected 26 joint EIS+rest cases macro MAE .7438 vs FCE .7994, loses TC1 soft. No validated SOH model. Next freeze model, evaluate coverage-aware fallback, external larger cohort. A06–A08 published c253fc44e933d7baa9fe0defb518860c2ca28b52; A09 publication separate.
+
+R20-A10: 31-case fixed fallback macro 1.39013→1.10533Ah, TC1 soft worsens. OPzS six ZIPs, 110 CSV and description verified; BBOXX metadata/readme archived, 1027 IDs. Next test-aware OPzS alignment and discharge integration; BBOXX telemetry staged retrieval. A09 published 84e8d84e573ad3eb0be63dc09baf7e09d6ba2711; A10 publication separate.

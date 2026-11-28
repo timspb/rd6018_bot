@@ -28,3 +28,6 @@ Original publisher supplement ZIP in sources/R20, immutable hash in report 29. O
 
 ## R20-A09
 Run r20_rest_history_audit.py after A08. Extract strictly pre-discharge rest windows; preserve rejected/invalid cases and compare identical denominators. Do not treat selection-dependent model improvement as external validation.
+
+## R20-A10
+Run r20_coverage_audit.py after A09; independent dataset acquisition r20_a10_external_acquire.py; schema r20_opzs_schema_audit.py, metadata r20_bboxx_metadata_audit.py. Keep licensed original files local; preserve source test identity and timestamps. Do not treat repair labels or derived SOC as capacity reference.

@@ -105,3 +105,6 @@ Local archive: Kwiecien_2018_EIS.pdf: NOT_ARCHIVED ValueError; Badeda_2018_Float
 
 ## R20-A06–A08 source provenance
 Kwiecien et al. 2018 DOI 10.3390/app8060873; original publisher supplement https://mdpi-res.com/d_attachment/applsci/applsci-08-00873/article_deploy/applsci-08-00873-s001.zip ; local archive SHA256 96d49538c06b931c77cde65bbfedf7aa5584c049dcd30e336938c1c18197f60a. 2104 spectra, 38 traces, 4 cells; reports 29–31. Kwiecien dissertation 2019 DOI 10.18154/RWTH-2019-09480: web text examined, local PDF and visual verification incomplete. No independent new cohort in A07/A08.
+
+## R20-A10 external datasets
+Aitio/Howey Joule 2021 DOI 10.1016/j.joule.2021.11.006; Oxford repository DOI 10.5287/bodleian:aVR4oDV4N (CC BY-NC 4.0); metadata/readme archived; telemetry not downloaded. Rocha-Henriquez et al. OPzS DOI 10.5281/zenodo.17252822 (CC BY 4.0), six ZIPs and description PDF verified against publisher MD5; local SHA256SUMS.txt. Actual CSV schema lacks density. Report 33 includes provenance and constraints.

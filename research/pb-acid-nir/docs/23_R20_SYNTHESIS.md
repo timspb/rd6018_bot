@@ -162,3 +162,6 @@ Cumulative registry C01–C129 / H01–H76. Reports 29_R20_RAW_EIS_AND_LABELS.md
 
 ### R20-A09 rest and history
 Cumulative registry C01–C132 / H01–H77. Report 32_R20_REST_HISTORY.md: 31 four-hour rest records; identical Urest with 11-fold Q difference. No rest-only incremental benefit on full set. Joint FCE+EIS+rest signal in selected 26 cases; selection-dependent and exploratory. R20 PARTIAL.
+
+### R20-A10 coverage and external datasets
+Cumulative registry C01–C135 / H01–H78. Report 33_R20_COVERAGE_EXTERNAL_DATA.md. Full 31-case fallback comparison, same four cells; macro MAE 1.39013→1.10533Ah, one cell worsens. BBOXX metadata 1027; OPzS six series cells, 110 CSV, 579448 rows. External prediction not yet validated. R20 PARTIAL.
