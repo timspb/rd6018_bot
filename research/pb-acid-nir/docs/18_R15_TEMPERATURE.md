@@ -67,3 +67,6 @@ H37 — Простая I²R-модель будет иметь системат�
 
 ## 7. Ограничения и дальнейшая работа
 Статус R15 PARTIAL. Три PDF реально сохранены на HOME-PC и SHA256 зафиксированы. Для S02 просмотрены PDF титульные разделы, методика (стр.6/18, фиг.1) и тепловые балансы (стр.13/18). Для S03/S04 web screenshot failed cache miss, но оригинальные PDF архивированы. S05 прямое скачивание HTTPError, доступны индексированные разделы. S01 издательское HTML403; количественные данные из препринта ограничены статусом PREPRINT и не переносились в инженерные рекомендации. Нет собственных измерений, model fit и независимой температурной валидации Leoch Ca/Ca/EFB/AGM/GEL. Следующий R16 электролит/легирование; R15 остается открытым для оригиналов и lab tests.
+
+## S4 block1 — measured Q(T)
+Report46: Cao2015 fresh H6 AGM70Ah, repeated preparation and 3.5A discharge, visually checked table p70: Q(-15)=56.14Ah, Q(0)=63.31Ah, Q(25)=73.74Ah. Exact cutoff in temperature section, independent order effects and internal equilibration not verified. Prasad2023 published full text: two cells per temperature, distinct initial usable capacity and throughput; reported degradation and SOH ratios inconsistent, no fitted life law. R15-Q PASS, K/P OPEN. No universal correction or operating threshold.

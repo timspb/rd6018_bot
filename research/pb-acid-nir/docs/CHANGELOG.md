@@ -93,3 +93,5 @@
 2026-11-29 S3 block2 report44, C172–175/H89, 55/88, R11-K documentary accepted; five Zenodo files verified and metrics reproduced. Prior published 35c6553f. No equipment.
 
 2026-11-29 S3 block3 report45, C176–179/H90, 56/88. Independent decoder and author mask PASS; R07-K documentary accepted. Prior published b5446572. No equipment.
+
+2026-11-29 S3 exit/S4 block1 report46, C180–183/H91, 57/88, R15-Q accepted, S3 residual gates retained. Cao p70 visual verified; numeric audit executed. Prior published d14f8b7b. No equipment.

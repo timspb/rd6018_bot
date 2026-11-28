@@ -77,3 +77,5 @@ Report43: independent retained-capacity reference, external load exclusion and c
 Report44: admit independent reference data only with identifiable physical specimen, actual measured capacity protocol, prelabel chronological features and temperature/rest/load/cutoff. Reproduced plot error is not validation. R11-P open for traceable instruments and complete applicable procedure.
 
 Report45: independent decoder verification, declared units and synchronized chronology are separate from physical calibration. zHit consistency is not independent proof of linearity; verify amplitude dependence, stationarity and uncertainty. R06/R07 P remain open.
+
+Report46: separate instantaneous Q(T) and ageing at controlled reference T; matched independent specimens and throughput, record equilibration and thermal lag, repeated reference-return controls and calibration. No model-specific numerical criteria or physical permission; P gates remain open.

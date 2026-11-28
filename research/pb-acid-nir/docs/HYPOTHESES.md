@@ -126,3 +126,5 @@
 | H89 | Independent specimen IDs, prelabel traces and measured reference capacity may prevent misleading accuracy from duplicate plot outputs or derived labels | OPEN | S3 report44; independent validation |
 
 | H90 | Independent labeled specimens with synchronized measurements, known scale and matched reference preparation may reduce bias of phase-only archive joins | OPEN | Report45; external validation pending |
+
+| H91 | Matched specimen return-to-reference temperature, fixed reference discharge, measured thermal lag and matched throughput may separate reversible availability from ageing | OPEN | Report46; independent validation pending |

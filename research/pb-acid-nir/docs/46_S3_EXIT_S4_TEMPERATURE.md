@@ -1,0 +1,37 @@
+# S3 exit / S4 block1 — temperature, apparent capacity and actual ageing
+2026-11-29. Research only. No hardware/production actions.
+## S11 Pilatowicz LABAT2014 — relaxation re-audit
+Original author conference text https://www.researchgate.net/publication/266116791_Comprehensive_study_of_relaxation_behaviour_of_lead-acid_batteries_for_State-of-Charge_estimation_in_automotive_applications, institutional bibliographic record https://publications.rwth-aachen.de/record/460124 . Previously R05-S01, not a new independent experiment. At -10C, after a discharge of 20% of nominal capacity, authors report diffusion times around 30h; a separate experiment with previous added charge of 5% of nominal capacity leaves 180mV difference from reference after100h, corresponding to their approximately17 SOC percentage points. Reference is protocol-defined after prior discharge, not directly measured equilibrium. Electrode-resolved measurements attribute long response primarily to positive electrode, negative generally settles within1h. Proposed gel/crystal explanation is a hypothesis, not an independent phase assay. No universal relaxation time. Dissertation RWTH707282 PDF too large for web extraction; not fully read. Do not interpret the paper's statement about current amplitude independence as universal across charge regimes.
+## S12 Nan Cao 2015 Auburn thesis
+Original institutional PDF https://etd.auburn.edu/bitstream/handle/10415/4817/Nan%20Cao%27s%20Thesis%20nzc0013.pdf?isAllowed=y&sequence=2 , Table2 and §§2.2,3.2–3.3 text, printed p70 visual checked (PDF index84), p71 screenshot timeout. Johnson Controls H6 AGM 12V70Ah, 680A rated CCA. One fresh battery temperature sweep described as repeated preparation, room-temperature charge, rest and 4h chamber equilibration, constant3.5A discharge; cutoff not explicitly stated in §3.2, Table2 rated operating range10.5–14.5V is not proof of exact cutoff. C20-rate measurement, not formal IEC certification. No random order, repeated reference return at25C or internal temperature verification described in this section; cannot fully separate conditioning/order and chamber gradients. Values:
+| T C | Q Ah | verification |
+|---:|---:|---|
+| -15 | 56.14 | visual |
+| -10 | 57.73 | visual |
+| -5 | 60.26 | visual |
+| 0 | 63.31 | visual |
+| 5 | 66.39 | visual |
+| 10 | 68.72 | visual |
+| 15 | 72.07 | visual |
+| 20 | 72.83 | visual |
+| 25 | 73.74 | visual |
+| 30 | 75.59 | machine text |
+| 35 | 76.94 | machine text |
+| 40 | 76.20 | machine text |
+| 45 | 74.51 | machine text |
+| 50 | 73.82 | machine text |
+| 55 | 72.46 | machine text |
+| 60 | 71.84 | machine text |
+Executed tools/s4_temperature_audit.py: -15C result76.1324% of Q25, 0C85.8557%, +15C97.7353%; secants -15→0=.478Ah/C, 0→25=.4172Ah/C. Warm extension machine-text-only: 25→35=.32Ah/C,35→60=-.204Ah/C. Author polynomial coefficients -.00749,.5718,64.44 give Q25=74.05375Ah rather than observed73.74; RMSE .91028Ah over16 table rows. Model fit is not a measured datum or held-out validation. No extrapolation or universal coefficient. Thesis §2.2 takes 4h rest as equilibrium assumption, not independent proof; compare Pilatowicz's extended flooded response without treating constructions and histories as equal. §3.3.3 separate ageing sequence: measured at25C fresh72.8Ah, after20 cycles69Ah, another50 cycles37.5Ah (51.51% of fresh), textual discrepancy “41% fade” vs figure caption49% and arithmetic48.49%; retain measured Ah. This is not same Q25 as Table8; do not combine baselines or assume specimen identity across experiments. SOC estimator comparison uses measured maximum capacity and current integration for reference SOC; no proof of blind SOH inference without capacity anchor, no independent held-out battery cohort.
+## S13 Prasad et al. Battery Energy2023
+DOI10.1002/bte2.20230008 published full HTML https://onlinelibrary.wiley.com/doi/full/10.1002/bte2.20230008 §§2,3.1–3.3; preprint DOI10.22541/au.167636354.49936576/v1 text, screenshot failed. Upgrades earlier R15 abstract-only coverage. Two Cyclon2V5Ah cells per temperature reported for cycling/XRD, -10,0,25,40C; constant0.5A, common voltage endpoints, short rest, prior shelf-age acknowledged. Different initial accessible capacity and throughput, no warm reference capacity trajectory for each cell supplied. §3.1 reported duration after120 cycles 1.5/3.8/2.5/2h respectively, derived capacity .75/1.9/1.25/1.0Ah, not C20. Separate §3.1 claims degradation after130 cycles 74/17/69/92%, then SOH pairs78→46,95→89,67→28,73→10%; if same denominator, relative drops41.03/6.32/58.21/86.30%, not identical. No silent reconciliation, no use as quantitative EOL fit. Abstract minimizes low-temperature degradation, but -10C reported decline substantial. EIS after cycles measured at room temperature, not at cycling T; author numeric impedance values after130 cycles .41/.20/.13/.38Ohm for -10/0/25/40C, no unique fixed-frequency equivalent implied. XRD residual sulfate and EDX elemental ratios after cycling do not independently quantify reversible capacity or distinguish temperature from unequal active-mass utilization. No replicate-level curves, no causal estimate at matched Ah/Wh throughput.
+Archive attempt via HOME-PC: Cao TLS timeout, preprint DNS failure; no PDF admitted locally. Source page and exact visual/text status retained. 
+## S3 exit / S4 intake decision
+S3 main deliverables produced reports42–45 and this cross-check: independent decoder/mask/scale, evidence and provenance screening, nonidentifiability and reference conditions. R05-K remains OPEN: no independent long-rest raw traces with independently measured SOC/T/gradient; Cao equilibrium assumption not validation. R06-K remains OPEN for calibrated external cohort and exact timestamp alignment; R12-K remains OPEN for fully charged measured C20 held-out cohort. R04-D-Q/P and all unaccepted P remain open. Do not return to repeated four-cell fitting. No physical or firmware acceptance. S4 begins, R15-Q PASS on visually verified repeated-model Q(T) primary measurements plus published cycling duration evidence; R15-K/P stay OPEN for causal ageing vs T effects and sensor/internal thermometry. S4 next: independent paired Q(T) order/recovery checks, heat balance, electrolyte/alloy evidence; carry R01/R02 residual gaps and R16-K. 
+D09 prior temperature/OCV practical observations have incomplete matched T/history or independent Q; no new Telegram raw access. 
+C180 — Cao H6 AGM measured 56.14Ah at -15C vs73.74Ah at25C at same 3.5A and repeated preparation; temperature-dependent functional capacity, not permanent SOH loss.
+C181 — Cao SOC estimation uses independent capacity anchor and coulomb counting reference; separate ageing sequence has distinct baseline and inconsistent fade prose; not blind C20 estimation.
+C182 — Prasad published cycle-duration and SOH/degradation series require separate denominators; reported percentages do not reconcile from stated SOH pairs. EIS measured at room temperature, not cycling temperature.
+C183 — Pilatowicz original conference text reports 180mV residual after100h in one cold postcharge case; fixed 4h equilibrium assumption not validated by independent AGM model fit.
+H91 — Matched specimen return-to-reference temperature, fixed reference discharge, measured internal/surface thermal lag and matched throughput may separate reversible availability from irreversible degradation.
+No new operational settings or equipment changes.

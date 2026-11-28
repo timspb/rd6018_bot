@@ -141,3 +141,6 @@ Hassan/Nayyer 2026 DOI10.5281/zenodo.21996450 five original files archived, publ
 
 ## S3 block3
 Kwiecien et al.2018 DOI10.3390/app8060873 original supplement and author plotEIS.m/zhit.m/reduceDataSize.m; independent SciPy decoder and NumPy mask executed. Original article §§2.3/3.1 explicitly gives 0.15mOhm TI threshold, figures/table use mOhm; web screenshots cache miss. Author-intended units established, calibration and shared timestamps absent. Majchrzycki et al.2018 DOI10.3390/batteries4040070 full HTML §§2–3 Table1, independent stationary AGM contrast, not raw validation cohort. See report45.
+
+## S3 exit / S4 block1
+Pilatowicz LABAT2014 original author text and RWTH460124 bibliographic record rechecked; not independent new experiment. Nan Cao 2015 Auburn thesis original PDF https://etd.auburn.edu/bitstream/handle/10415/4817/Nan%20Cao%27s%20Thesis%20nzc0013.pdf?isAllowed=y&sequence=2 printed p70 Table8 visual verified, p71 machine text only; local timeout. Prasad et al. 2023 DOI10.1002/bte2.20230008 published full HTML §§2,3.1–3.3, preprint DOI10.22541/au.167636354.49936576/v1 text; screenshot/DNS failed. No local originals admitted this pass. See report46 for numeric discrepancies and bounded interpretation.

@@ -1,7 +1,7 @@
 # HANDOFF_NEW_CHAT — Pb-Research
 Дата обновления: 2026-11-29.
 NEXT_STAGE: R20
-CURRENT_REPORT: 45_S3_EIS_DECODER_AND_VALIDITY.md (parent 23_R20_SYNTHESIS.md; RESEARCH_ACCEPTANCE.md)
+CURRENT_REPORT: 46_S3_EXIT_S4_TEMPERATURE.md (parent 23_R20_SYNTHESIS.md; RESEARCH_ACCEPTANCE.md)
 Не начинать повторно R01–R20; использовать отчёты, источники и ledgers.
 
 ## Среда и порядок
@@ -89,3 +89,6 @@ Read report44 and RESEARCH_ACCEPTANCE.md. C175/H89, 55/88. Hassan/Nayyer Zenodo 
 
 ## S3 block3 handoff
 Read report45 and RESEARCH_ACCEPTANCE.md. C179/H90, 56/88. Independent SciPy decoder and author mask verified, units intended mOhm, calibration and shared timestamp absent. SciPy project-local tools/.eis-scipy, no global install. R07-K documentary PASS; R06-K still OPEN. Next independent relaxation and measured-reference cohort; do not refit four cells. Prior verified HEAD b54465721e36f3e7f4db4c9d77daeb30d62f63be. No hardware/production.
+
+## S3 exit / S4 block1 handoff
+Read report46 and RESEARCH_ACCEPTANCE.md. C183/H91, 57/88. R15-Q PASS on Cao table p70 and Prasad measured cycling-duration evidence. Cao p71 text only, local download timeout; Prasad preprint DNS failed, published full HTML read. S3 deliverable complete, R05/R06/R12-K, R04-D-Q and P residual gates not closed. Continue S4 thermal lag/return-to-reference capacity, electrolyte/speciation/alloys, R01/R02/R16. Prior verified HEAD d14f8b7bb4bf2a017ede18dbc9b313c854f78690. No physical/production changes.

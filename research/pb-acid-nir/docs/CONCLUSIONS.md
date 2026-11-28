@@ -214,3 +214,8 @@ C176 — Independent SciPy decoder matches all 2142 original MAT files' numeric 
 C177 — Author mask independently reproduces 56721/78962 accepted interior points; article/script establish intended mOhm interpretation despite _Ohm names, calibration unverified. Report45.
 C178 — EIS files lack shared time stamps; date/checkup phase association is not exact time alignment. Report45.
 C179 — Majchrzycki2018 used stationary string capacity109→76Ah in 99d comparison, internal-resistance changes did not correlate clearly with capacity; not external C20 calibration. Report45.
+
+C180 — Cao H6 AGM repeated-preparation 3.5A discharge gave56.14Ah at -15C vs73.74Ah at25C; temperature-dependent functional capacity, not permanent SOH loss. Report46.
+C181 — Cao SOC estimator uses measured capacity anchor and integrated current; separate ageing sequence has different baseline and conflicting fade prose, not blind C20 estimation. Report46.
+C182 — Prasad published cycle durations and SOH/degradation series require explicit denominators; reported loss percentages do not reconcile from SOH pairs; EIS measured at room temperature. Report46.
+C183 — Pilatowicz reports180mV residual after100h in one cold postcharge case; fixed4h equilibrium assumption in another AGM experiment is not independently validated. Report46.

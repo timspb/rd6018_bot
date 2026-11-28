@@ -198,3 +198,6 @@ C01–C175 / H01–H89. Report44: published SOH plot-data arithmetic reproduced 
 
 ## S3 block3
 C01–C179 / H01–H90. Report45: independent SciPy all-MAT decoder and author-mask reproduction PASS, intended mOhm scale established but calibration/timestamps absent. External literature capacity/resistance counterexample; R07-K bounded documentary accepted. R06-K external cohort/chronology and all associated P remain OPEN. No physical classifier or model accepted.
+
+## S3 exit / S4 block1
+C01–C183 / H01–H91. Report46: independent measured temperature-capacity curve, capacity anchor in SOC estimation, published ageing percentage inconsistencies and extended cold relaxation. S3 main deliverable complete; R05/R06/R12-K and R04-D-Q remain open, no physical acceptance. S4 started, R15-Q accepted, K/P open.
