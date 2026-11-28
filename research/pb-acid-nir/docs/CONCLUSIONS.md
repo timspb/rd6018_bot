@@ -219,3 +219,8 @@ C180 — Cao H6 AGM repeated-preparation 3.5A discharge gave56.14Ah at -15C vs73
 C181 — Cao SOC estimator uses measured capacity anchor and integrated current; separate ageing sequence has different baseline and conflicting fade prose, not blind C20 estimation. Report46.
 C182 — Prasad published cycle durations and SOH/degradation series require explicit denominators; reported loss percentages do not reconcile from SOH pairs; EIS measured at room temperature. Report46.
 C183 — Pilatowicz reports180mV residual after100h in one cold postcharge case; fixed4h equilibrium assumption in another AGM experiment is not independently validated. Report46.
+
+C184 — Bača2024 modeled endothermic offset is substantial during discharge; heat accounting residuals vary, 27.47% unclosed mid-charge, no validated universal model. Report47.
+C185 — Jaworski/Hawkins measured spatial internal T gradients in AGM monoblocks, 28 plate-edge locations; ambient/surface not presumed maximum internal T. Report47.
+C186 — Pavlov2004 model positive electrode exhibits intermediate-acid activity and phase/morphology dependence, distinct from conductivity or PbSO4 solubility. Report47.
+C187 — NBS total solubility and conductivity concentration optima differ; higher solubility alone does not establish electrochemical accessibility or life. Report47.

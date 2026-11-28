@@ -128,3 +128,5 @@
 | H90 | Independent labeled specimens with synchronized measurements, known scale and matched reference preparation may reduce bias of phase-only archive joins | OPEN | Report45; external validation pending |
 
 | H91 | Matched specimen return-to-reference temperature, fixed reference discharge, measured thermal lag and matched throughput may separate reversible availability from ageing | OPEN | Report46; independent validation pending |
+
+| H92 | Reference-temperature capacity and spatial thermal validation may bound uncertainty beyond one external sensor | OPEN | Report47; model-specific calibration required |

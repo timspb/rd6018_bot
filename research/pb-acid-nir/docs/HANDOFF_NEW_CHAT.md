@@ -1,7 +1,7 @@
 # HANDOFF_NEW_CHAT — Pb-Research
 Дата обновления: 2026-11-29.
 NEXT_STAGE: R20
-CURRENT_REPORT: 46_S3_EXIT_S4_TEMPERATURE.md (parent 23_R20_SYNTHESIS.md; RESEARCH_ACCEPTANCE.md)
+CURRENT_REPORT: 47_S4_HEAT_ELECTROLYTE_ACTIVITY.md (parent 23_R20_SYNTHESIS.md; RESEARCH_ACCEPTANCE.md)
 Не начинать повторно R01–R20; использовать отчёты, источники и ledgers.
 
 ## Среда и порядок
@@ -92,3 +92,6 @@ Read report45 and RESEARCH_ACCEPTANCE.md. C179/H90, 56/88. Independent SciPy dec
 
 ## S3 exit / S4 block1 handoff
 Read report46 and RESEARCH_ACCEPTANCE.md. C183/H91, 57/88. R15-Q PASS on Cao table p70 and Prasad measured cycling-duration evidence. Cao p71 text only, local download timeout; Prasad preprint DNS failed, published full HTML read. S3 deliverable complete, R05/R06/R12-K, R04-D-Q and P residual gates not closed. Continue S4 thermal lag/return-to-reference capacity, electrolyte/speciation/alloys, R01/R02/R16. Prior verified HEAD d14f8b7bb4bf2a017ede18dbc9b313c854f78690. No physical/production changes.
+
+## S4 block2 handoff
+Read report47 and RESEARCH_ACCEPTANCE.md. C187/H92, 59/88. R15/R16-K bounded PASS, R01/R02-K remain OPEN. Bača heat residuals; Jaworski original archived, 28 plate-edge locations; Pavlov2004 model electrode original text. Modern XRD/CT candidates indexed only, no new quantitative claims. Next controlled history and structure vs reversible capacity, then S5 consolidated evidence matrix and protocols. Prior verified HEAD 2c78714e14f32285ccf0c589a5767eecb3657129. No hardware.

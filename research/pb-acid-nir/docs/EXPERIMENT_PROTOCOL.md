@@ -79,3 +79,5 @@ Report44: admit independent reference data only with identifiable physical speci
 Report45: independent decoder verification, declared units and synchronized chronology are separate from physical calibration. zHit consistency is not independent proof of linearity; verify amplitude dependence, stationarity and uncertainty. R06/R07 P remain open.
 
 Report46: separate instantaneous Q(T) and ageing at controlled reference T; matched independent specimens and throughput, record equilibration and thermal lag, repeated reference-return controls and calibration. No model-specific numerical criteria or physical permission; P gates remain open.
+
+Report47: independently bound temperature sensor location/lag and internal-to-external error, record thermal history and reference-temperature capacity. Distinguish model electrode chemistry, bulk transport and whole-battery outcomes. No electrolyte changes or unsafe thermal experiments. P gates open.

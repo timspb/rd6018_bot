@@ -88,3 +88,6 @@ H42 — Простое отношение равновесных solubility пр
 tools/r16_nbs_solubility_analysis.py: PASS, 27 строк Table 5 при 25°C/0°C, локальные экстремумы, арифметика cross-source ratios, SHA256 двух PDF. Тест — проверка данных, а не физический эксперимент.
 Исторические NBS первичные PDF реально архивированы на HOME-PC, визуально проверена таблица 5 (1939). В 1934 table3 текст извлечен, визуально не перепроверен. S03/S05 полный PDF текст из внешних копий, web screenshot cache miss, графики не верифицированы визуально. S04/S06/S07/S08/S10 — аннотация либо библиография. Отсутствует независимая реальная проверка на современных Leoch/Ca/Ca/EFB; статус PARTIAL.
 Следующий R17: углерод в отрицательной активной массе, расширители, NAM/PAM, влияние на DCA и PSoC ресурс, независимые эксперименты.
+
+## S4 block2
+Report47: Pavlov2004 DOI10.1016/j.jpowsour.2004.06.006 positive model electrode XRD/SEM and intermediate-acid electrochemical activity; distinguish NBS bulk solubility/conductivity, PAM/NAM accessibility, alloy/interface/manufacture and life. R16-K bounded PASS; no electrolyte changes or universal composition; P open.

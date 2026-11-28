@@ -201,3 +201,6 @@ C01–C179 / H01–H90. Report45: independent SciPy all-MAT decoder and author-m
 
 ## S3 exit / S4 block1
 C01–C183 / H01–H91. Report46: independent measured temperature-capacity curve, capacity anchor in SOC estimation, published ageing percentage inconsistencies and extended cold relaxation. S3 main deliverable complete; R05/R06/R12-K and R04-D-Q remain open, no physical acceptance. S4 started, R15-Q accepted, K/P open.
+
+## S4 block2
+C01–C187 / H01–H92. Report47 heat accounting and independent spatial thermometry; electrolyte/speciation/activity tradeoffs. R15/R16-K bounded documentary accepted, R01/R02-K and all unaccepted P remain OPEN. No physical validation.

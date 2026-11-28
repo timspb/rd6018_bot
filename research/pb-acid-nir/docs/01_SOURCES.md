@@ -144,3 +144,6 @@ Kwiecien et al.2018 DOI10.3390/app8060873 original supplement and author plotEIS
 
 ## S3 exit / S4 block1
 Pilatowicz LABAT2014 original author text and RWTH460124 bibliographic record rechecked; not independent new experiment. Nan Cao 2015 Auburn thesis original PDF https://etd.auburn.edu/bitstream/handle/10415/4817/Nan%20Cao%27s%20Thesis%20nzc0013.pdf?isAllowed=y&sequence=2 printed p70 Table8 visual verified, p71 machine text only; local timeout. Prasad et al. 2023 DOI10.1002/bte2.20230008 published full HTML §§2,3.1–3.3, preprint DOI10.22541/au.167636354.49936576/v1 text; screenshot/DNS failed. No local originals admitted this pass. See report46 for numeric discrepancies and bounded interpretation.
+
+## S4 block2
+Bača2024 DOI10.3390/batteries10050148 original already archived R15; §§3.2–3.3 heat accounting reread, screenshot cache miss. Jaworski/Hawkins INTELEC1996 https://www.telepower.com.au/INT96b.PDF original archived/hash report47, PDF index1 visual method confirmed. Pavlov et al.2004 DOI10.1016/j.jpowsour.2004.06.006 original machine text §§2,4, local timeout/screenshot cache miss. Modern structural candidates DOI10.1016/j.jpowsour.2025.238023, PII S2352152X26018785, DOI10.1021/acsomega.5c11008 and10.1155/ijel/4128257 indexed only; full methods not verified, no Q gate. See report47.

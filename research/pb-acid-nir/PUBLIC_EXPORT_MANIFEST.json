@@ -14,8 +14,8 @@
     },
     {
       "path": "docs/01_SOURCES.md",
-      "bytes": 28636,
-      "sha256": "b4390c3838f1f6ff479f1f75ae2f29bd3d4b8f45d0f3ccccbac716aa448d871f"
+      "bytes": 29244,
+      "sha256": "e0fa5b78047685e873a664cc23146544e3466449a8a55407cd2a548c2af22dc6"
     },
     {
       "path": "docs/02_EXPERIMENTS.md",
@@ -99,13 +99,13 @@
     },
     {
       "path": "docs/18_R15_TEMPERATURE.md",
-      "bytes": 27074,
-      "sha256": "d2436f90aa2c250f96d16594c4f834cf7df7138fc19efc080147971571b8ab59"
+      "bytes": 27390,
+      "sha256": "0c931468e8ea85625a9ec270e743b026ada29249b814881ec59eca0a183d3164"
     },
     {
       "path": "docs/19_R16_ELECTROLYTE_ALLOYS.md",
-      "bytes": 27531,
-      "sha256": "a44d132a5f60079c4f25758fcc933eda47c0c51570575e6eef65deb1e98712e2"
+      "bytes": 27865,
+      "sha256": "a82e6d299cbc7e1f58fd1f5918cc0f1b61a0589b7e8969986b74778796a8f5e1"
     },
     {
       "path": "docs/20_R17_CARBON_ACTIVE_MASS.md",
@@ -124,8 +124,8 @@
     },
     {
       "path": "docs/23_R20_SYNTHESIS.md",
-      "bytes": 39373,
-      "sha256": "e4641f5bfd6ad4f4d108251ace62e8b0109e78be48e2e7de54db47da646085f8"
+      "bytes": 39624,
+      "sha256": "7f8f1177e210aa7360b9cee9625e3b4c1d464af219389c80b9b6887ec2b03e85"
     },
     {
       "path": "docs/24_R20_EVIDENCE_GAP_AUDIT.md",
@@ -243,24 +243,29 @@
       "sha256": "9cd89d83ae3b69c2ad41f0d42c62409f8cca3993b26db8ebac7ef6bc8cf8d470"
     },
     {
+      "path": "docs/47_S4_HEAT_ELECTROLYTE_ACTIVITY.md",
+      "bytes": 8121,
+      "sha256": "cb2509d4116048168177c7e3a23bc70a2116ebe60406939326fdf3eb6edc9851"
+    },
+    {
       "path": "docs/AGENTS.md",
       "bytes": 4209,
       "sha256": "3c99d3667e3d700830c383ae5432f3941ba4c5e3184074c14a1f8b7a5657d5a7"
     },
     {
       "path": "docs/CHANGELOG.md",
-      "bytes": 11918,
-      "sha256": "9aef9707cf61a8377f730442dde683982b85f232638af298aeef785b49fb879c"
+      "bytes": 12089,
+      "sha256": "c11af89c1474a91ac7163138ea669e47ff8a3f9268d4c3f58c6a7c1d63917a21"
     },
     {
       "path": "docs/CONCLUSIONS.md",
-      "bytes": 37890,
-      "sha256": "1cc621e972f263ca4b6d8684eb145712908f15075b4d804877aa22a25538afc4"
+      "bytes": 38577,
+      "sha256": "4e607f9cd336740d4051fdaf8c81f968a144e80d581bd746783d37c267bbbe1f"
     },
     {
       "path": "docs/CURRENT_CHECKPOINT.md",
-      "bytes": 29259,
-      "sha256": "84c3b591e6e6b8ae528a5eddc9f6d53ef9a4bce6ddf2683c83c10699de7fcf00"
+      "bytes": 29560,
+      "sha256": "3b83067bdff75e1d623b731a6f1fd7f480d049b02655031e6be86c8ced74975b"
     },
     {
       "path": "docs/DECISIONS.md",
@@ -269,18 +274,18 @@
     },
     {
       "path": "docs/EXPERIMENT_PROTOCOL.md",
-      "bytes": 23992,
-      "sha256": "ecc973ec8e057992141c0e757872f4637f23b1a07f4a4a01b40fb82b519dcaf0"
+      "bytes": 24296,
+      "sha256": "5530ff6342b051a7c08854c9e3785fda209927debc16e4a0de0b99c1935a3cf7"
     },
     {
       "path": "docs/HANDOFF_NEW_CHAT.md",
-      "bytes": 17968,
-      "sha256": "9d12e507c842c8525c44e44b098b67f17db92f57175d9c165c28787e8e792c01"
+      "bytes": 18475,
+      "sha256": "cdec6627034065bab3a176ecb9a6fe991729a1625965bd74014068d7e9acc22d"
     },
     {
       "path": "docs/HYPOTHESES.md",
-      "bytes": 18103,
-      "sha256": "282fe963a1325a6556d3f085057c44a8e94b1fb7dfdfd90680b99b6f2d08723c"
+      "bytes": 18280,
+      "sha256": "0f179ba4803b8e82fd1af1830dbbcac4552a86c8c170232f15edb47e7a034650"
     },
     {
       "path": "docs/INTEGRATION_RD6018.md",
@@ -299,18 +304,18 @@
     },
     {
       "path": "docs/RESEARCH_ACCEPTANCE.md",
-      "bytes": 18577,
-      "sha256": "8740ffc9a972c1250307d299248735e2071d2c631a8fd99311839d311c74985b"
+      "bytes": 18881,
+      "sha256": "92a92362fe06c318627555fdda07458abadc6dd433a642dced811e62b8ba75a5"
     },
     {
       "path": "docs/ROADMAP.md",
-      "bytes": 6452,
-      "sha256": "d27b05d51838bde4c344dc8c30fd93f155883f22ea47cdf96daa7bbc0ba11013"
+      "bytes": 6652,
+      "sha256": "73792e6b8ea645f81a2d7a89e5b4e40a06fe9669fcb7f2c6c7b8844c92270004"
     },
     {
       "path": "docs/RUNBOOK.md",
-      "bytes": 13663,
-      "sha256": "e62a054b19ed53440fa4da3e44ee8c76a69f9211ff9398f84bfcb69ab3e1873a"
+      "bytes": 13897,
+      "sha256": "e1d9b1b06097db82047beb8224c8e2073bee2f9c3a7c04190d0502dd37a5b809"
     },
     {
       "path": "docs/TELEGRAM_CONNECTOR.md",
@@ -475,7 +480,7 @@
     {
       "path": "tools/r20_validate_synthesis.py",
       "bytes": 1368,
-      "sha256": "b529c1227af7e0514af4a63cfc4fce552f42c90677f5638cd8acd22355934c5f"
+      "sha256": "f285eacef1287fea8f27db25c3ffd213d11f21c89177510fecd3f7538b61d436"
     },
     {
       "path": "tools/s1_charge_evidence_math.py",
@@ -558,6 +563,11 @@
       "sha256": "c011f94424309f6113fbfab55c1d235d1ece5aad189b901f466afd7dffb5bbb8"
     },
     {
+      "path": "tools/s4_heat_material_audit.py",
+      "bytes": 1839,
+      "sha256": "bf10cd0877e3bf4bfa28db0e0b1a34f86c0fe40f03a55e77a311906ea3131b42"
+    },
+    {
       "path": "tools/s4_temperature_audit.py",
       "bytes": 2518,
       "sha256": "10a2f6429087198b261d7767ac98d2de633da861bf42cc4c1e14282fc64cbd33"
@@ -565,7 +575,7 @@
     {
       "path": "tools/validate_research_acceptance.py",
       "bytes": 971,
-      "sha256": "f72e726889c49ce099a4e7364ad69f8ecde3fdb01ca039a8054139a3876dbe40"
+      "sha256": "0826f3e025acb229440a5f9fe067d168afe6becc5bc0931ceded3124e038340e"
     }
   ],
   "omitted": []

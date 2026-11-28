@@ -23,7 +23,7 @@
 | R17 | Углерод и активные массы | P1 | PARTIAL | 20_R17_CARBON_ACTIVE_MASS |
 | R18 | Переполюсовка и последствия | P1 | PARTIAL | 21_R18_POLARITY_REVERSAL |
 | R19 | Устойчивость восстановления | P0 | PARTIAL | 22_R19_RECOVERY_DURABILITY |
-| R20 | Синтез алгоритмов, evidence grades и no-go границ | P0 | PARTIAL | 23_R20_SYNTHESIS + 24_R20_EVIDENCE_GAP_AUDIT + 25_R20_LONGITUDINAL_METROLOGY + 26_R20_CONTROLLED_COMPARISONS + 27_R20_REVERSIBLE_LOSS_LIMITS + 28_R20_PCL_IDENTIFIABILITY + 29_R20_RAW_EIS_AND_LABELS + 30_R20_ZHIT_AND_CAPACITY + 31_R20_MULTIFEATURE_BASELINES + 32_R20_REST_HISTORY + 33_R20_COVERAGE_EXTERNAL_DATA + 34_S1_CHARGE_STRATIFICATION_OPZS + 35_S1_GAS_SULFATE_MAIN + 36_S1_TRANSFER_AND_MIX + 37_S1_STRATIFICATION_COMPARISON + 38_S1_COMPLETION_AND_RECOVERY_MATRIX + 39_S2_PULSE_GAS_COMPARISON + 40_S2_RETENTION_AND_RESOURCE + 41_S2_MATERIAL_REVERSAL_EVIDENCE + 42_S2_EXIT_S3_ADMISSION + 43_S3_SHORT_MECHANISMS + 44_S3_CAPACITY_SOH_PROVENANCE + 45_S3_EIS_DECODER_AND_VALIDITY + 46_S3_EXIT_S4_TEMPERATURE |
+| R20 | Синтез алгоритмов, evidence grades и no-go границ | P0 | PARTIAL | 23_R20_SYNTHESIS + 24_R20_EVIDENCE_GAP_AUDIT + 25_R20_LONGITUDINAL_METROLOGY + 26_R20_CONTROLLED_COMPARISONS + 27_R20_REVERSIBLE_LOSS_LIMITS + 28_R20_PCL_IDENTIFIABILITY + 29_R20_RAW_EIS_AND_LABELS + 30_R20_ZHIT_AND_CAPACITY + 31_R20_MULTIFEATURE_BASELINES + 32_R20_REST_HISTORY + 33_R20_COVERAGE_EXTERNAL_DATA + 34_S1_CHARGE_STRATIFICATION_OPZS + 35_S1_GAS_SULFATE_MAIN + 36_S1_TRANSFER_AND_MIX + 37_S1_STRATIFICATION_COMPARISON + 38_S1_COMPLETION_AND_RECOVERY_MATRIX + 39_S2_PULSE_GAS_COMPARISON + 40_S2_RETENTION_AND_RESOURCE + 41_S2_MATERIAL_REVERSAL_EVIDENCE + 42_S2_EXIT_S3_ADMISSION + 43_S3_SHORT_MECHANISMS + 44_S3_CAPACITY_SOH_PROVENANCE + 45_S3_EIS_DECODER_AND_VALIDITY + 46_S3_EXIT_S4_TEMPERATURE + 47_S4_HEAT_ELECTROLYTE_ACTIVITY |
 Параллельно: архив первоисточников; форумные эксперименты; диагностические случаи; метрология будущего стенда. CASE-001: наблюдение ограничено, диагноз не установлен. R20 не означает готовность к деплою.
 
 ## Детализация приёмки и длительные спринты
@@ -50,3 +50,5 @@ S3 block2: 55/88; R11-K accepted. Next independently verify MAT decoder and impe
 S3 block3: 56/88, R07-K accepted. Independent MAT decoder/mask completed; intended mOhm scale established, exact chronology and external cohort open. Next independent relaxation/reference capacity data, no additional four-cell fitting.
 
 S3 exit/S4 block1: 57/88, R15-Q accepted. S3 main deliverable complete, named open criteria carried forward. S4: paired temperature/recovery controls, heat balance, electrolyte/speciation and alloys, R01/R02/R16 critical matrix; no repeated four-cell fitting.
+
+S4 block2: 59/88; R15/R16-K accepted. Next R01/R02 controlled history and structural/functional counterexamples, then S5 evidence matrix and protocol consolidation.

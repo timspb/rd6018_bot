@@ -70,3 +70,6 @@ H37 — Простая I²R-модель будет иметь системат�
 
 ## S4 block1 — measured Q(T)
 Report46: Cao2015 fresh H6 AGM70Ah, repeated preparation and 3.5A discharge, visually checked table p70: Q(-15)=56.14Ah, Q(0)=63.31Ah, Q(25)=73.74Ah. Exact cutoff in temperature section, independent order effects and internal equilibration not verified. Prasad2023 published full text: two cells per temperature, distinct initial usable capacity and throughput; reported degradation and SOH ratios inconsistent, no fitted life law. R15-Q PASS, K/P OPEN. No universal correction or operating threshold.
+
+## S4 block2
+Report47: Bača heat balance arithmetic including 27.47% residual on middle charge segment and inconsistent whole-charge percentage. Jaworski/Hawkins independent 28-location plate-edge thermometry, center hotter than ends. R15-K bounded PASS, no universal thermal model/temperature correction; P open.

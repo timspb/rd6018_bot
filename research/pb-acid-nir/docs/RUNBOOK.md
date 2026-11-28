@@ -56,3 +56,5 @@ S3 block2: tools/s3_soh_dataset_audit.py verifies public files and extracts XLSX
 S3 block3: tools/s3_eis_decoder_verify.py and s3_eis_author_mask.py executed with SciPy1.18.1 in local tools/.eis-scipy and NumPy2.5.2; numeric decoder agreement, mask aggregate counts and intended scale. Do not export installed dependencies, assume timestamp alignment, or equate zHit consistency with linearity. Read report45.
 
 S3 exit/S4: tools/s4_temperature_audit.py reproduces Cao temperature-capacity table arithmetic and Prasad duration/percentage discrepancies; local download failures explicit. Distinguish temperature of reference discharge, cycling temperature and EIS measurement temperature; no universal correction. Read report46.
+
+S4 block2: tools/s4_heat_material_audit.py reproduces published heat accounting and NBS ratios. Separate inferred heat components, spatial T and measured capacity; do not resolve publication contradictions by guessing. See report47.
