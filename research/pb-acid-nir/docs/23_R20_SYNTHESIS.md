@@ -204,3 +204,6 @@ C01–C183 / H01–H91. Report46: independent measured temperature-capacity curv
 
 ## S4 block2
 C01–C187 / H01–H92. Report47 heat accounting and independent spatial thermometry; electrolyte/speciation/activity tradeoffs. R15/R16-K bounded documentary accepted, R01/R02-K and all unaccepted P remain OPEN. No physical validation.
+
+## S4 exit
+C01–C192 / H01–H93. Report48: independent DCA history comparison, spatial acid/potential, model counterexample, morphology/accessibility. R01/R02-K bounded documentary accepted; S4 main deliverable complete, S5 next. No physical acceptance.

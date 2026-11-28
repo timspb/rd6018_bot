@@ -1,7 +1,7 @@
 # HANDOFF_NEW_CHAT — Pb-Research
 Дата обновления: 2026-11-29.
 NEXT_STAGE: R20
-CURRENT_REPORT: 47_S4_HEAT_ELECTROLYTE_ACTIVITY.md (parent 23_R20_SYNTHESIS.md; RESEARCH_ACCEPTANCE.md)
+CURRENT_REPORT: 48_S4_DCA_SULFATE_ACCESSIBILITY.md (parent 23_R20_SYNTHESIS.md; RESEARCH_ACCEPTANCE.md)
 Не начинать повторно R01–R20; использовать отчёты, источники и ledgers.
 
 ## Среда и порядок
@@ -95,3 +95,6 @@ Read report46 and RESEARCH_ACCEPTANCE.md. C183/H91, 57/88. R15-Q PASS on Cao tab
 
 ## S4 block2 handoff
 Read report47 and RESEARCH_ACCEPTANCE.md. C187/H92, 59/88. R15/R16-K bounded PASS, R01/R02-K remain OPEN. Bača heat residuals; Jaworski original archived, 28 plate-edge locations; Pavlov2004 model electrode original text. Modern XRD/CT candidates indexed only, no new quantitative claims. Next controlled history and structure vs reversible capacity, then S5 consolidated evidence matrix and protocols. Prior verified HEAD 2c78714e14f32285ccf0c589a5767eecb3657129. No hardware.
+
+## S4 exit / S5 handoff
+Read report48 and RESEARCH_ACCEPTANCE.md. C192/H93, 61/88. R01/R02-K bounded PASS. Four originals in sources/S4 verified; no universal size or DCA threshold. S5 statement-level evidence/transfer, D09 cases including negatives, explicit residual Q/K, actionable test plans with controls and criteria; distinguish protocol PASS and physical approval, no repeated model fitting or denied downloads. Prior verified HEAD a6735a38441dd8ac66350e67ed03953684ffa84f. No production edits.

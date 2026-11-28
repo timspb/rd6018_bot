@@ -224,3 +224,9 @@ C184 — Bača2024 modeled endothermic offset is substantial during discharge; h
 C185 — Jaworski/Hawkins measured spatial internal T gradients in AGM monoblocks, 28 plate-edge locations; ambient/surface not presumed maximum internal T. Report47.
 C186 — Pavlov2004 model positive electrode exhibits intermediate-acid activity and phase/morphology dependence, distinct from conductivity or PbSO4 solubility. Report47.
 C187 — NBS total solubility and conductivity concentration optima differ; higher solubility alone does not establish electrochemical accessibility or life. Report47.
+
+C188 — Smith2016 same nominal SOC with differing history yielded roughly threefold DCA at intermediate SOC; current ceiling/order confounding, not stored Ah. Report48.
+C189 — Aihara2014 measured vertical acid/potential evolution and reported fourfold relaxation-time difference; local redistribution mechanism inferred. Report48.
+C190 — Kowal2009 simulation predicts more uniform acid alongside less uniform electrode charge, disagrees with cited postmortem localization; not measured SOC. Report48.
+C191 — Yamashita1988 residual negative-plate 50–70um sulfate after recharge contrasts positive conversion and sealed water-loss limitation; no universal irreversible size. Report48.
+C192 — Arai2014 model electrode similar initial morphology, earlier disappearance from EC-AFM field with poorer acceptance and reduced dissolution rate; disappearance not proven conversion. Report48.

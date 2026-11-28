@@ -147,3 +147,6 @@ Pilatowicz LABAT2014 original author text and RWTH460124 bibliographic record re
 
 ## S4 block2
 Bača2024 DOI10.3390/batteries10050148 original already archived R15; §§3.2–3.3 heat accounting reread, screenshot cache miss. Jaworski/Hawkins INTELEC1996 https://www.telepower.com.au/INT96b.PDF original archived/hash report47, PDF index1 visual method confirmed. Pavlov et al.2004 DOI10.1016/j.jpowsour.2004.06.006 original machine text §§2,4, local timeout/screenshot cache miss. Modern structural candidates DOI10.1016/j.jpowsour.2025.238023, PII S2352152X26018785, DOI10.1021/acsomega.5c11008 and10.1155/ijel/4128257 indexed only; full methods not verified, no Q gate. See report47.
+
+## S4 block3
+Smith/Gladwin/Stone2016 DOI10.1109/IECON.2016.7793307 accepted manuscript original, Fig5–7 visual checked. Aihara et al.2014 DOI10.5796/electrochemistry.82.985 original Japanese machine text/English abstract; screenshot failed. Yamashita/Yufu/Matsumaru1988 Denki Kagaku56:842–849 original machine text, screenshot failed. Arai/Tsutsumi/Yamaguchi2014 GS Yuasa Technical Report11(1)24–29 Tables3–4 visual checked. Four originals archived in sources/S4, hashes report48. Kowal et al.2009 DOI10.1016/j.jpowsour.2008.12.016 original simulation methods/results machine text, screenshot failed. See report48 for scope and discrepancies.

@@ -58,3 +58,5 @@ S3 block3: tools/s3_eis_decoder_verify.py and s3_eis_author_mask.py executed wit
 S3 exit/S4: tools/s4_temperature_audit.py reproduces Cao temperature-capacity table arithmetic and Prasad duration/percentage discrepancies; local download failures explicit. Distinguish temperature of reference discharge, cycling temperature and EIS measurement temperature; no universal correction. Read report46.
 
 S4 block2: tools/s4_heat_material_audit.py reproduces published heat accounting and NBS ratios. Separate inferred heat components, spatial T and measured capacity; do not resolve publication contradictions by guessing. See report47.
+
+S4 exit: tools/s4_dca_accessibility_audit.py archived four originals and checked Table3/4 arithmetic and approximate Fig7 ratios. Do not treat disappearance from local AFM field as chemical conversion; do not count particles as independent specimens. S5 next.

@@ -130,3 +130,5 @@
 | H91 | Matched specimen return-to-reference temperature, fixed reference discharge, measured thermal lag and matched throughput may separate reversible availability from ageing | OPEN | Report46; independent validation pending |
 
 | H92 | Reference-temperature capacity and spatial thermal validation may bound uncertainty beyond one external sensor | OPEN | Report47; model-specific calibration required |
+
+| H93 | Spatial SG and independent phase/accessibility labels, matched SOC/T/history and reference charge may distinguish reversible DCA changes from structural degradation | OPEN | Report48; validation pending |

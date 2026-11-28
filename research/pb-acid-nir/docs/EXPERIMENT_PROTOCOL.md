@@ -81,3 +81,5 @@ Report45: independent decoder verification, declared units and synchronized chro
 Report46: separate instantaneous Q(T) and ageing at controlled reference T; matched independent specimens and throughput, record equilibration and thermal lag, repeated reference-return controls and calibration. No model-specific numerical criteria or physical permission; P gates remain open.
 
 Report47: independently bound temperature sensor location/lag and internal-to-external error, record thermal history and reference-temperature capacity. Distinguish model electrode chemistry, bulk transport and whole-battery outcomes. No electrolyte changes or unsafe thermal experiments. P gates open.
+
+Report48: matched SOC/T/history and independent spatial acid/phase/function labels; compare normalized DCA and retained capacity separately, current-ceiling censoring and independent specimens; no electrolyte intervention. R01/R02 P remain open pending consolidated criteria.
