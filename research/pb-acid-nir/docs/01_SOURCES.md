@@ -117,3 +117,6 @@ Parnigotto 2022 DOI 10.1002/celc.202200883, full machine text/Table1; PDF screen
 
 ## S1 block3
 Bäcker/Meisner Battcon 2013 manufacturer-affiliated primary conference report https://www.vertiv.com/48dd01/globalassets/documents/battcon-static-assets/2013/the-effects-of-mechanical-electrolyte-mixing-on-vla-cells.pdf and Santos et al. 2025 DOI 10.1590/1517-7076-RMAT-2024-0605 original PDFs archived sources/S1, exact hashes report37. Machine text Figs3–7/Table1 and Santos §§3.3–3.4/Table1 checked; screenshot attempts failed. Cao-Paz 2010 DOI 10.3390/s100402587 full HTML §§3.4/4.1. Mamadou full article still unavailable; no direct water measurement recovered from S12.
+
+## S1 block4
+Official GS Yuasa NP manual rev5/00 https://gsyuasa-es.com/Downloads/NP_Application_manual.pdf printed pp19/21 visually verified, and EnerSys CYCLON US-CYC-AM-007 04/2008 https://www.enersys.com/493c0d/globalassets/documents/product-documentation/cyclon/amer/us-cyc-am-007_0408.pdf p11 visually verified, p12 text; originals archived and hashes report38. Yu et al. 2018 DOI 10.3390/en11092305 TU Delft PDF machine text §§3.6/4.1.3/4.2, screenshot cache miss, local TLS timeout. R08/R10/R14 cross-check and distinction integral vs marginal efficiency in report38.

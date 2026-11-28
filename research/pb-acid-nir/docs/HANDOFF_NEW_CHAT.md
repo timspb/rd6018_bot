@@ -1,7 +1,7 @@
 # HANDOFF_NEW_CHAT — Pb-Research
 Дата обновления: 2026-11-29.
 NEXT_STAGE: R20
-CURRENT_REPORT: 37_S1_STRATIFICATION_COMPARISON.md (parent 23_R20_SYNTHESIS.md; RESEARCH_ACCEPTANCE.md)
+CURRENT_REPORT: 38_S1_COMPLETION_AND_RECOVERY_MATRIX.md (parent 23_R20_SYNTHESIS.md; RESEARCH_ACCEPTANCE.md)
 Не начинать повторно R01–R20; использовать отчёты, источники и ledgers.
 
 ## Среда и порядок
@@ -65,3 +65,6 @@ Read RESEARCH_ACCEPTANCE.md, 35_S1_GAS_SULFATE_MAIN.md and 36_S1_TRANSFER_AND_MI
 
 ## S1 block3 current handoff
 Read report37 and RESEARCH_ACCEPTANCE.md. C149/H82, 44/88. R09-K documentary separation PASS; R09-Q/P still OPEN. New primary PDFs in sources/S1. No independently verified optimal MIX or upper/lower universal threshold. Next finish model-specific matrix, independent metrology/control protocols, remaining S1 critical reviews before S2. No production/hardware. Previous verified HEAD eb3b87917d2ea8733876cee9e04a4bab5e3d2d85; confirm current HEAD.
+
+## S1 exit / S2 current handoff
+Read report38 and RESEARCH_ACCEPTANCE.md. C153/H83, 48/88. S1 deliverable complete, model-specific validation and named open gates carry forward. Next S2 matched recovery/control, waveform, resource and negative cases (R03,R17,R18,R19). Cleland/Mankov gaps, seek independent contemporary primary studies. No repeating same inaccessible source indefinitely; no equipment/production changes. Prior verified GitHub HEAD 4ed23d12b5c40b231cfd7e293e6aaafd87c6fc21; verify current.

@@ -77,3 +77,5 @@
 2026-11-29 S1 block2: reports35–36, C140–146/H80–81, 43/88; four PDFs locally archived, two arithmetic tools executed; no production changes.
 
 2026-11-29 S1 block3: report37, C147–C149/H82, 44/88; two primary PDFs archived and arithmetic checked. Previous S1 block2 published eb3b8791. No production edits.
+
+2026-11-29 S1 block4: report38, C150–153/H83, 48/88; two verified originals, synthetic audit, four bounded K accepted. S1 deliverable complete, S2 next; block3 published 4ed23d12. No production changes.

@@ -38,3 +38,5 @@ RESEARCH_ACCEPTANCE.md определяет S1–S5 и 88 критериев. П
 S1 block2: tools/s1_charge_evidence_math.py and tools/s1_transfer_math.py reproduce published table arithmetic only. Distinguish bulk SG from pore transport and gas from useful charge. Update acceptance gates only when criteria evidence is present.
 
 S1 block3: tools/s1_stratification_audit.py downloads public originals and checks table arithmetic; report37. R09-K documentary distinction accepted, full protocol and water measurements still open. Preserve explicit separation of measured and inferred quantities.
+
+S1 block4: tools/s1_completion_uncertainty.py public source archive and synthetic arithmetic. Read report38 for limits. S2 after S1 deliverable, carry unresolved criteria forward; no hardware or deployment.

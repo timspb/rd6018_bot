@@ -174,3 +174,6 @@ Reports 35–36 add measured water-loss lot variability, charge history, local s
 
 ## S1 block3
 C01–C149 / H01–H82. Report37: industrial comparison and independent spatial measurement of starter battery; distinguish bulk homogenization, equalization across cells and functional recharge. R09-K documentary distinction accepted, specific treatment remains UNKNOWN and direct water/full protocol open. No physical validation.
+
+## S1 block4 — completion matrix
+C01–C153 / H01–H83. Report38: charge completion, full SOC, functional capacity, recovery and resource are independent claims; gas and construction transfer boundaries explicit. R04/R08/R10/R14 K bounded documentary PASS; target-model thresholds UNKNOWN, no P advanced. S1 deliverable assembled, residual gates carried forward; S2 recovery and resource next. No physical or production acceptance.

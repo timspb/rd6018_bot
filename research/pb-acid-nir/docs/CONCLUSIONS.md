@@ -176,3 +176,8 @@ C146 — Forced-flow negative electrode normalized flow fell 70% at gassing in o
 C147 — Industrial flooded mixing comparison at matched CF106% reduces gradient; waveform/order confounded, water figure not verified direct measurement. S1 report37.
 C148 — One 60Ah starter battery had mean vertical density difference .079g/cm3 after three cycles and four-hour rest; upper sensor independently checked, lower not. S1 report37.
 C149 — Multi-height optical sensing shows different density dynamics by height; one upper reading cannot establish complete homogenization. S1 report37.
+
+C150 — Yuasa NP manual explicitly warns that current sensing can falsely indicate full charge early in charging an overdischarged battery; model-specific. S1 report38.
+C151 — CYCLON manual distinguishes available capacity and periodic recharge sufficient for life; charge-return guidance differs from 2024 research, exact revision/application not equated. S1 report38.
+C152 — Yu 2018 voltage-model validation excludes CV; efficiency fit inadequate above 98% SOC; cross-cell current comparisons confounded. S1 report38.
+C153 — Integral recharge efficiency and differential storage efficiency are not interchangeable; midpoint assignment approximate. S1 report38.
