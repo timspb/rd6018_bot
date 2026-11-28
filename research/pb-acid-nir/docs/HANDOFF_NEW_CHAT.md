@@ -1,7 +1,7 @@
 # HANDOFF_NEW_CHAT — Pb-Research
 Дата обновления: 2026-11-29.
 NEXT_STAGE: R20
-CURRENT_REPORT: 43_S3_SHORT_MECHANISMS.md (parent 23_R20_SYNTHESIS.md; RESEARCH_ACCEPTANCE.md)
+CURRENT_REPORT: 44_S3_CAPACITY_SOH_PROVENANCE.md (parent 23_R20_SYNTHESIS.md; RESEARCH_ACCEPTANCE.md)
 Не начинать повторно R01–R20; использовать отчёты, источники и ledgers.
 
 ## Среда и порядок
@@ -83,3 +83,6 @@ Read report42 and RESEARCH_ACCEPTANCE.md. C166/H87, 52/88. S2 done as literature
 
 ## S3 block1 current handoff
 Read report43 and RESEARCH_ACCEPTANCE.md. C171/H88, 54/88. R04-D/R13-K bounded PASS, Q/P gaps remain. Three manufacturer originals archived in sources/S3; Conradt source attribution corrected. Synthetic nonidentifiability only. Next independent relaxation/capacity data, R05/R06/R07/R11/R12. Prior verified HEAD 89e2e15e86e6957d7449ad1250e402ae34a76780. No physical/production edits.
+
+## S3 block2 current handoff
+Read report44 and RESEARCH_ACCEPTANCE.md. C175/H89, 55/88. Hassan/Nayyer Zenodo five files archived, two tables identical, no raw traces or independent measured labels; no external model fit. R11-K bounded PASS, P open. Next independent MAT decoder/units/time alignment, relaxation and independent reference cohort. Prior verified HEAD 35c6553f5370a598050c533cf01d067c99f6fe98. No hardware/production.

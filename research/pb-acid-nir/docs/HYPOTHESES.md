@@ -122,3 +122,5 @@
 | H87 | Independent waveform bandwidth/energy calibration and matched functional charge may reduce waveform comparison bias | OPEN | Report42; actual measurement system not validated |
 
 | H88 | Independent retained-capacity and per-cell voltage with physically verified contact/phase labels may distinguish loss mechanisms | OPEN | S3 report43; independent validation and coverage |
+
+| H89 | Independent specimen IDs, prelabel traces and measured reference capacity may prevent misleading accuracy from duplicate plot outputs or derived labels | OPEN | S3 report44; independent validation |

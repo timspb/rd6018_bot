@@ -50,3 +50,5 @@ S2 block3: tools/s2_material_archive.py verifies public archive and horizon arit
 S2 exit/S3: report42 and scripts s2_waveform_metrology.py, s3_bboxx_acquire.py, s3_opzs_rest_screen.py. Signed integrals on synthetic synchronous traces only. OPzS named-test alignment, gap rejection, no admitted hour rest. BBOXX normal direct acquisition HTTP403; do not bypass. Preserve raw locally.
 
 S3 block1: tools/s3_short_identifiability.py archives originals and checks synthetic nonidentifiability. Separate CT/SEM deposit morphology, independent metallic phase, connected conductive path and functional loss; no deliberate defect creation. Read report43 and R13 erratum.
+
+S3 block2: tools/s3_soh_dataset_audit.py verifies public files and extracts XLSX XML schema, s3_soh_metrics.py reproduces published errors. Do not count duplicate plot tables or use unknown-provenance TRUE labels as independent measured C20. Read report44.

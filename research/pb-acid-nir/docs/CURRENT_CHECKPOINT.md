@@ -1,7 +1,7 @@
 # CURRENT_CHECKPOINT
-CURRENT_STAGE: R20 PARTIAL / S3 — C01–C171/H01–H88; report 43_S3_SHORT_MECHANISMS.md. RESEARCH_ACCEPTANCE.md 54/88.
+CURRENT_STAGE: R20 PARTIAL / S3 — C01–C175/H01–H89; report 44_S3_CAPACITY_SOH_PROVENANCE.md. RESEARCH_ACCEPTANCE.md 55/88.
 R19 REPORT: 22_R19_RECOVERY_DURABILITY.md. Two 40-cycle follow-ups found (Karami 2009 inverse charge, metric/n/EOL unclear; Lee 2023 extracted 2V cells, 89% rated at cycle40 with porosity loss); one non-monotonic 10-week four-Gel series without controls; Shi/Ferone/Rahn 2012/2013 one sulfated cell +41% after 313h but 64% nominal and 3 other cells dehydrated; PNNL 2022 aging benchmark 18–28 months/289–728 EFC. R18 erratum documents the missed Karami 40-cycle section.
-R20 validator tools/r20_validate_synthesis.py PASS: 171 unique conclusions and 88 unique hypotheses, no gaps. R19 arithmetic tool tools/r19_durability_analysis.py PASS. No physical tests; no RD6018/ESP/node104/BV-600 changes. Production integration remains on hold pending separate owner decision. Working catalog exclusively <RESEARCH_ROOT>. Following lines below are historical stage log, not current next-stage instructions.
+R20 validator tools/r20_validate_synthesis.py PASS: 175 unique conclusions and 89 unique hypotheses, no gaps. R19 arithmetic tool tools/r19_durability_analysis.py PASS. No physical tests; no RD6018/ESP/node104/BV-600 changes. Production integration remains on hold pending separate owner decision. Working catalog exclusively <RESEARCH_ROOT>. Following lines below are historical stage log, not current next-stage instructions.
 
 R02: литературный этап выполнен частично, отчет 04_R02.md записан; 12 записей источников, 4 гипотезы. Полные тексты и архив вложений остаются открытой задачей. Следующий этап R03: сравнительные испытания импульсного, постоянного и малотокового заряда, анализ контрольных групп и долговременного результата. Работы только в Pb-Research.
 
@@ -116,3 +116,5 @@ S2 block3: report41, C162–164/H86, 52/88. Hu original archived; Cattelan 2026 
 S2 exit/S3 admission: C165–166/H87, report42, 52/88 unchanged. Synthetic integration and alias tests PASS, strict OPzS no hour-long low-current blocks; BBOXX set10/GITT HTTP403. S3 in progress, no P advanced. Prior published c2d1e3b69085491e6fd2def19e6796609e179814. Next primary short evidence, independent datasets and diagnostic uncertainty. No equipment.
 
 S3 block1: C167–171/H88, report43, 54/88. Three manufacturer originals archived; web figure screenshots unavailable. Conradt EFB70 vs SLI35 erratum; gray deposits not independently phase-assayed. R04-D/R13-K only, R04-D-Q/P and R13-P open. Next independent relaxation/capacity evidence. Prior published 89e2e15e86e6957d7449ad1250e402ae34a76780. No equipment.
+
+S3 block2: report44, C172–175/H89, 55/88. All five Zenodo SOH plot files MD5 verified; 30 duplicate triples MAE 2.4286→1.5734pp, no independent C20 or battery IDs. R11-K accepted bounded. Next independent MAT decoder, units/timing and actual reference cohort, R05/R06/R07/R12. Prior published 35c6553f5370a598050c533cf01d067c99f6fe98. No equipment.

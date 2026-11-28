@@ -135,3 +135,6 @@ Oxford DOI 10.5287/bodleian:aVR4oDV4N set_10 and GITT direct acquisition denied 
 
 ## S3 block1
 Hitachi Chemical Technical Report58 Hirano/Kouno/Sumiya original https://www.resonac.com/sites/default/files/2022-12/en_pdf-rd-report-058-58_tr02.pdf pp15–16; GS Yuasa 2011 vol8 no1 https://www.gs-yuasa.com/en/technology/technical_report/pdf/vol8/008_01_051.pdf §§4–5; GS Yuasa2023 vol20 no1 https://www.gs-yuasa.com/en/technology/technical_report/pdf/vol20/020_01_014.pdf Tables2–4; all three originals locally archived/hash report43, web screenshots failed. Conradt2024 DOI10.1016/j.est.2024.111931 chapter6 pp85–87 original machine text re-audit corrects EFB70Ah vs SLI35Ah; gray spots interpretation distinct from phase assay. Zeng2015 abstract only. Report43.
+
+## S3 block2
+Hassan/Nayyer 2026 DOI10.5281/zenodo.21996450 five original files archived, publisher MD5 verified, local SHA256 in sources/S3; plot-only outputs, no raw U/I/T/reference procedure. Doerffel/Abu-Sharkh 2006 DOI10.1016/j.jpowsour.2005.04.030 full machine text mirror, original inaccessible; Meisner/Buniak Battcon2016 constant-resistance testing original PDF machine text, screenshot cache miss. IEC60095-1:2018 COR1:2026 and IEC60095-8:2026 official catalogue scope verified. M5BAT DOI10.18154/RWTH-2026-06637 listing only, not downloaded. See report44.

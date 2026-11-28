@@ -204,3 +204,8 @@ C168 — Yuasa2011 found internal shorts only in conventional comparison, corros
 C169 — Yuasa2023 water loss per observed microcycle and cycle endpoint vary with temperature and vent design; not matched Q(T) capacity curve or retrofit. Report43.
 C170 — Conradt2024 external EFB70Ah shunt distinct from SLI35Ah internal degradation; gray spots not independent chemical phase/conductance proof. Erratum R13/R04-D, report43.
 C171 — Synthetic identical terminal U can arise from different loss partitions or cell-voltage distributions; mechanism not identifiable from sum/rest U alone. Report43.
+
+C172 — Hassan/Nayyer 2026 published 30 plot triples reproduce 35.21% relative MAE reduction; duplicate tables not independent, measured C20 and specimen identity unverified. Report44.
+C173 — Doerffel/Abu-Sharkh aged VRLA delivered64.3 vs67.6Ah after high-then-low versus low-only discharge; rest/load history matters, no permanent damage proof. Report44.
+C174 — Meisner/Buniak VLA constant-resistance vs constant-current time-adjusted capacity differs; no universal correction or C20 equivalence. Report44.
+C175 — IEC60095-1:2018 corrected2026-02 starter scope distinct from IEC60095-8:2026 auxiliary/backup; exact full method unverified. Report44.

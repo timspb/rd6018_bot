@@ -192,3 +192,6 @@ C01–C166 / H01–H87. Report42: synthetic signed waveform metrology and retent
 
 ## S3 block1
 C01–C171 / H01–H88. Report43: CT/SEM detection limitations, independent teardown mechanical/sediment shorts, Conradt source correction and synthetic nonidentifiability. R04-D-K/R13-K bounded documentary accepted, R04-D-Q/P and R13-P open. No chemical bridge or physical classifier acceptance.
+
+## S3 block2
+C01–C175 / H01–H89. Report44: published SOH plot-data arithmetic reproduced but not admitted as external validation; load history and method-specific capacity comparisons; IEC scope updated. R11-K documentary accepted; R11-P and R05/R06/R07/R12-K remain OPEN. No physical acceptance.
