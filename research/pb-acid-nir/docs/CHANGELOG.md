@@ -67,3 +67,5 @@
 2026-11-28 R20-A05: 28_R20_PCL_IDENTIFIABILITY.md; C113–C117/H71–H72; r20_pcl_identifiability.py; distinguish EIS correlation and chemical classification; A04 publication verified.
 
 2026-11-28 R20-A06–A08: reports 29–31, raw EIS, zHit and residual capacity, multifeature baselines; C118–C129/H73–H76 appended. No hardware changes.
+
+2026-11-28 R20-A09: 32_R20_REST_HISTORY.md, r20_rest_history_audit.py, C130–C132/H77. Prelabel rest/history features, common-case joint models. A06–A08 published c253fc44e933d7baa9fe0defb518860c2ca28b52.

@@ -99,3 +99,5 @@
 | H74 | Spatial sulfate distribution and active mass integrity may explain similar sulfur assays with different spectra | OPEN | R20-A06; independent chemical and imaging evidence |
 | H75 | Multiple EIS frequencies and preparation/history can improve grouped residual capacity prediction over cycle baseline | OPEN | R20-A07/A08; tested variants negative on primary common set |
 | H76 | Independent pre-discharge resting voltage and history features improve residual capacity prediction over FCE | OPEN | R20-A08; verify timestamps and independent cells |
+
+| H77 | Complementarity of rest relaxation and multiband EIS may improve cross-cell prediction with known cycle history | OPEN | R20-A09; predefine model, coverage-aware baseline, independent cohort |

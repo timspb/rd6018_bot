@@ -151,3 +151,7 @@ C126 — Logged -2A residual discharge integration approximately reproduces publ
 C127 — In 26 common cases from four physical cells, leave-one-cell-out FCE OLS beats single-frequency impedance in most or all folds. No external validation. R20-A07.
 C128 — On the same 26 observations, FCE ridge macro MAE 0.7994Ah is lower than both fixed multiband models with FCE; pooled MAE also lower. No universal EIS inference. R20-A08.
 C129 — Three-frequency subset (24 rows) shows metric-dependent results; adding 0.1Hz has no robust incremental advantage. Report equal-cell and pooled errors on common cases. R20-A08.
+
+C130 — Same four-hour quasi-rest voltage 2.165V at 15/135 FCE in one model cell with 10.403/0.922Ah residual capacity. Not fully charged C20. R20-A09.
+C131 — On 31 residual-capacity records, tested rest, relaxation, temperature and prior-file throughput models do not beat FCE ridge; narrow/confounded conditions. R20-A09.
+C132 — On 26 selected common cases, fixed FCE+two-band+rest model improves macro and pooled MAE but loses one held-out cell; exploratory selection-dependent signal, no external validation. R20-A09.

@@ -48,3 +48,6 @@ Use same construction, SOC, T, measurement history and independent reference lab
 
 ## R20-A08 grouped validation
 Split by physical specimen. Compare fixed models on identical rows, standardize only on training fold, report equal-cell and pooled MAE separately. Do not infer fully charged C20 from residual after-cycling capacity. Verify pre-label timestamps and rest before using voltage as predictor; no leakage from discharge endpoint.
+
+## R20-A09 feature chronology
+Extract only zero-current samples before load transition, verify rest duration and sample gaps; quasi-rest voltage not equilibrium. Pre-record throughput is not lifetime throughput. Report invalid EIS coverage by cell and compare on all eligible cases with a defined fallback. Independent test cohort before diagnostic approval.

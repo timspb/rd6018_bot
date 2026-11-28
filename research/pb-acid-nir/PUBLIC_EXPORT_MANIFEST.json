@@ -124,8 +124,8 @@
     },
     {
       "path": "docs/23_R20_SYNTHESIS.md",
-      "bytes": 34523,
-      "sha256": "761e21a295dda9a9638a379094e877f302a6213a6102e7ef1d178a58a5535068"
+      "bytes": 34842,
+      "sha256": "a37001e38714226d52a24ce93cdc5ddb8b8f2e2125f3adaa2d63d67652b3ac01"
     },
     {
       "path": "docs/24_R20_EVIDENCE_GAP_AUDIT.md",
@@ -168,24 +168,29 @@
       "sha256": "428a1772d7f8f1730fc3765d3eba33c00948a245cab749fe63af00abd7a7e7ee"
     },
     {
+      "path": "docs/32_R20_REST_HISTORY.md",
+      "bytes": 4911,
+      "sha256": "1ef5ac97198c8008fdcc4f4cbc353122397ebcdfad59efeca408835dbbe8c184"
+    },
+    {
       "path": "docs/AGENTS.md",
       "bytes": 4209,
       "sha256": "3c99d3667e3d700830c383ae5432f3941ba4c5e3184074c14a1f8b7a5657d5a7"
     },
     {
       "path": "docs/CHANGELOG.md",
-      "bytes": 9409,
-      "sha256": "a48e32e5546768a49eb769778277028ba01b90ba466b7c25d70efd22eabe9c3a"
+      "bytes": 9618,
+      "sha256": "ed4bb31bdbf52fd2f801769658a7afcc5a491368ea49cfc45270e58c39e67b3d"
     },
     {
       "path": "docs/CONCLUSIONS.md",
-      "bytes": 28553,
-      "sha256": "30bea0b5eb8434f5d1d61f16da16f29f41aa4788009a3689bbc522156aac0d9b"
+      "bytes": 29081,
+      "sha256": "d941719b0497a7732b74d381848e2d10930a2f5501167ab4ce18e12a4d8364f1"
     },
     {
       "path": "docs/CURRENT_CHECKPOINT.md",
-      "bytes": 23873,
-      "sha256": "5f4a94a08c8d65cfbcb8f37bc0670fd6d4e96ceb55829dd783513f05ee5bcaed"
+      "bytes": 24227,
+      "sha256": "98beeca34bb27b59f889a4a9854d9ed654a0eaaef2bd902e2964fcdf815197cb"
     },
     {
       "path": "docs/DECISIONS.md",
@@ -194,18 +199,18 @@
     },
     {
       "path": "docs/EXPERIMENT_PROTOCOL.md",
-      "bytes": 19155,
-      "sha256": "06e0f7f0af39205fd57bca02815cacb95f56b5102862f3fbda0920be8e0836ef"
+      "bytes": 19515,
+      "sha256": "15c259387757b94b01182eda737ca1e53fea17f64ff99c5724b2b61d9b6fbeb0"
     },
     {
       "path": "docs/HANDOFF_NEW_CHAT.md",
-      "bytes": 11183,
-      "sha256": "d5f3891e5e736478deff8df945f34ca3dca60f427180bcbce16a6a04bee68120"
+      "bytes": 11591,
+      "sha256": "d2ffdf5bac0fba4530637da6f081e1fbd6b7ab017aa6f7532afb8dfb486014f0"
     },
     {
       "path": "docs/HYPOTHESES.md",
-      "bytes": 15106,
-      "sha256": "d580a015f2df818faa1fb93f1b6c84c567c546a91e4359f8283ece7675f9ec8d"
+      "bytes": 15308,
+      "sha256": "71610afab63e9ab29cee576c4c1d32ec5ebaf6812b6b16d9d4665f60d099f4bf"
     },
     {
       "path": "docs/INTEGRATION_RD6018.md",
@@ -224,13 +229,13 @@
     },
     {
       "path": "docs/ROADMAP.md",
-      "bytes": 3208,
-      "sha256": "a3cd2c77b977221c4e3b7b4655c77b8f3601b12cbff9ee204d17a8d59b68e159"
+      "bytes": 3230,
+      "sha256": "7224a0047fd3278a03c7c18e7bc4ea9c342be2b8d9589014c8307931a0ceaace"
     },
     {
       "path": "docs/RUNBOOK.md",
-      "bytes": 9445,
-      "sha256": "b33bdbdd53eb2745e6216de4a17793bba60ba881e14ced93b9d3595cfe7b5ff9"
+      "bytes": 9686,
+      "sha256": "d15fb775c5d0a3edb95ce875e4b4fb5a747a73caf43b243dc5e1b5368412e85e"
     },
     {
       "path": "docs/TELEGRAM_CONNECTOR.md",
@@ -353,6 +358,11 @@
       "sha256": "3349bed6880bfba43f2e782ddf38e592f2a48c874116c24c9147453f50a7bb44"
     },
     {
+      "path": "tools/r20_rest_history_audit.py",
+      "bytes": 3575,
+      "sha256": "e644e819139fd6aca01f9d9434674501c1df1d59044981375a26c3038af70614"
+    },
+    {
       "path": "tools/r20_reversible_loss_audit.py",
       "bytes": 744,
       "sha256": "4c9305bed0178704de8e5c8fdb1e4e6e96ae058f00574a69b8bd2faee17ea833"
@@ -365,7 +375,7 @@
     {
       "path": "tools/r20_validate_synthesis.py",
       "bytes": 1368,
-      "sha256": "e49ff3dc9be380a29bc69c91ee9734baadc7431c83a6b13b85d5417e48af9bf0"
+      "sha256": "efdd0b1633b9db81b888ee4f076fd3ce66afe27af9445d447c167666eb1b85c3"
     }
   ],
   "omitted": []
