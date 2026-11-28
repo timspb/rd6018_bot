@@ -29,3 +29,5 @@ No new C or H created for this documentary synthesis; ledger remains192/93. No p
 
 ## Extension 29.11.2026
 See report51, TG09–13: two longitudinal UklonGroup series and negative/measurement-quality observations in the newly authorized groups. E4 only, no new gate or verified device efficacy.
+
+S5 report52: 255 unique extension search hits (overlap report51), Akom Standard cycles1–5 and initial 60Ah rating, Akom EFB thread14601 and earlier Tyumen AGM cycles33–45/70. Long rest/recharge/vehicle-use contrasts confounded; cycle18 EFB different current excluded. Three JPEGs downloaded local only, visual trace/calibration not validated. E4, C192/H93, 62/88 unchanged. Next author spreadsheet if accessible, trace validation then protocol consolidation.

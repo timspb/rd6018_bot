@@ -58,3 +58,5 @@ S4 exit/S5 intake: 61/88, R01/R02-K bounded accepted. Next S5 statement-level E/
 S5 block1: 62/88, R20-K accepted. Next consolidate testable common protocol and direction-specific annexes; do not equate protocol design with hardware validation.
 
 S5 D09 intake report51: new groups verified and two longitudinal candidate series extracted. Verify source curves and measurement quality, then protocol consolidation. No new gates.
+
+S5 report52: 255 unique extension search hits (overlap report51), Akom Standard cycles1–5 and initial 60Ah rating, Akom EFB thread14601 and earlier Tyumen AGM cycles33–45/70. Long rest/recharge/vehicle-use contrasts confounded; cycle18 EFB different current excluded. Three JPEGs downloaded local only, visual trace/calibration not validated. E4, C192/H93, 62/88 unchanged. Next author spreadsheet if accessible, trace validation then protocol consolidation.

@@ -103,3 +103,5 @@
 2026-11-29 S5 block1: reports49–50, 62/88, C192/H93 unchanged, R20-K documentary accepted. No hardware.
 
 2026-11-29 report51 D09 intake, D10 read-only, connector v0.2.0 tested four sources; 313 unique messages, 44 discharge observations; 62/88 unchanged.
+
+S5 report52: 255 unique extension search hits (overlap report51), Akom Standard cycles1–5 and initial 60Ah rating, Akom EFB thread14601 and earlier Tyumen AGM cycles33–45/70. Long rest/recharge/vehicle-use contrasts confounded; cycle18 EFB different current excluded. Three JPEGs downloaded local only, visual trace/calibration not validated. E4, C192/H93, 62/88 unchanged. Next author spreadsheet if accessible, trace validation then protocol consolidation.

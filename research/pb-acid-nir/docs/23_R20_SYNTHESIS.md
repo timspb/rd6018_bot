@@ -212,3 +212,5 @@ C01–C192 / H01–H93. Report48: independent DCA history comparison, spatial ac
 C01–C192 / H01–H93 unchanged. Report49 explicit statement-level E/T matrix with source text and corrections, report50 D09 eight-case reconciliation, bounded D08 documentation requirements. R20-K documentary PASS; no new physical claim. R20-P remains OPEN, next consolidated protocols.
 
 S5 D09 intake report51: 44 reported discharges from two observational series, source/read-only acceptance PASS, no new primary or physical acceptance; C192/H93 retained.
+
+S5 report52: 255 unique extension search hits (overlap report51), Akom Standard cycles1–5 and initial 60Ah rating, Akom EFB thread14601 and earlier Tyumen AGM cycles33–45/70. Long rest/recharge/vehicle-use contrasts confounded; cycle18 EFB different current excluded. Three JPEGs downloaded local only, visual trace/calibration not validated. E4, C192/H93, 62/88 unchanged. Next author spreadsheet if accessible, trace validation then protocol consolidation.
