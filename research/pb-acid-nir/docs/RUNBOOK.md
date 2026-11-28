@@ -48,3 +48,5 @@ S2 block2: tools/s2_retention_audit.py archives primary reports and computes des
 S2 block3: tools/s2_material_archive.py verifies public archive and horizon arithmetic; report41. Separate inferred reaction currents, measured gas and actual corrosion; right-censored 400-cycle observation is not measured lifetime. No chemical or reverse-charge intervention.
 
 S2 exit/S3: report42 and scripts s2_waveform_metrology.py, s3_bboxx_acquire.py, s3_opzs_rest_screen.py. Signed integrals on synthetic synchronous traces only. OPzS named-test alignment, gap rejection, no admitted hour rest. BBOXX normal direct acquisition HTTP403; do not bypass. Preserve raw locally.
+
+S3 block1: tools/s3_short_identifiability.py archives originals and checks synthetic nonidentifiability. Separate CT/SEM deposit morphology, independent metallic phase, connected conductive path and functional loss; no deliberate defect creation. Read report43 and R13 erratum.

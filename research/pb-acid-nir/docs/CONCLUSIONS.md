@@ -198,3 +198,9 @@ C164 — Ruetschi 2003 half-cell observations distinguish positive/negative limi
 
 C165 — Signed Ah and Wh require separate sign-aware integration; zero net Ah can coexist with nonzero net Wh; sparse synchronous sampling may alias mean-square I. Synthetic verification only. Report42.
 C166 — Strict six-channel OPzS same-test screening admitted no continuous hour-long rest at .1 or 1A; max 15/46min, no defect or relaxation inference. Report42.
+
+C167 — Hitachi 3D CT detected separator deposits missed by SEM cross-section; morphology not proof of conductive metallic path. Report43.
+C168 — Yuasa2011 found internal shorts only in conventional comparison, corrosion/PAM softening in both designs; mechanical/sediment mechanisms distinct; no isolated design effect. Report43.
+C169 — Yuasa2023 water loss per observed microcycle and cycle endpoint vary with temperature and vent design; not matched Q(T) capacity curve or retrofit. Report43.
+C170 — Conradt2024 external EFB70Ah shunt distinct from SLI35Ah internal degradation; gray spots not independent chemical phase/conductance proof. Erratum R13/R04-D, report43.
+C171 — Synthetic identical terminal U can arise from different loss partitions or cell-voltage distributions; mechanism not identifiable from sum/rest U alone. Report43.

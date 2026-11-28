@@ -189,3 +189,6 @@ C01–C164 / H01–H86. Report41: material-dependent HER sign, PAM/NAM coupled r
 
 ## S2 exit / S3 admission
 C01–C166 / H01–H87. Report42: synthetic signed waveform metrology and retention design, strict OPzS rest screen negative, BBOXX acquisition denied. S2 deliverable complete with open P criteria; S3 started. 52/88 unchanged. No new physical evidence or mechanism classification.
+
+## S3 block1
+C01–C171 / H01–H88. Report43: CT/SEM detection limitations, independent teardown mechanical/sediment shorts, Conradt source correction and synthetic nonidentifiability. R04-D-K/R13-K bounded documentary accepted, R04-D-Q/P and R13-P open. No chemical bridge or physical classifier acceptance.

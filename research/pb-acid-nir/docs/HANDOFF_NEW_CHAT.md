@@ -1,7 +1,7 @@
 # HANDOFF_NEW_CHAT — Pb-Research
 Дата обновления: 2026-11-29.
 NEXT_STAGE: R20
-CURRENT_REPORT: 42_S2_EXIT_S3_ADMISSION.md (parent 23_R20_SYNTHESIS.md; RESEARCH_ACCEPTANCE.md)
+CURRENT_REPORT: 43_S3_SHORT_MECHANISMS.md (parent 23_R20_SYNTHESIS.md; RESEARCH_ACCEPTANCE.md)
 Не начинать повторно R01–R20; использовать отчёты, источники и ledgers.
 
 ## Среда и порядок
@@ -80,3 +80,6 @@ Read report41 and RESEARCH_ACCEPTANCE.md. C164/H86, 52/88. R17/R18-K bounded PAS
 
 ## S2 exit / S3 current handoff
 Read report42 and RESEARCH_ACCEPTANCE.md. C166/H87, 52/88. S2 done as literature/design deliverable; P gates remain open. Three scripts executed: s2_waveform_metrology.py (synthetic PASS), s3_bboxx_acquire.py (both public files HTTP403), s3_opzs_rest_screen.py (77651 matched keys, no hour-long rest). S3: primary dendrite/short evidence, independent capacity and relaxation data; no repeated BBOXX denial or four-cell model fitting. No physical/production edits. Prior verified HEAD c2d1e3b69085491e6fd2def19e6796609e179814.
+
+## S3 block1 current handoff
+Read report43 and RESEARCH_ACCEPTANCE.md. C171/H88, 54/88. R04-D/R13-K bounded PASS, Q/P gaps remain. Three manufacturer originals archived in sources/S3; Conradt source attribution corrected. Synthetic nonidentifiability only. Next independent relaxation/capacity data, R05/R06/R07/R11/R12. Prior verified HEAD 89e2e15e86e6957d7449ad1250e402ae34a76780. No physical/production edits.

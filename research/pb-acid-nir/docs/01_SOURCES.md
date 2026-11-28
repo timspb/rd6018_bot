@@ -132,3 +132,6 @@ Hu et al. 2016 Int J Electrochem Sci 11:1416–1433 https://www.electrochemsci.o
 
 ## S2 exit / S3 intake
 Oxford DOI 10.5287/bodleian:aVR4oDV4N set_10 and GITT direct acquisition denied HTTP403, existing metadata only. OPzS DOI 10.5281/zenodo.17252822 strict matched-test rest screen report42. Zeng et al. 2015 DOI 10.1016/j.jpowsour.2015.03.139 and Chang/Jochim 2000 DOI 10.1016/S0378-7753(00)00470-5 publisher abstracts only; full original methods not verified, R04-D-Q remains open.
+
+## S3 block1
+Hitachi Chemical Technical Report58 Hirano/Kouno/Sumiya original https://www.resonac.com/sites/default/files/2022-12/en_pdf-rd-report-058-58_tr02.pdf pp15–16; GS Yuasa 2011 vol8 no1 https://www.gs-yuasa.com/en/technology/technical_report/pdf/vol8/008_01_051.pdf §§4–5; GS Yuasa2023 vol20 no1 https://www.gs-yuasa.com/en/technology/technical_report/pdf/vol20/020_01_014.pdf Tables2–4; all three originals locally archived/hash report43, web screenshots failed. Conradt2024 DOI10.1016/j.est.2024.111931 chapter6 pp85–87 original machine text re-audit corrects EFB70Ah vs SLI35Ah; gray spots interpretation distinct from phase assay. Zeng2015 abstract only. Report43.

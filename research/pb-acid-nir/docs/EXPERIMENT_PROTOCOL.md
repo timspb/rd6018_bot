@@ -71,3 +71,5 @@ S2 report40: standardize reference test frequency and preparation because checku
 S2 report41: distinct estimands for equal elapsed time, equal net charge and equivalent functional endpoint; do not assume all can be matched simultaneously. Separate factory prevention and field restoration, matched standard-charge control, no deliberate reversal. P gates open for verified model-specific metrology and limits.
 
 Report42: sign-separated Ah/Wh with zero crossing and exact linear-product integral; reject invalid intervals and demonstrate real waveform bandwidth independently. Randomized independent paired specimens, matched normal-charge control, predeclared distinct estimands, retention schedule and safety stop outcome; power calculations illustrative only. R03/R17/R18/R19 P remain open. No physical approval.
+
+Report43: independent retained-capacity reference, external load exclusion and controlled history/T, per-cell observation only if legitimate access, physical phase/contact proof in qualified lab; separate functional risk, validity and mechanism confidence. No intentional short/reversal; no P promoted.
