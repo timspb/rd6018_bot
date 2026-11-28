@@ -1,7 +1,7 @@
 # HANDOFF_NEW_CHAT — Pb-Research
 Дата обновления: 2026-11-28.
 NEXT_STAGE: R20
-CURRENT_REPORT: 27_R20_REVERSIBLE_LOSS_LIMITS.md (parent synthesis 23_R20_SYNTHESIS.md; prior 26_R20_CONTROLLED_COMPARISONS.md)
+CURRENT_REPORT: 28_R20_PCL_IDENTIFIABILITY.md (parent synthesis 23_R20_SYNTHESIS.md; prior 27_R20_REVERSIBLE_LOSS_LIMITS.md)
 Не начинать повторно R01–R20; использовать отчёты, источники и ledgers.
 
 ## Среда и порядок
@@ -10,14 +10,14 @@ CURRENT_REPORT: 27_R20_REVERSIBLE_LOSS_LIMITS.md (parent synthesis 23_R20_SYNTHE
 D07/D09: независимая научная проверка, отличать full text/author copy/abstract/preview/forum anecdote, сохранять отрицательные результаты и противоречия. Не превращать отдельную статью в универсальный зарядный профиль.
 
 ## Текущий результат R20
-R20 PARTIAL; 23_R20_SYNTHESIS.md. Синтезированы C01–C112 и H01–H70, присвоены уровни доказательности E1–E4 и переносимости T1–T4. Документ содержит тематические выводы R01–R19, разрешение кажущихся противоречий, no-go boundaries, требования к метрологии и требования к диагностической логике.
-tools/r20_validate_synthesis.py PASS: 112 unique conclusion IDs, 70 unique hypothesis IDs, no gaps. r20_capacity_evidence_math.py, validate_handoff.py, r20_source_quality_audit.py also PASS. R20 — только документальная синтеза; не валидированный алгоритм, не программа зарядки и не разрешение на аппаратное внедрение.
+R20 PARTIAL; 23_R20_SYNTHESIS.md. Синтезированы C01–C117 и H01–H72, присвоены уровни доказательности E1–E4 и переносимости T1–T4. Документ содержит тематические выводы R01–R19, разрешение кажущихся противоречий, no-go boundaries, требования к метрологии и требования к диагностической логике.
+tools/r20_validate_synthesis.py PASS: 117 unique conclusion IDs, 72 unique hypothesis IDs, no gaps. r20_capacity_evidence_math.py, validate_handoff.py, r20_source_quality_audit.py also PASS. R20 — только документальная синтеза; не валидированный алгоритм, не программа зарядки и не разрешение на аппаратное внедрение.
 R19 report 22_R19_RECOVERY_DURABILITY.md. Два 40-cycle studies (Karami 2009 inverse charge, Lee 2023 high-voltage extracted 2V cells), non-monotonic 10-week four-Gel series (Ohajianya 2021, no controls), Shi/Ferone/Rahn 2012/2013 residual aging, PNNL 18–28 month benchmark. R18 erratum adds Karami §3.4 40-cycle claim; exact ≥80% endurance metric/n/EOL unspecified.
 R19 PDFs archived locally: sources/R19/SHA256SUMS.txt. Telegram scope only 1800 recent messages; no controlled longitudinal case. No full-history scrape.
 No physical experiments, intentional cell reversal, reverse charge, VRLA opening, RD6018/ESP/node104/HA/BV-600 changes. All hardware implementation requires separate owner decision and dry-run.
 
 ## Next within R20
-Prioritize the highest-impact open hypotheses and close source-quality gaps; do not turn the synthesis into a recipe. All H01–H70 remain open except H09 limited SUPPORTED in individual sources. R20 remains PARTIAL because full primary texts, independent replications and multi-month/multi-year matched data are incomplete.
+Prioritize the highest-impact open hypotheses and close source-quality gaps; do not turn the synthesis into a recipe. All H01–H72 remain open except H09 limited SUPPORTED in individual sources. R20 remains PARTIAL because full primary texts, independent replications and multi-month/multi-year matched data are incomplete.
 
 ## GitHub NIR
 Repo timspb/rd6018_bot, branch research/pb-acid-nir, only research/pb-acid-nir/ paths. R20-A02 published content commit a9300486e03ef8c9801320dd6cf9d14ffdab1497 (verified branch main ahead8/behind0, 60 files all research/pb-acid-nir/); earlier A01 commit 3774ba3 preserved. Перед новым обновлением проверить актуальный tip; automatic sync отсутствует. Local <RESEARCH_ROOT> has no .git and no auto sync. Export tools/prepare_github_nir.py; audit tools/verify_public_export.py; handoff validator tools/validate_handoff.py; synthesis validator tools/r20_validate_synthesis.py.
@@ -36,3 +36,6 @@ R20-A03 local checks PASS; Local archival verification: Lam_CSIRO_1995_PCL.pdf, 
 
 ## R20-A04 — current next step
 Bopp 2010 10.5-year Talhof endpoint, selected failed/functional cells and monitoring gap; same cohort as Wagner/Sauer 2001. 81 small GEL storage factorial, not C20. Hund 1998 SG vs final capacity and Energies 2019 no final standardized discharge. Next: PCL mechanisms (grid/PAM interface vs sulfate), independent automotive-relevant sources and archival evaluation of diminishing-return criterion. Cleland Table2/Mankov full text remain OPEN. Prior A03 GitHub commit 2dc7f9740f51540282c57260c7e5ba915fd4475f; A04 local changes require publication check. No hardware changes.
+
+## R20-A05 — current next step
+PCL interface abstracts; Kwiecien/Badeda original PDF text rechecked, not independent new trials, web screenshots failed. 2026 field cohort indexed text only; full paper and direct physical labels not established. Exact synthetic grid/interface nonidentifiability. Next retrieve raw EIS supplement and independent labeled aging data, and evaluate held-out diagnostic baseline. A04 published 111c2d42491e88a1a45a932adef5590d134de840. A05 local changes require publication check. No hardware changes.

@@ -63,3 +63,5 @@
 2026-11-28 R20-A03: controlled comparative evidence Cooper/Lam/Fraunhofer; new 26_R20_CONTROLLED_COMPARISONS.md; C102–C106/H65–H67 and numerical Cooper audit; no hardware changes.
 
 2026-11-28 R20-A04: 27_R20_REVERSIBLE_LOSS_LIMITS.md, C107–C112/H68–H70, r20_reversible_loss_audit.py, 10.5-year selected-cell evidence and 81-specimen storage study.
+
+2026-11-28 R20-A05: 28_R20_PCL_IDENTIFIABILITY.md; C113–C117/H71–H72; r20_pcl_identifiability.py; distinguish EIS correlation and chemical classification; A04 publication verified.

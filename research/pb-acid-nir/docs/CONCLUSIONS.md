@@ -132,3 +132,9 @@ C109 — Bopp 2010: 81 GEL 6V/1.2Ah batteries, 3×3×3 conditions with three spe
 C110 — Bopp Fig.6 approximate 0.22→0.56Ah gain still below half nominal; near-zero gain with near-zero capacity is not recovery success. Water loss association not unique diagnostic. R20-A04.
 C111 — Hund 1998 flooded golf-cart case: about 600Ah input, final 151Ah/~80% initial even with restored SG. No incremental capacity series or optimal stopping proof. R20-A04.
 C112 — Energies 2019 field bank: improvement of working capacity and SG over three months but no standardized final capacity test; multiple controller changes, Ah accumulator drift and tail current do not establish full SOC. R20-A04.
+
+C113 — Positive grid/PAM interface sulfate and bulk NAM sulfate are not equivalent diagnoses; contact loss/corrosion may promote secondary sulfate. PCL mechanism sources abstract-only. R20-A05.
+C114 — Kwiecien 2018 sulfate-related EIS correlation in four model cells cannot validate corrosion discrimination, left for future work. ICP-OES sulfur does not uniquely measure pure solid PbSO4. R06 recheck; R20-A05.
+C115 — Badeda 2018 48 float VRLA without periodic capacity tests or final post-mortem cannot validate capacity mapping or specific chemical labels. R06 recheck; R20-A05.
+C116 — Selected failed 2026 VRLA had OCV 13.2–13.3V with 10–30% capacity; replacements and temperature order prevent paired temperature inference. Indexed publisher text only. R20-A05.
+C117 — Synthetic linear circuit yields exactly identical terminal spectra and steps for different grid/interface series resistance partitions. Chemical classification requires independent constraints; not a claim that all EIS is useless. R20-A05.

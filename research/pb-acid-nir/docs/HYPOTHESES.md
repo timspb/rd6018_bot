@@ -91,3 +91,6 @@
 | H68 | Reference minus working-preparation capacity tracks reversible operational undercharge independently of some aging modes | OPEN | R20-A04; matched fixed endpoint tests |
 | H69 | Incremental reference-capacity gain and its uncertainty plus independent safety/functional metrics identify diminishing returns better than tail current alone | OPEN | R20-A04; archival validation |
 | H70 | Water loss and internal shorts dominate residual capacity deficit despite improved charge completeness in some cases | OPEN | R20-A04; independent diagnostic evidence |
+
+| H71 | Combined terminal features can discriminate dominant aging modes in fixed construction with independent labels; overlapping cases remain UNKNOWN | OPEN | R20-A05; held-out battery validation |
+| H72 | Discharge discontinuity and invalid EIS predict weak-cell/failure risk independently of OCV | OPEN | R20-A05; distinguish instrumentation artifacts, validate independently |

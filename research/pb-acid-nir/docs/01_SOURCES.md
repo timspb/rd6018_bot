@@ -95,3 +95,10 @@ A04-S02 Bopp et al. 2010, Optimization of charging strategies for VRLA batteries
 A04-S03 Hund, Sandia 1998, Capacity Loss in PV Batteries and Recovery Procedures, full author PDF mirror https://www.zetatalk3.com/docs/Batteries/Lead_Acid/Capacity_Loss_in_PV_Batteries_and_Recovery_Procedures_1998.pdf ; Fig.4 visually checked.
 A04-S04 Energies 2019 12(12)2237 DOI 10.3390/en12122237, full publisher HTML §§3–5; no final standardized capacity measurement. https://www.mdpi.com/1996-1073/12/12/2237 .
 Local archive status: Bopp_Fraunhofer_2010_VRLA.pdf: 279991 bytes, SHA256 acd6097b8897a29de41d3d2fdf491e2a3c2420f77d0a4a8cfb34e5d6a40c5ffc; Hund_Sandia_1998_PV_Capacity.pdf: 120833 bytes, SHA256 2ab0422a1e19b3cf99d54b7692d9b5f639d98eb37ae32b767d19908e5a6ec67a
+
+## R20-A05 — PCL and diagnostic identifiability
+A05-S01 Pavlov 1993/1994 PII 037877539390018V and 0378775394800162; Shiomi 2003 DOI 10.1016/S0378-7753(02)00522-0; Rand PII 0378775396023063; Ruetschi 2004 DOI 10.1016/j.jpowsour.2003.09.052. Abstract/preview only; no quantitative full-text inference. Interface and bulk PCL pathways overlap.
+A05-S02 Kwiecien 2018 DOI 10.3390/app8060873, institution PDF https://juser.fz-juelich.de/record/866897/files/20180607_publishedVersion.pdf ; R06 recheck, not independent new trial. Tables 2/3, discussion, corrosion validation still future work.
+A05-S03 Badeda 2018 DOI 10.3390/app8081308, institution PDF https://juser.fz-juelich.de/record/866892/files/OpenAccess.pdf?subformat=pdfa ; R06 recheck; no periodic capacity tests, final post-mortem pending. Both PDFs web screenshots cache miss.
+A05-S04 Industrial Ageing of Field-Deployed Lead–Acid Batteries I, Appl Sci 2026 16:9272 DOI 10.3390/app16189272, indexed publisher methods/Table 3; direct full HTML/PDF inaccessible. Preselected failed specimens, replacements and ordered temperatures. No proven chemical labels.
+Local archive: Kwiecien_2018_EIS.pdf: NOT_ARCHIVED ValueError; Badeda_2018_Float_EIS.pdf: NOT_ARCHIVED ValueError

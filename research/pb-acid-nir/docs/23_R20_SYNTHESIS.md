@@ -153,3 +153,6 @@ Cumulative registry C01–C106 / H01–H67. Cooper 2002 six matched AGM pairs, L
 
 ### R20-A04 extension: reversible loss and limits
 Cumulative registry C01–C112 / H01–H70. Bopp 2010 provides 10.5-year field endpoint with selected cells and monitoring gap plus 81-specimen GEL storage factorial; Sandia 1998 and Energies 2019 demonstrate different endpoints and limits of inference. See 27_R20_REVERSIBLE_LOSS_LIMITS.md. R20 PARTIAL; no validated charging algorithm.
+
+### R20-A05 extension: PCL and diagnostic identifiability
+Cumulative registry C01–C117 / H01–H72. PCL interface and bulk mechanisms can coexist; Kwiecien and Badeda rechecks clarify missing cross-mechanism validation. 2026 field cohort supports OCV insufficiency but has selection and replacement confounding. Synthetic circuit counterexample shows nonunique spatial resistance attribution. See 28_R20_PCL_IDENTIFIABILITY.md. R20 PARTIAL.

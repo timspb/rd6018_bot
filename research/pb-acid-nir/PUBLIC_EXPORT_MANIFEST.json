@@ -14,8 +14,8 @@
     },
     {
       "path": "docs/01_SOURCES.md",
-      "bytes": 19088,
-      "sha256": "b5460b1dc336a2735a3de003efeb430791d152224577ed5bf357ecdd120f4864"
+      "bytes": 20320,
+      "sha256": "d5a2a740b6d347185692c860fd4a15a15b784a30ca9e338984fec8b53ce26b36"
     },
     {
       "path": "docs/02_EXPERIMENTS.md",
@@ -124,8 +124,8 @@
     },
     {
       "path": "docs/23_R20_SYNTHESIS.md",
-      "bytes": 33632,
-      "sha256": "427f27967e8b0793dd5cd86d7bada16fabaa81cc5f23215d791dca58f57a1169"
+      "bytes": 34076,
+      "sha256": "6f411a312822c4cc47999eb4466ed0defeb1bfd797b02e275ab3f908849cc8d8"
     },
     {
       "path": "docs/24_R20_EVIDENCE_GAP_AUDIT.md",
@@ -148,24 +148,29 @@
       "sha256": "156cf7b251c49aebf35d24162acc7083a68f99a79544a9090e5a319e158e0a7c"
     },
     {
+      "path": "docs/28_R20_PCL_IDENTIFIABILITY.md",
+      "bytes": 8198,
+      "sha256": "60f6da4f31c15539c9a192238f37c079bb450abe07e6a12dd1019242f90c133d"
+    },
+    {
       "path": "docs/AGENTS.md",
       "bytes": 4209,
       "sha256": "3c99d3667e3d700830c383ae5432f3941ba4c5e3184074c14a1f8b7a5657d5a7"
     },
     {
       "path": "docs/CHANGELOG.md",
-      "bytes": 9065,
-      "sha256": "cfd33bd657cca6794a80621d81f50c707733f18b9732b30f28a3f1af12ca4796"
+      "bytes": 9251,
+      "sha256": "5482c70bca551cb41a8bea78f616cb8d23415a9ac4ea512e724bd502b8518c86"
     },
     {
       "path": "docs/CONCLUSIONS.md",
-      "bytes": 25646,
-      "sha256": "f3372647a8ff464b86d63ecd890ed51fe908c9c5493dc70938ed94a574db131a"
+      "bytes": 26675,
+      "sha256": "ae8615672f6e95bbb1c2d344372b5e1ab2696b24e3884d6bce89d72e1c5cfdb2"
     },
     {
       "path": "docs/CURRENT_CHECKPOINT.md",
-      "bytes": 21363,
-      "sha256": "9579bc5edbebb27c2bc41c3ba1c41ee2ebd82b27da9f0ef6ed9f90f497ec513b"
+      "bytes": 21867,
+      "sha256": "d5e0e8465a34fe1cb9e7606f1ce2c9b01537eab975b3ca504a7a44ddea024e96"
     },
     {
       "path": "docs/DECISIONS.md",
@@ -174,18 +179,18 @@
     },
     {
       "path": "docs/EXPERIMENT_PROTOCOL.md",
-      "bytes": 18292,
-      "sha256": "b651fd27cb559700c1d7ebf0d212a18f9df6b1de62705a3259512d128fca3dd1"
+      "bytes": 18799,
+      "sha256": "8e8103063dacdeac95936e33cf488f092ed171b5f558e764660faabd650f005c"
     },
     {
       "path": "docs/HANDOFF_NEW_CHAT.md",
-      "bytes": 8570,
-      "sha256": "f7b3b8c8228e01233b29ea2c49afac5a3c35fa1035f09783afaa0c5ab9fe6607"
+      "bytes": 9100,
+      "sha256": "d196443d7b919f3bd152bcd3a47934f468285b969b352cdda13b456e64a5995c"
     },
     {
       "path": "docs/HYPOTHESES.md",
-      "bytes": 14020,
-      "sha256": "c70dbeed847742f95824e898d4d5614049a181c57b0ea6a974a6201fc3d8055a"
+      "bytes": 14404,
+      "sha256": "b88a63c1d2721b1888876c8d0754e5959591a89cc13deca5cf1e39e342bfcf98"
     },
     {
       "path": "docs/INTEGRATION_RD6018.md",
@@ -204,8 +209,8 @@
     },
     {
       "path": "docs/ROADMAP.md",
-      "bytes": 3092,
-      "sha256": "73e0d6bd0cce3099b8a80126369ec2e33c858c3bfd89d7c0111176327f7bcb54"
+      "bytes": 3121,
+      "sha256": "dd5a5380e11b6da3fcfe6029bf3f9ffd80c965176e287b0c90adc3fe54116024"
     },
     {
       "path": "docs/RUNBOOK.md",
@@ -303,6 +308,11 @@
       "sha256": "036c5dc39cb881fa892d4d477e8a098c4ba1e79df0b95367067b02cb24c0f95c"
     },
     {
+      "path": "tools/r20_pcl_identifiability.py",
+      "bytes": 644,
+      "sha256": "3349bed6880bfba43f2e782ddf38e592f2a48c874116c24c9147453f50a7bb44"
+    },
+    {
       "path": "tools/r20_reversible_loss_audit.py",
       "bytes": 744,
       "sha256": "4c9305bed0178704de8e5c8fdb1e4e6e96ae058f00574a69b8bd2faee17ea833"
@@ -315,7 +325,7 @@
     {
       "path": "tools/r20_validate_synthesis.py",
       "bytes": 1368,
-      "sha256": "23edaf3ccf93b7511a9f676640f528c0df2b13f6edfd94e09aaa0b38e54e1e8c"
+      "sha256": "2c012cd9a63a006fa3517e0085d12614426be1167b6a52ac76b049acc384bf32"
     }
   ],
   "omitted": []

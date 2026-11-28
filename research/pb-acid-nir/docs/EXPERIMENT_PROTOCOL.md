@@ -42,3 +42,6 @@ For specialized charging compare against suitable ordinary full-charge protocol,
 
 ## R20-A04 — operational capacity deficit and diminishing returns (research design)
 Define Qwork and Qref with matched discharge endpoint, T and manufacturer-permitted preparation. Delta is protocol-specific reversible difference, not sulfate quantity. Use incremental reference-capacity gains and uncertainty, prespecified meaningful improvement, throughput and independent safety/functional endpoints. Distinguish inconclusive gain from evidence of small gain; plateau alone does not prove sulfate removal or irreversible failure. Do not continue on abnormal heating, internal short suspicion or violation of manufacturer limits. No experimental authorization or universal charge settings.
+
+## R20-A05 — diagnostic identifiability
+Use same construction, SOC, T, measurement history and independent reference labels; distinguish capacity screening from mechanism classification. Validate by held-out physical battery, not random windows from same battery. Include UNKNOWN/MIXED and instrument invalidity. Terminal series resistance partition structurally unidentifiable in lumped circuit. Do not infer grid/PAM repair from resistance reduction. No new physical testing or hardware authorization.
