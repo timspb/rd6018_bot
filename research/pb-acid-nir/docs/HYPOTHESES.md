@@ -76,3 +76,6 @@
 | H57 | C20+CCA+pulse R+self-discharge+gas/water+∆T predicts usable recovery better than one Ah value | OPEN | R19; multivariate longitudinal data |
 | H58 | 40-cycle screening does not reliably rank multi-year life | OPEN | R19-S01/S02 vs 18–24 month/EOL outcomes |
 | H59 | Recovery percentages cannot be pooled across Gel/AGM/GFM/Ca-Ca/EFB without chemistry-matched controls | OPEN | R19-S02/S03/S06/S07/S08 |
+
+| H60 | Part of the apparent capacity gain in stored NEW SLA batteries after destructive treatments could also arise from matched ordinary recharging and conditioning | OPEN | R20-A01/A01; only independent existing matched controls, no zero-voltage experiment |
+| H61 | Claimed 4.5/6.7% pulse benefits in two fresh AGM batteries are sensitive to allocation/manufacturing variance and may not replicate across independent cells | OPEN | R20-A01/A02; publisher full methods and independent multi-battery experiment |

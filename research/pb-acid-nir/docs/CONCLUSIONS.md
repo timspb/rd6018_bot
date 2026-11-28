@@ -99,4 +99,17 @@ C81 — Karami 2009 observed five flooded 40Ah batteries improve mean measured A
 C82 — Karami 2009 text 'all <25%' before vs Table1 13/40=32.5%, 10/40=25% is an internal report inconsistency. R18-S06.
 C83 — Short reverse pulses superimposed on normal charging are not whole-cell reverse charging or polarity inversion; different evidence required, R18-S09/R03.
 
+C84 — Karami et al. (2009) report 40 charge-discharge cycles and ≥80% cycle endurance relative to a fresh similar battery; metric, n and EOL are not defined in the accessible section. R19-S01.
+C85 — Lee et al. (2023) report a 40-cycle recovered 2V-cell test: average discharge 91.3% nominal / 98.6% of new, cycle 40 at 89% nominal; SEM after testing shows lower porosity and sulfate accumulation. R19-S02.
+C86 — Ohajianya et al. (2021) report a 10-week time series: at 10 weeks B1/B2 remain +59.1/+14.1% vs baseline, B3/B4 are −20.1/−27.7%; no control and PV charging co-intervention, so causal effect of desulfator unresolved. R19-S03.
+C87 — Shi et al. (2012) show +41% capacity in one desulfated VRLA cell after 313h, but final 56.3Ah vs 88Ah nominal and no post-recovery life test; companion 2013 study describes three other cells as dehydrated. R19-S04.
+C88 — PNNL 2022 demonstrates a stronger durability measurement pattern: four AGM modules, 18–28 months, 289–728 EFC, monthly capacity and bimonthly pulse-resistance reference tests; this is an aging benchmark, not proof of a restoration method. R19-S09.
+C89 — No accessible controlled multi-month/multi-year inverse-charge recovery trial on modern automotive Ca/Ca/EFB/AGM with matched standard-charge controls and independent C20/CCA/EOL follow-up was found in the R19 review.
+C90 — IEC 60095-1:2018 corrected 2026-02 provides the applicable 12V starter-battery test framework including 20h capacity, reserve capacity, cranking, charge acceptance, retention and endurance; optional cycle endurance test covers passenger-car batteries up to 100Ah. R19-S10.
 C91 — R18-S06 Karami 2009 дополнительно сообщает 40 циклов сравнительного теста и авторское утверждение ≥80% cycle endurance относительно свежей батареи; точная метрика, n и EOL не определены, поэтому это короткий screening, а не доказательство multi-year service life. R19-S01.
+
+C92 — Cleland et al. 2000, 126 new stored sealed batteries: publisher abstract states mean +17% immediately after a multi-stage intervention including deep over-discharge, but effect of that step, matched baseline, long-term retention and safety are not established. R20-A01/A01, E3/T3.
+C93 — Cleland abstract 47/126=37.30% cannot equal published 36.5%, indexed Results has 46/126=36.51%; exact count disputed until original Table2 is inspected. R20-A01/A01.
+C94 — Mankov et al. 2026 two NEW 9Ah AGM up to 300 cycles and claimed 7.8Ah / +4.5% / +6.7% are a small-sample charge-strategy prevention study, not demonstrated recovery of aged batteries. R20-A01/A02 E3/T3.
+C95 — Frenander et al. 2026 tests pulses on 54 lithium-ion NMC/graphite cells, not lead-acid; no quoted lifetime benefit may be transferred as evidence to this NIR. R20-A01/A04 excluded.
+C96 — Catherino et al. 2004 question the popular 80%-curable sulfation claim; critique is not an empirical prevalence measurement and PbSO4 alone is not a specific failure diagnosis. R20-A01/A03 E3.

@@ -4,8 +4,8 @@
   "files": [
     {
       "path": "README.md",
-      "bytes": 809,
-      "sha256": "d099028b27c422958cce8572c0f692127a1dc009585cfa99c29d445081f16309"
+      "bytes": 844,
+      "sha256": "924edbd595910745732fdc3299d58b0c8f6ad81dc4d5939bd074fb3c2b4f042e"
     },
     {
       "path": "docs/00_CANON.md",
@@ -14,8 +14,8 @@
     },
     {
       "path": "docs/01_SOURCES.md",
-      "bytes": 13910,
-      "sha256": "32e8b1c38d9804694a14fb99a99204935b203f96976267b85fa36b7c4e7f9384"
+      "bytes": 14920,
+      "sha256": "21c4b0c879d644f315fac0bc5622e66db9fd3d6b6e797da1675e99edd0fee2d9"
     },
     {
       "path": "docs/02_EXPERIMENTS.md",
@@ -123,24 +123,34 @@
       "sha256": "488ff814e03b3e657f0325a39d18a25ef5ac50d3b1c46d04e714ed787d5f342e"
     },
     {
+      "path": "docs/23_R20_SYNTHESIS.md",
+      "bytes": 31562,
+      "sha256": "b4749213c0cba37b2c5ed48ab854ddb3f43190ad8405c151b2ef04ce98eb3c6f"
+    },
+    {
+      "path": "docs/24_R20_EVIDENCE_GAP_AUDIT.md",
+      "bytes": 13804,
+      "sha256": "5307880a2c3dc4bdd1123decb0a5e05486cd945c4002ba5254db31693a88515c"
+    },
+    {
       "path": "docs/AGENTS.md",
       "bytes": 4209,
       "sha256": "3c99d3667e3d700830c383ae5432f3941ba4c5e3184074c14a1f8b7a5657d5a7"
     },
     {
       "path": "docs/CHANGELOG.md",
-      "bytes": 7262,
-      "sha256": "0f9efd7520a194edb43ab5e0efe997eff4c44a9e10bd96a2d3f5f5eb3955523f"
+      "bytes": 8084,
+      "sha256": "54aa95269dcf38a096a87ebe59aa9bf57da93163eed21e9023ae4ec50ea6ad81"
     },
     {
       "path": "docs/CONCLUSIONS.md",
-      "bytes": 19119,
-      "sha256": "2afa4f3b01c28cd544ff4741aad6a3f8626e29ffa7742ef78bd405fa348bfb03"
+      "bytes": 21823,
+      "sha256": "246301166ca04f29cc19d942c1872d1fb87b974876aa3662d2d99b203c104969"
     },
     {
       "path": "docs/CURRENT_CHECKPOINT.md",
-      "bytes": 17735,
-      "sha256": "b5a9bffad54511a3c3ecc1a0a8c91b5e44d491972b65b558873b8b627cce919f"
+      "bytes": 18795,
+      "sha256": "038b4442846372fa671a95a1a225f59384cce35f73ebd333f2dc1be1b57f40da"
     },
     {
       "path": "docs/DECISIONS.md",
@@ -149,18 +159,18 @@
     },
     {
       "path": "docs/EXPERIMENT_PROTOCOL.md",
-      "bytes": 14930,
-      "sha256": "2b5d0a2d28d02c0cf16f8bcaf9bd77ebd48b88ddb4f9c0e22486a44da0213ee1"
+      "bytes": 15983,
+      "sha256": "5593ac83e935fbc40e4653847e969ec0f99484bd4dec2247f5beb91b8c4b8db3"
     },
     {
       "path": "docs/HANDOFF_NEW_CHAT.md",
-      "bytes": 5432,
-      "sha256": "70f90b5c0125d51d633927dcb5773d19d5e372d4471a5fba14e53cb23067cb4b"
+      "bytes": 5168,
+      "sha256": "3cf30e886991eae900b1a87203762243a3b6f5d72b4351b298b3c6e25bae32ca"
     },
     {
       "path": "docs/HYPOTHESES.md",
-      "bytes": 11688,
-      "sha256": "c8b716de3b8698fe06fe3017284d4c0328a714f25e34e2abe544b4861ee64d18"
+      "bytes": 12204,
+      "sha256": "6824f2e9ef2daa5bd9905a09a9a068e9168b94384f768a10f8963964154f436e"
     },
     {
       "path": "docs/INTEGRATION_RD6018.md",
@@ -169,18 +179,18 @@
     },
     {
       "path": "docs/OPERATOR_METHODS.md",
-      "bytes": 13845,
-      "sha256": "b8cb32b1fdc4be45560a13180c34828bfc5fd1b219897e1b8c10b5cf29d59530"
+      "bytes": 14428,
+      "sha256": "6a183cd43eb7d41179ce346666f37877c551356fb8e25ae51440d166ec49be44"
     },
     {
       "path": "docs/README.md",
-      "bytes": 2820,
-      "sha256": "7f1fcb63ee7846c3e90427119de81ea15d2274808413823ddc896ef186dad04c"
+      "bytes": 3104,
+      "sha256": "fec4d40e5b1ecf194c1cda3f7cbe65047308d56d3395e4610e0b4ac01f718792"
     },
     {
       "path": "docs/ROADMAP.md",
-      "bytes": 2909,
-      "sha256": "b30e01b7063d1797f39fe865dfd68cbd4448258f05955bb7d4c638bf66a724d5"
+      "bytes": 2996,
+      "sha256": "30f189c43eaa1cb2645f173be0deebb5e375911294bcaef2002a85be07bc0564"
     },
     {
       "path": "docs/RUNBOOK.md",
@@ -266,6 +276,16 @@
       "path": "tools/r19_durability_analysis.py",
       "bytes": 1818,
       "sha256": "de9cb73260b72b0d41ae3da37d506023a0a1e2c61373213af85fc973a576a57d"
+    },
+    {
+      "path": "tools/r20_source_quality_audit.py",
+      "bytes": 1454,
+      "sha256": "d217f55c2af196f844b74ada7a565ca756ac2d56bbb09246ae65d74b1bec64ba"
+    },
+    {
+      "path": "tools/r20_validate_synthesis.py",
+      "bytes": 1363,
+      "sha256": "9f2ab7180966b5ec5d998cd8416590473b510840f0d1c094f5b912eca5cc022a"
     }
   ],
   "omitted": []
