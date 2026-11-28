@@ -3,7 +3,7 @@
 ## Быстрый доступ
 Markdown — первичный версионируемый источник. SQLite FTS5 — производный индекс, не источник истины. Индекс строится только из корневых md (или docs/ в экспортном репозитории), без private/, sources/telegram, session, PDF и исходных логов.
 - Научный вывод Cxxx: 49_S5_STATEMENT_EVIDENCE_MATRIX.md (192 записей, E/T и ограничения).
-- Дополнительная запись Sxxx: KNOWLEDGE_SUPPLEMENT.md (18 записей reports51–56, не независимые новые C).
+- Дополнительная запись Sxxx: KNOWLEDGE_SUPPLEMENT.md (22 записи reports51–57, не независимые новые C).
 - Гипотеза Hxxx: HYPOTHESES.md (93 записи; проверять индивидуальный статус).
 - Источники: 01_SOURCES.md и исходные ссылки в отчётах. Ссылки из индекса являются текстовыми указателями, а не автоматически верифицированными первоисточниками.
 - Методология: EXPERIMENT_PROTOCOL.md, report56; рекомендации отдельно INTEGRATION_RD6018.md, без разрешения на внедрение.
@@ -21,3 +21,5 @@ Markdown — первичный версионируемый источник. S
 | Ресурс, сравнительная эффективность | R14/R19; отчёты39–42,51–54 |
 ## Обновление и ограничения
 Сначала исходный отчет и его ограничения, затем C/H или дополнение S с явной ссылкой; не переприсваивать ID, исправления с указанием заменяемой интерпретации. Перестроить индекс и проверить контрольные запросы после изменения. Сведения без E/T в документном фрагменте не имеют самостоятельной доказательной оценки. Не считать количество фрагментов количеством независимых исследований. Точные версии источников и raw PDF по-прежнему в локальном архиве. Текущий этап — оптимизация базы и пять теоретических пробелов; затем P3. Исторические подробности в HANDOFF_NEW_CHAT.md и CURRENT_CHECKPOINT.md, использовать их только при необходимости, не перечитывать целиком для тематического ответа.
+
+Report57: independent VRLA field cohort Siekierski2026; Mohsin2022 Table III error recalculation from indexed copy, macro MAE0.8524Ah/MAPE16.32%, reported abs signed bias per rated22Ah; no blind C20 or external calibration. Pilatowicz relaxation and alternative mechanical shorts reviewed; Zeng/Mamadou full evidence still unavailable. Five theoretical gates OPEN (61/66, total62/88). S019–S022 indexed. Next independent raw relaxation/capacity candidate and targeted primary sources. No device work.

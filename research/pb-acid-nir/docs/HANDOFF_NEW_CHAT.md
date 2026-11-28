@@ -2,7 +2,7 @@
 CURRENT_LIBRARY: KNOWLEDGE_START.md — authoritative compact navigation; historical notes below, not current counts.
 Дата обновления: 2026-11-29.
 NEXT_STAGE: R20
-CURRENT_REPORT: 56_S5_REFERENCE_CAPACITY_PROTOCOL.md (parent 23_R20_SYNTHESIS.md; RESEARCH_ACCEPTANCE.md)
+CURRENT_REPORT: 57_S5_THEORY_GAP_AUDIT.md (parent 23_R20_SYNTHESIS.md; RESEARCH_ACCEPTANCE.md)
 Не начинать повторно R01–R20; использовать отчёты, источники и ledgers.
 
 ## Среда и порядок
@@ -123,3 +123,5 @@ S5 report55: 2500 nonoverlap author posts total, 80/198 targeted CDF/interface s
 S5 report56: reference-capacity and metrology P1/P2 design, GOST R53165-2020 §§8/9.1 current/T/rest/cutoff and instrument tolerances; Delta FT12-105M original data sheet page2 visually checked and version conflicts noted. Offline s5_reference_protocol.py validates trace completeness, exact Ah/Wh, cutoff, uncertainty covariance and interval decisions on synthetic data only. CDF classified as discharge feature for future BV-600, not MAIN/MIX termination. R11-P remains OPEN pending review, 62/88; C192/H93 unchanged. Next P3 relaxation/CDF diagnostic protocol then P4/P5 comparison and retention. No physical tests or RD changes.
 
 Library optimization: KNOWLEDGE_START.md is the compact current entry; KNOWLEDGE_SUPPLEMENT.md contains S001–S018 scoped records from reports51–56 (not additional C claims). tools/knowledge_index.py builds a derived SQLite FTS5 index from Markdown, read-only search/get/stats, source lines/limits, stale-index detection. Local regression 16 queries passed. Theoretical 61/66, total62/88; five theoretical gaps remain; P3 paused during consolidation. Raw Telegram and private sources excluded. No device changes.
+
+Report57: independent VRLA field cohort Siekierski2026; Mohsin2022 Table III error recalculation from indexed copy, macro MAE0.8524Ah/MAPE16.32%, reported abs signed bias per rated22Ah; no blind C20 or external calibration. Pilatowicz relaxation and alternative mechanical shorts reviewed; Zeng/Mamadou full evidence still unavailable. Five theoretical gates OPEN (61/66, total62/88). S019–S022 indexed. Next independent raw relaxation/capacity candidate and targeted primary sources. No device work.
