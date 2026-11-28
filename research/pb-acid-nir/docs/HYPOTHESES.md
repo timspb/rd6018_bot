@@ -87,3 +87,7 @@
 | H65 | Early reversible PCL responds differently than late structural/interface degradation; compare restoration versus stabilization | OPEN | R20-A03/S02; matched independent endpoints |
 | H66 | At matched net charge, time, mean current and temperature, waveform-specific effects depend on grid/cure/defect and waveform | OPEN | R20-A03/S01/S02; replicate cells |
 | H67 | Ordinary full-charge conditioning explains part of apparent recovery in some aged intact batteries | OPEN | R20-A03/S01/S03; C20/CCA and post-withdrawal storage/EFC controls |
+
+| H68 | Reference minus working-preparation capacity tracks reversible operational undercharge independently of some aging modes | OPEN | R20-A04; matched fixed endpoint tests |
+| H69 | Incremental reference-capacity gain and its uncertainty plus independent safety/functional metrics identify diminishing returns better than tail current alone | OPEN | R20-A04; archival validation |
+| H70 | Water loss and internal shorts dominate residual capacity deficit despite improved charge completeness in some cases | OPEN | R20-A04; independent diagnostic evidence |

@@ -125,3 +125,10 @@ C103 — Relative ratios of small improvement percentages may exaggerate practic
 C104 — Lam 1995 2V laboratory Pb-Ca-Sn G2 cells under selected charge regimes reached 22 ordinary cycles versus 8, 77 and 79 pulse cycles; waveform and average current differ between ordinary and pulse. No universal pulse superiority. R20-A03/S02.
 C105 — Lam 1995 Fig.5 shows near recovery at early induced PCL followed by renewed decline after treatment withdrawal; later intervention stabilized rather than restored capacity. Not persistent recovery of intact aged batteries. R20-A03/S02.
 C106 — Fraunhofer ISE 2002 reports nominal capacity recovery in one long-stored OPzV and a distinct four-year field maintenance observation; do not equate the two cohorts or extrapolate stationary protocols to automotive batteries. R20-A03/S03.
+
+C107 — Wagner/Sauer 2001 and Bopp 2010 same Talhof cohort: seasonal differences up to 20% between C10 tests after different charge preparation. End-of-charge voltage alone not proof of full charge. R20-A04.
+C108 — Bopp 2010 selected cells 2001–2008: high capacity in cells 13/14 coexists with dendrite-marked cells 6/24, one zero capacity. Monitoring gap and no parallel long-term control. R20-A04.
+C109 — Bopp 2010: 81 GEL 6V/1.2Ah batteries, 3×3×3 conditions with three specimens each; prolonged hot storage limits subsequent C5 recoverability. Not automotive C20. R20-A04.
+C110 — Bopp Fig.6 approximate 0.22→0.56Ah gain still below half nominal; near-zero gain with near-zero capacity is not recovery success. Water loss association not unique diagnostic. R20-A04.
+C111 — Hund 1998 flooded golf-cart case: about 600Ah input, final 151Ah/~80% initial even with restored SG. No incremental capacity series or optimal stopping proof. R20-A04.
+C112 — Energies 2019 field bank: improvement of working capacity and SG over three months but no standardized final capacity test; multiple controller changes, Ah accumulator drift and tail current do not establish full SOC. R20-A04.

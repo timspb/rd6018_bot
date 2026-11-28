@@ -61,3 +61,5 @@
 - 2026-11-28 R20-A02: Added 25_R20_LONGITUDINAL_METROLOGY.md (ZVEI 2020, PNNL Shamim 2022, Mizumoto reassessment); first original PDF archived in sources/R20 and SHA256 registered; C97–C101/H62–H64; tools/r20_capacity_evidence_math.py analytical sensitivity; no physical experiments or production modifications. Local source of truth; GitHub sync requires explicit audit/public export.
 
 2026-11-28 R20-A03: controlled comparative evidence Cooper/Lam/Fraunhofer; new 26_R20_CONTROLLED_COMPARISONS.md; C102–C106/H65–H67 and numerical Cooper audit; no hardware changes.
+
+2026-11-28 R20-A04: 27_R20_REVERSIBLE_LOSS_LIMITS.md, C107–C112/H68–H70, r20_reversible_loss_audit.py, 10.5-year selected-cell evidence and 81-specimen storage study.

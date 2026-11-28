@@ -150,3 +150,6 @@ Status update 2026-11-28: cumulative registers C01–C101 / H01–H64, latest R2
 
 ### R20-A03 extension: controlled comparisons
 Cumulative registry C01–C106 / H01–H67. Cooper 2002 six matched AGM pairs, Lam 1995 laboratory PCL, and Fraunhofer ISE 2002 stationary field maintenance distinguish ordinary conditioning from specialized waveform effects and treatment-withdrawal persistence. See 26_R20_CONTROLLED_COMPARISONS.md. R20 remains PARTIAL.
+
+### R20-A04 extension: reversible loss and limits
+Cumulative registry C01–C112 / H01–H70. Bopp 2010 provides 10.5-year field endpoint with selected cells and monitoring gap plus 81-specimen GEL storage factorial; Sandia 1998 and Energies 2019 demonstrate different endpoints and limits of inference. See 27_R20_REVERSIBLE_LOSS_LIMITS.md. R20 PARTIAL; no validated charging algorithm.
