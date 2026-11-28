@@ -14,8 +14,8 @@
     },
     {
       "path": "docs/01_SOURCES.md",
-      "bytes": 34609,
-      "sha256": "d6c2d3285bc913a79f0a749ebabae04f8f334d11ced7c0ffca7cfcbde8d52e85"
+      "bytes": 35244,
+      "sha256": "af869edd776b481d857732714247410625ec5120c8be7f6279bed4112d027ce8"
     },
     {
       "path": "docs/02_EXPERIMENTS.md",
@@ -288,14 +288,19 @@
       "sha256": "57ac33b270ea9f78d31407b751c00722c25e48e512243a0e2fe8e9b272a6d535"
     },
     {
+      "path": "docs/56_S5_REFERENCE_CAPACITY_PROTOCOL.md",
+      "bytes": 8097,
+      "sha256": "0f2ebf41d05d85ef3b9461ca91cc318dd228341acbcd6e3c9a5d1f1d33f17983"
+    },
+    {
       "path": "docs/AGENTS.md",
       "bytes": 4209,
       "sha256": "3c99d3667e3d700830c383ae5432f3941ba4c5e3184074c14a1f8b7a5657d5a7"
     },
     {
       "path": "docs/CHANGELOG.md",
-      "bytes": 14842,
-      "sha256": "1fdb3cc7f33a30c3df207479bc7da023ef55c9a2cab63efb02c0b4333a30126e"
+      "bytes": 15477,
+      "sha256": "43a84def026e4c3c9ec01d8452fad6ba8f6f77fee9cbb8288e6075ac657527a9"
     },
     {
       "path": "docs/CONCLUSIONS.md",
@@ -304,8 +309,8 @@
     },
     {
       "path": "docs/CURRENT_CHECKPOINT.md",
-      "bytes": 34939,
-      "sha256": "b7ed73aec608eba2b3f5d65400cdbc23a66ee4770408d6ef71867bfd03ac9c90"
+      "bytes": 35583,
+      "sha256": "8df7cdfb98a99ca19e546c1de39699c819dc1845b9307be340c3c393c3b1d575"
     },
     {
       "path": "docs/DECISIONS.md",
@@ -314,13 +319,13 @@
     },
     {
       "path": "docs/EXPERIMENT_PROTOCOL.md",
-      "bytes": 24573,
-      "sha256": "4889171b070c4e9ebee97932b71d3577f0d470b6c1d4070117d2f98aba77976e"
+      "bytes": 25208,
+      "sha256": "5081e00d9a70c842d3b225d5baaadddbc9c51d3041926279c17090cb0e997abd"
     },
     {
       "path": "docs/HANDOFF_NEW_CHAT.md",
-      "bytes": 24229,
-      "sha256": "dfc3d7f9a26c4aecc56bf9db53aee413f53f67babbae1e1306d8fe246674624c"
+      "bytes": 24873,
+      "sha256": "ab01e00f8403ec4fb3ab29698684c069184bf3fc6c75f941759070d9d4fa29c8"
     },
     {
       "path": "docs/HYPOTHESES.md",
@@ -349,13 +354,13 @@
     },
     {
       "path": "docs/ROADMAP.md",
-      "bytes": 9663,
-      "sha256": "0c6418badd0891ba769ab09eed23258917092ee30f02954647941fce25f200b6"
+      "bytes": 10298,
+      "sha256": "4c6beb2f27ad409c07f119facb53a6016a6b559e1a4f7cbdf09e6d0db5957f8d"
     },
     {
       "path": "docs/RUNBOOK.md",
-      "bytes": 15545,
-      "sha256": "a74cb86964b18d0313cc812e24e36c2cc867117e45bfb3248096e08798617dab"
+      "bytes": 15779,
+      "sha256": "e7f03c2a892d66dfaf2d0d1c9f750df35d43107b51deb14d5c0f638c1dffe053"
     },
     {
       "path": "docs/TELEGRAM_CONNECTOR.md",
@@ -621,6 +626,11 @@
       "path": "tools/s5_evidence_matrix.py",
       "bytes": 8753,
       "sha256": "6c332024d4c821227f3efef624b03766188df2c4a21858b7c4414d5ea525479e"
+    },
+    {
+      "path": "tools/s5_reference_protocol.py",
+      "bytes": 3253,
+      "sha256": "a8757867ba74002c502f3b9869265448662f3be72a9d1b7d4d7712a649c80f34"
     },
     {
       "path": "tools/validate_research_acceptance.py",
