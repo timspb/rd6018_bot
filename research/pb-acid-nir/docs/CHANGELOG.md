@@ -65,3 +65,5 @@
 2026-11-28 R20-A04: 27_R20_REVERSIBLE_LOSS_LIMITS.md, C107–C112/H68–H70, r20_reversible_loss_audit.py, 10.5-year selected-cell evidence and 81-specimen storage study.
 
 2026-11-28 R20-A05: 28_R20_PCL_IDENTIFIABILITY.md; C113–C117/H71–H72; r20_pcl_identifiability.py; distinguish EIS correlation and chemical classification; A04 publication verified.
+
+2026-11-28 R20-A06–A08: reports 29–31, raw EIS, zHit and residual capacity, multifeature baselines; C118–C129/H73–H76 appended. No hardware changes.

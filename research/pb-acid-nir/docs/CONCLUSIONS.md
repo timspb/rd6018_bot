@@ -138,3 +138,16 @@ C114 — Kwiecien 2018 sulfate-related EIS correlation in four model cells canno
 C115 — Badeda 2018 48 float VRLA without periodic capacity tests or final post-mortem cannot validate capacity mapping or specific chemical labels. R06 recheck; R20-A05.
 C116 — Selected failed 2026 VRLA had OCV 13.2–13.3V with 10–30% capacity; replacements and temperature order prevent paired temperature inference. Indexed publisher text only. R20-A05.
 C117 — Synthetic linear circuit yields exactly identical terminal spectra and steps for different grid/interface series resistance partitions. Chemical classification requires independent constraints; not a claim that all EIS is useless. R20-A05.
+
+C118 — Kwiecien 2018 original supplement: 2104 spectra represent four physical model cells and 35 checkups, not independent batteries. R20-A06.
+C119 — Unfiltered soft-cell impedance ratios at nominal 80% SOC after 90 FCE differ between cells and frequencies; validity and unit reconciliation remain necessary. R20-A06.
+C120 — Raw hard-cell after-charge/after-cycling impedance changes differ by cell and frequency; actual SOC not matched. R20-A06.
+C121 — Kwiecien 2019 dissertation: severe residual capacity loss can coexist with relatively low local NAM sulfate-associated sulfur and greater PAM impedance change; shedding suspected, not confirmed. R20-A06.
+C122 — Dissertation corrosion endpoints incomplete; no validated corrosion discriminator. R20-A06.
+C123 — Dissertation TC181-2 explicit 3.7→7.6Ah endpoints conflict with later wording; visual verification pending, no durable recovery proof. R20-A06.
+C124 — Native-unit zHit acceptance differs by bias and frequency; improved acceptance does not establish repeatability. R20-A07.
+C125 — Filtered ~1kHz after-charge/after-cycling direction differs between hard cells; actual SOC not controlled. R20-A07.
+C126 — Logged -2A residual discharge integration approximately reproduces published endpoints; residual after-cycling capacity is not fully charged C20. R20-A07.
+C127 — In 26 common cases from four physical cells, leave-one-cell-out FCE OLS beats single-frequency impedance in most or all folds. No external validation. R20-A07.
+C128 — On the same 26 observations, FCE ridge macro MAE 0.7994Ah is lower than both fixed multiband models with FCE; pooled MAE also lower. No universal EIS inference. R20-A08.
+C129 — Three-frequency subset (24 rows) shows metric-dependent results; adding 0.1Hz has no robust incremental advantage. Report equal-cell and pooled errors on common cases. R20-A08.

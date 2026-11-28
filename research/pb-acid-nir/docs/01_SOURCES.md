@@ -102,3 +102,6 @@ A05-S02 Kwiecien 2018 DOI 10.3390/app8060873, institution PDF https://juser.fz-j
 A05-S03 Badeda 2018 DOI 10.3390/app8081308, institution PDF https://juser.fz-juelich.de/record/866892/files/OpenAccess.pdf?subformat=pdfa ; R06 recheck; no periodic capacity tests, final post-mortem pending. Both PDFs web screenshots cache miss.
 A05-S04 Industrial Ageing of Field-Deployed Lead–Acid Batteries I, Appl Sci 2026 16:9272 DOI 10.3390/app16189272, indexed publisher methods/Table 3; direct full HTML/PDF inaccessible. Preselected failed specimens, replacements and ordered temperatures. No proven chemical labels.
 Local archive: Kwiecien_2018_EIS.pdf: NOT_ARCHIVED ValueError; Badeda_2018_Float_EIS.pdf: NOT_ARCHIVED ValueError
+
+## R20-A06–A08 source provenance
+Kwiecien et al. 2018 DOI 10.3390/app8060873; original publisher supplement https://mdpi-res.com/d_attachment/applsci/applsci-08-00873/article_deploy/applsci-08-00873-s001.zip ; local archive SHA256 96d49538c06b931c77cde65bbfedf7aa5584c049dcd30e336938c1c18197f60a. 2104 spectra, 38 traces, 4 cells; reports 29–31. Kwiecien dissertation 2019 DOI 10.18154/RWTH-2019-09480: web text examined, local PDF and visual verification incomplete. No independent new cohort in A07/A08.

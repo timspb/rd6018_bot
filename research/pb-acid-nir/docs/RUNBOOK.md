@@ -22,3 +22,6 @@
 Резервное копирование: корень <RESEARCH_ROOT> пока не является Git-репозиторием (.git отсутствует), поэтому локальное сохранение ≠ автоматическая синхронизация GitHub; ручной публичный снимок НИР опубликован в ветке research/pb-acid-nir коммитом 4b0a9e5, но последующие изменения нужно экспортировать отдельно. Не выполнять git init/push и не передавать секретные Telegram данные без отдельного решения владельца. Показатели из форумов и публикаций отдельно проверять по D09, отрицательные результаты сохранять.
 
 Контрольная команда после обновления документации: python.exe <RESEARCH_ROOT>\tools\validate_handoff.py; требуемый результат HANDOFF_CONSISTENCY_PASS. Проверка read-only, секреты не читает; не заменяет Telegram API smoke test и удалённое резервное копирование.
+
+## R20-A06–A08 original data workflow
+Original publisher supplement ZIP in sources/R20, immutable hash in report 29. Offline scripts r20_eis_raw_audit.py, r20_eis_zhit_audit.py, r20_eis_capacity_candidates.py, r20_eis_capacity_join.py, r20_eis_multifeature.py. Reproduce in that order. Author numerical zHit threshold, unit and mask reconciliation still open; independent MAT decoder unavailable. Report 31 is current. Keep original data outside GitHub export.

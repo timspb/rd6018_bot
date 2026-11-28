@@ -94,3 +94,8 @@
 
 | H71 | Combined terminal features can discriminate dominant aging modes in fixed construction with independent labels; overlapping cases remain UNKNOWN | OPEN | R20-A05; held-out battery validation |
 | H72 | Discharge discontinuity and invalid EIS predict weak-cell/failure risk independently of OCV | OPEN | R20-A05; distinguish instrumentation artifacts, validate independently |
+
+| H73 | Multiband and preparation-state features may add information beyond single-frequency screening | OPEN | R20-A06; no independent cohort |
+| H74 | Spatial sulfate distribution and active mass integrity may explain similar sulfur assays with different spectra | OPEN | R20-A06; independent chemical and imaging evidence |
+| H75 | Multiple EIS frequencies and preparation/history can improve grouped residual capacity prediction over cycle baseline | OPEN | R20-A07/A08; tested variants negative on primary common set |
+| H76 | Independent pre-discharge resting voltage and history features improve residual capacity prediction over FCE | OPEN | R20-A08; verify timestamps and independent cells |

@@ -14,8 +14,8 @@
     },
     {
       "path": "docs/01_SOURCES.md",
-      "bytes": 20320,
-      "sha256": "d5a2a740b6d347185692c860fd4a15a15b784a30ca9e338984fec8b53ce26b36"
+      "bytes": 20831,
+      "sha256": "8168d13ec7c6cb4ff6f07a7f146ea979f255bcd8cc7e945d84063d05c5a7f69a"
     },
     {
       "path": "docs/02_EXPERIMENTS.md",
@@ -124,8 +124,8 @@
     },
     {
       "path": "docs/23_R20_SYNTHESIS.md",
-      "bytes": 34076,
-      "sha256": "6f411a312822c4cc47999eb4466ed0defeb1bfd797b02e275ab3f908849cc8d8"
+      "bytes": 34523,
+      "sha256": "761e21a295dda9a9638a379094e877f302a6213a6102e7ef1d178a58a5535068"
     },
     {
       "path": "docs/24_R20_EVIDENCE_GAP_AUDIT.md",
@@ -153,24 +153,39 @@
       "sha256": "60f6da4f31c15539c9a192238f37c079bb450abe07e6a12dd1019242f90c133d"
     },
     {
+      "path": "docs/29_R20_RAW_EIS_AND_LABELS.md",
+      "bytes": 4645,
+      "sha256": "d2417e641542ea144e8d76eec1a42570fbb8e38394a0b9d1dd054a481e2a19ed"
+    },
+    {
+      "path": "docs/30_R20_ZHIT_AND_CAPACITY.md",
+      "bytes": 6030,
+      "sha256": "fdbd8731fa6499bc5bec5137ac02e0f612307404a77c71cfc97d7c39f2a6cbf9"
+    },
+    {
+      "path": "docs/31_R20_MULTIFEATURE_BASELINES.md",
+      "bytes": 3051,
+      "sha256": "428a1772d7f8f1730fc3765d3eba33c00948a245cab749fe63af00abd7a7e7ee"
+    },
+    {
       "path": "docs/AGENTS.md",
       "bytes": 4209,
       "sha256": "3c99d3667e3d700830c383ae5432f3941ba4c5e3184074c14a1f8b7a5657d5a7"
     },
     {
       "path": "docs/CHANGELOG.md",
-      "bytes": 9251,
-      "sha256": "5482c70bca551cb41a8bea78f616cb8d23415a9ac4ea512e724bd502b8518c86"
+      "bytes": 9409,
+      "sha256": "a48e32e5546768a49eb769778277028ba01b90ba466b7c25d70efd22eabe9c3a"
     },
     {
       "path": "docs/CONCLUSIONS.md",
-      "bytes": 26675,
-      "sha256": "ae8615672f6e95bbb1c2d344372b5e1ab2696b24e3884d6bce89d72e1c5cfdb2"
+      "bytes": 28553,
+      "sha256": "30bea0b5eb8434f5d1d61f16da16f29f41aa4788009a3689bbc522156aac0d9b"
     },
     {
       "path": "docs/CURRENT_CHECKPOINT.md",
-      "bytes": 21867,
-      "sha256": "d5e0e8465a34fe1cb9e7606f1ce2c9b01537eab975b3ca504a7a44ddea024e96"
+      "bytes": 23873,
+      "sha256": "5f4a94a08c8d65cfbcb8f37bc0670fd6d4e96ceb55829dd783513f05ee5bcaed"
     },
     {
       "path": "docs/DECISIONS.md",
@@ -179,18 +194,18 @@
     },
     {
       "path": "docs/EXPERIMENT_PROTOCOL.md",
-      "bytes": 18799,
-      "sha256": "8e8103063dacdeac95936e33cf488f092ed171b5f558e764660faabd650f005c"
+      "bytes": 19155,
+      "sha256": "06e0f7f0af39205fd57bca02815cacb95f56b5102862f3fbda0920be8e0836ef"
     },
     {
       "path": "docs/HANDOFF_NEW_CHAT.md",
-      "bytes": 9100,
-      "sha256": "d196443d7b919f3bd152bcd3a47934f468285b969b352cdda13b456e64a5995c"
+      "bytes": 11183,
+      "sha256": "d5f3891e5e736478deff8df945f34ca3dca60f427180bcbce16a6a04bee68120"
     },
     {
       "path": "docs/HYPOTHESES.md",
-      "bytes": 14404,
-      "sha256": "b88a63c1d2721b1888876c8d0754e5959591a89cc13deca5cf1e39e342bfcf98"
+      "bytes": 15106,
+      "sha256": "d580a015f2df818faa1fb93f1b6c84c567c546a91e4359f8283ece7675f9ec8d"
     },
     {
       "path": "docs/INTEGRATION_RD6018.md",
@@ -209,13 +224,13 @@
     },
     {
       "path": "docs/ROADMAP.md",
-      "bytes": 3121,
-      "sha256": "dd5a5380e11b6da3fcfe6029bf3f9ffd80c965176e287b0c90adc3fe54116024"
+      "bytes": 3208,
+      "sha256": "a3cd2c77b977221c4e3b7b4655c77b8f3601b12cbff9ee204d17a8d59b68e159"
     },
     {
       "path": "docs/RUNBOOK.md",
-      "bytes": 8981,
-      "sha256": "4223856d2c63242f50821087548a8345bb0602c6f2b772773d7484aa502e07c9"
+      "bytes": 9445,
+      "sha256": "b33bdbdd53eb2745e6216de4a17793bba60ba881e14ced93b9d3595cfe7b5ff9"
     },
     {
       "path": "docs/TELEGRAM_CONNECTOR.md",
@@ -308,6 +323,31 @@
       "sha256": "036c5dc39cb881fa892d4d477e8a098c4ba1e79df0b95367067b02cb24c0f95c"
     },
     {
+      "path": "tools/r20_eis_capacity_candidates.py",
+      "bytes": 1149,
+      "sha256": "15ceb0e68d8573c536f4f18687656b134a5e1c0733a271728beb8cf3ba3854e5"
+    },
+    {
+      "path": "tools/r20_eis_capacity_join.py",
+      "bytes": 1806,
+      "sha256": "8266473a6e2f5823c4d0d756a49fd355c0ed22fd27a5ef1dca9600aa605b88b7"
+    },
+    {
+      "path": "tools/r20_eis_multifeature.py",
+      "bytes": 2697,
+      "sha256": "b897ee763cd57a77cbe12b5e248e58316e9e5514b638e67bbac5f4bcb6903683"
+    },
+    {
+      "path": "tools/r20_eis_raw_audit.py",
+      "bytes": 3435,
+      "sha256": "08820fe91a2cdf154dce9e614b5f8987ce9a9f085ef49cced25c68fa2fd0a3ec"
+    },
+    {
+      "path": "tools/r20_eis_zhit_audit.py",
+      "bytes": 4614,
+      "sha256": "eba540d274a42cd89511fa39c79da18081a1b3c4b99e768b4ba4c58d801fae14"
+    },
+    {
       "path": "tools/r20_pcl_identifiability.py",
       "bytes": 644,
       "sha256": "3349bed6880bfba43f2e782ddf38e592f2a48c874116c24c9147453f50a7bb44"
@@ -325,7 +365,7 @@
     {
       "path": "tools/r20_validate_synthesis.py",
       "bytes": 1368,
-      "sha256": "2c012cd9a63a006fa3517e0085d12614426be1167b6a52ac76b049acc384bf32"
+      "sha256": "e49ff3dc9be380a29bc69c91ee9734baadc7431c83a6b13b85d5417e48af9bf0"
     }
   ],
   "omitted": []

@@ -156,3 +156,6 @@ Cumulative registry C01–C112 / H01–H70. Bopp 2010 provides 10.5-year field e
 
 ### R20-A05 extension: PCL and diagnostic identifiability
 Cumulative registry C01–C117 / H01–H72. PCL interface and bulk mechanisms can coexist; Kwiecien and Badeda rechecks clarify missing cross-mechanism validation. 2026 field cohort supports OCV insufficiency but has selection and replacement confounding. Synthetic circuit counterexample shows nonunique spatial resistance attribution. See 28_R20_PCL_IDENTIFIABILITY.md. R20 PARTIAL.
+
+### R20-A06–A08: original EIS and grouped models
+Cumulative registry C01–C129 / H01–H76. Reports 29_R20_RAW_EIS_AND_LABELS.md, 30_R20_ZHIT_AND_CAPACITY.md, 31_R20_MULTIFEATURE_BASELINES.md. Original 2104 spectra, four cells. zHit is preliminary; residual capacity not fully charged C20. Multiband ridge does not beat FCE ridge on 26 common cases. On 24 three-frequency cases metric dependence persists. All remain exploratory; R20 PARTIAL.

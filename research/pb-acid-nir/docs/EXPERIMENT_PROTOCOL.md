@@ -45,3 +45,6 @@ Define Qwork and Qref with matched discharge endpoint, T and manufacturer-permit
 
 ## R20-A05 — diagnostic identifiability
 Use same construction, SOC, T, measurement history and independent reference labels; distinguish capacity screening from mechanism classification. Validate by held-out physical battery, not random windows from same battery. Include UNKNOWN/MIXED and instrument invalidity. Terminal series resistance partition structurally unidentifiable in lumped circuit. Do not infer grid/PAM repair from resistance reduction. No new physical testing or hardware authorization.
+
+## R20-A08 grouped validation
+Split by physical specimen. Compare fixed models on identical rows, standardize only on training fold, report equal-cell and pooled MAE separately. Do not infer fully charged C20 from residual after-cycling capacity. Verify pre-label timestamps and rest before using voltage as predictor; no leakage from discharge endpoint.

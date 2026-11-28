@@ -1,7 +1,7 @@
 # HANDOFF_NEW_CHAT — Pb-Research
 Дата обновления: 2026-11-28.
 NEXT_STAGE: R20
-CURRENT_REPORT: 28_R20_PCL_IDENTIFIABILITY.md (parent synthesis 23_R20_SYNTHESIS.md; prior 27_R20_REVERSIBLE_LOSS_LIMITS.md)
+CURRENT_REPORT: 31_R20_MULTIFEATURE_BASELINES.md (parent 23_R20_SYNTHESIS.md; prior 29/30)
 Не начинать повторно R01–R20; использовать отчёты, источники и ledgers.
 
 ## Среда и порядок
@@ -10,14 +10,14 @@ CURRENT_REPORT: 28_R20_PCL_IDENTIFIABILITY.md (parent synthesis 23_R20_SYNTHESIS
 D07/D09: независимая научная проверка, отличать full text/author copy/abstract/preview/forum anecdote, сохранять отрицательные результаты и противоречия. Не превращать отдельную статью в универсальный зарядный профиль.
 
 ## Текущий результат R20
-R20 PARTIAL; 23_R20_SYNTHESIS.md. Синтезированы C01–C117 и H01–H72, присвоены уровни доказательности E1–E4 и переносимости T1–T4. Документ содержит тематические выводы R01–R19, разрешение кажущихся противоречий, no-go boundaries, требования к метрологии и требования к диагностической логике.
-tools/r20_validate_synthesis.py PASS: 117 unique conclusion IDs, 72 unique hypothesis IDs, no gaps. r20_capacity_evidence_math.py, validate_handoff.py, r20_source_quality_audit.py also PASS. R20 — только документальная синтеза; не валидированный алгоритм, не программа зарядки и не разрешение на аппаратное внедрение.
+R20 PARTIAL; 23_R20_SYNTHESIS.md. Синтезированы C01–C129 и H01–H76, присвоены уровни доказательности E1–E4 и переносимости T1–T4. Документ содержит тематические выводы R01–R19, разрешение кажущихся противоречий, no-go boundaries, требования к метрологии и требования к диагностической логике.
+tools/r20_validate_synthesis.py PASS: 129 unique conclusion IDs, 76 unique hypothesis IDs, no gaps. r20_capacity_evidence_math.py, validate_handoff.py, r20_source_quality_audit.py also PASS. R20 — только документальная синтеза; не валидированный алгоритм, не программа зарядки и не разрешение на аппаратное внедрение.
 R19 report 22_R19_RECOVERY_DURABILITY.md. Два 40-cycle studies (Karami 2009 inverse charge, Lee 2023 high-voltage extracted 2V cells), non-monotonic 10-week four-Gel series (Ohajianya 2021, no controls), Shi/Ferone/Rahn 2012/2013 residual aging, PNNL 18–28 month benchmark. R18 erratum adds Karami §3.4 40-cycle claim; exact ≥80% endurance metric/n/EOL unspecified.
 R19 PDFs archived locally: sources/R19/SHA256SUMS.txt. Telegram scope only 1800 recent messages; no controlled longitudinal case. No full-history scrape.
 No physical experiments, intentional cell reversal, reverse charge, VRLA opening, RD6018/ESP/node104/HA/BV-600 changes. All hardware implementation requires separate owner decision and dry-run.
 
 ## Next within R20
-Prioritize the highest-impact open hypotheses and close source-quality gaps; do not turn the synthesis into a recipe. All H01–H72 remain open except H09 limited SUPPORTED in individual sources. R20 remains PARTIAL because full primary texts, independent replications and multi-month/multi-year matched data are incomplete.
+Prioritize the highest-impact open hypotheses and close source-quality gaps; do not turn the synthesis into a recipe. All H01–H76 remain open except H09 limited SUPPORTED in individual sources. R20 remains PARTIAL because full primary texts, independent replications and multi-month/multi-year matched data are incomplete.
 
 ## GitHub NIR
 Repo timspb/rd6018_bot, branch research/pb-acid-nir, only research/pb-acid-nir/ paths. R20-A02 published content commit a9300486e03ef8c9801320dd6cf9d14ffdab1497 (verified branch main ahead8/behind0, 60 files all research/pb-acid-nir/); earlier A01 commit 3774ba3 preserved. Перед новым обновлением проверить актуальный tip; automatic sync отсутствует. Local <RESEARCH_ROOT> has no .git and no auto sync. Export tools/prepare_github_nir.py; audit tools/verify_public_export.py; handoff validator tools/validate_handoff.py; synthesis validator tools/r20_validate_synthesis.py.
@@ -39,3 +39,14 @@ Bopp 2010 10.5-year Talhof endpoint, selected failed/functional cells and monito
 
 ## R20-A05 — current next step
 PCL interface abstracts; Kwiecien/Badeda original PDF text rechecked, not independent new trials, web screenshots failed. 2026 field cohort indexed text only; full paper and direct physical labels not established. Exact synthetic grid/interface nonidentifiability. Next retrieve raw EIS supplement and independent labeled aging data, and evaluate held-out diagnostic baseline. A04 published 111c2d42491e88a1a45a932adef5590d134de840. A05 local changes require publication check. No hardware changes.
+
+
+## R20-A06 — локальный результат, публикация ожидает согласованного экспорта
+29_R20_RAW_EIS_AND_LABELS.md сохранён; tools/r20_eis_raw_audit.py выполнен: 2104/2104 MAT, 4 физические ячейки, 35 checkups, 65 selected spectra. ZIP источника в sources/R20/Kwiecien_2018_supplement_alt.zip, SHA256 96d49538c06b931c77cde65bbfedf7aa5584c049dcd30e336938c1c18197f60a. R20-A06 preliminary raw ratios only; zHit, independent scipy decode and capacity integration pending. Candidate C118–C123/H73–H74 in report, not counted in ledger. Batch registry update rejected; retain A05 validated registry (117/72) and GitHub 86f44ebc until consistent export. Next read report 29 first. No hardware changes.
+
+
+## R20-A07 — latest local research result
+Read 30_R20_ZHIT_AND_CAPACITY.md after report 29. zHit Python transcription: 2104 spectra; 56721/78962 interior points within native threshold; -3/-1 bias comparison, mini-cycle repeatability. 38 trace files, 661329 rows; 39 residual capacity candidates, 31 nonbaseline, 26 joined valid rows, four leave-one-cell-out folds; FCE baseline wins 3/4 against 1kHz, 4/4 against 10Hz. Scripts r20_eis_zhit_audit.py, r20_eis_capacity_candidates.py, r20_eis_capacity_join.py executed. Not fully charged C20, no chemical or hardware validation. Candidate C124–C127/H75 saved in report; A06/A07 consistent ledger and export pending, published HEAD remains last verified A05 unless separately checked. Next independent MAT decoder, units and author mask, timestamp alignment and larger independent dataset. No hardware changes.
+
+## R20-A08 current handoff
+Reports 29–31, local ledger C129/H76, original dataset 2104 spectra and 38 traces from 4 cells. Fixed leave-one-cell-out primary 26 observations: FCE ridge better than tested multiband variants; 24-row sensitivity metric-dependent. No confirmed incremental advantage. Next verify independent pre-discharge voltage/rest/time alignment and external cohort. No hardware changes. Publication status verify against actual branch HEAD.
