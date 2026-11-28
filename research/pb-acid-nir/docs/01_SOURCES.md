@@ -150,3 +150,12 @@ Bača2024 DOI10.3390/batteries10050148 original already archived R15; §§3.2–
 
 ## S4 block3
 Smith/Gladwin/Stone2016 DOI10.1109/IECON.2016.7793307 accepted manuscript original, Fig5–7 visual checked. Aihara et al.2014 DOI10.5796/electrochemistry.82.985 original Japanese machine text/English abstract; screenshot failed. Yamashita/Yufu/Matsumaru1988 Denki Kagaku56:842–849 original machine text, screenshot failed. Arai/Tsutsumi/Yamaguchi2014 GS Yuasa Technical Report11(1)24–29 Tables3–4 visual checked. Four originals archived in sources/S4, hashes report48. Kowal et al.2009 DOI10.1016/j.jpowsour.2008.12.016 original simulation methods/results machine text, screenshot failed. See report48 for scope and discrepancies.
+
+
+## 2026-11-29 — дополнительные источники D09 от владельца
+- @UklonGroup — https://web.telegram.org/k/#@UklonGroup — приоритет A: сравнительные испытания АКБ на циклирование. Искать исходные кривые, идентификаторы экземпляров, условия циклов, КТЦ, контрольные группы, отрицательные результаты и фактический конец ресурса.
+- @zaryd10 — https://web.telegram.org/k/#@zaryd10 — приоритет B: по сообщению владельца, маркетинговая связь с Бережок-В1; независимо не проверена. Извлекать проверяемые измерения, отделять рекламу от эксперимента.
+- @beregok7 — https://web.telegram.org/k/#@beregok7 — приоритет B: аналогичная заявленная владельцем коммерческая ориентация. Исключать двойной учёт перекрёстных публикаций.
+Существующий @zaryadAKBin сохраняется. Канон D03/D07/D09 неизменен: Бережок-В1 не эталон алгоритма, но независимые качественные измерения оцениваются по существу. Новые сообщения пока не получены. Текущий коннектор поддерживает один источник; перед чтением проверить разрешённую конфигурацию, не вступать в группы и не писать сообщения, не обходить ограничения доступа. Сырые данные и сессия остаются локально. S5 приостановлен владельцем для расширения источников; 62/88, C192/H93 без изменений. Следующий этап: D09 intake, затем протоколы.
+
+D09 intake report51: four authorized groups read via local connector v0.2.0; 313 unique cached messages, two targeted UklonGroup threads, 44 extracted discharge observations. All E4; attachments and metrology not yet verified. No raw data exported.

@@ -56,3 +56,5 @@ S4 block2: 59/88; R15/R16-K accepted. Next R01/R02 controlled history and struct
 S4 exit/S5 intake: 61/88, R01/R02-K bounded accepted. Next S5 statement-level E/T and D09 matrix, protocol consolidation and D08 evidence-bounded recommendations; retain missing raw labels/primary evidence as explicit gaps.
 
 S5 block1: 62/88, R20-K accepted. Next consolidate testable common protocol and direction-specific annexes; do not equate protocol design with hardware validation.
+
+S5 D09 intake report51: new groups verified and two longitudinal candidate series extracted. Verify source curves and measurement quality, then protocol consolidation. No new gates.

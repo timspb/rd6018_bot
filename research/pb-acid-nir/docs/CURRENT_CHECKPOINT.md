@@ -1,5 +1,5 @@
 # CURRENT_CHECKPOINT
-CURRENT_STAGE: R20 PARTIAL / S5 — C01–C192/H01–H93; report 50_S5_D09_AND_DECISION_MATRIX.md. RESEARCH_ACCEPTANCE.md 62/88.
+CURRENT_STAGE: R20 PARTIAL / S5 — C01–C192/H01–H93; report 51_S5_TELEGRAM_CYCLING_INTAKE.md. RESEARCH_ACCEPTANCE.md 62/88.
 R19 REPORT: 22_R19_RECOVERY_DURABILITY.md. Two 40-cycle follow-ups found (Karami 2009 inverse charge, metric/n/EOL unclear; Lee 2023 extracted 2V cells, 89% rated at cycle40 with porosity loss); one non-monotonic 10-week four-Gel series without controls; Shi/Ferone/Rahn 2012/2013 one sulfated cell +41% after 313h but 64% nominal and 3 other cells dehydrated; PNNL 2022 aging benchmark 18–28 months/289–728 EFC. R18 erratum documents the missed Karami 40-cycle section.
 R20 validator tools/r20_validate_synthesis.py PASS: 192 unique conclusions and 93 unique hypotheses, no gaps. R19 arithmetic tool tools/r19_durability_analysis.py PASS. No physical tests; no RD6018/ESP/node104/BV-600 changes. Production integration remains on hold pending separate owner decision. Working catalog exclusively <RESEARCH_ROOT>. Following lines below are historical stage log, not current next-stage instructions.
 
@@ -128,3 +128,12 @@ S4 block2 report47 C184–187/H92, 59/88. Jaworski original archived and method 
 S4 exit report48 C188–192/H93, 61/88. Four originals archived, Smith and Arai visual checked, Aihara/Yamashita text only. R01/R02-K accepted, no P advanced. S5 next E/T matrix and protocol consolidation, D08 bounded recommendations. Prior published a6735a38441dd8ac66350e67ed03953684ffa84f. No hardware.
 
 S5 block1 reports49–50: all192 conclusions indexed E/T, 93 hypotheses retained; D09 eight previously documented cases reconciled, no new raw Telegram access. R20-K accepted; next testable protocol consolidation and D08 bounded packet. Prior verified 4bef98d61f1e03f601f96b711b798c99cb435952.
+
+
+## 2026-11-29 — дополнительные источники D09 от владельца
+- @UklonGroup — https://web.telegram.org/k/#@UklonGroup — приоритет A: сравнительные испытания АКБ на циклирование. Искать исходные кривые, идентификаторы экземпляров, условия циклов, КТЦ, контрольные группы, отрицательные результаты и фактический конец ресурса.
+- @zaryd10 — https://web.telegram.org/k/#@zaryd10 — приоритет B: по сообщению владельца, маркетинговая связь с Бережок-В1; независимо не проверена. Извлекать проверяемые измерения, отделять рекламу от эксперимента.
+- @beregok7 — https://web.telegram.org/k/#@beregok7 — приоритет B: аналогичная заявленная владельцем коммерческая ориентация. Исключать двойной учёт перекрёстных публикаций.
+Существующий @zaryadAKBin сохраняется. Канон D03/D07/D09 неизменен: Бережок-В1 не эталон алгоритма, но независимые качественные измерения оцениваются по существу. Новые сообщения пока не получены. Текущий коннектор поддерживает один источник; перед чтением проверить разрешённую конфигурацию, не вступать в группы и не писать сообщения, не обходить ограничения доступа. Сырые данные и сессия остаются локально. S5 приостановлен владельцем для расширения источников; 62/88, C192/H93 без изменений. Следующий этап: D09 intake, затем протоколы.
+
+S5 D09 intake report51: user strict read-only D10, four-source connector v0.2.0 PASS, 313 unique messages, 44 discharge observations in two threads; E4 not independent controlled validation. Next verify specific curves, nominal/cutoff/T and quality before protocols. Prior HEAD cda5b3ce71169e907a6a580b0863d84d3d9b53ed.

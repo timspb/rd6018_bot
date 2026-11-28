@@ -26,7 +26,7 @@
 9. Физические опыты не проводить без отдельного решения, метрологии, безопасного протокола; RD6018/БВ-600 не трогать. Предложения по изменению оборудования — только через D08, при наличии проверенного фактического расхождения, сперва полный dry-run на эмуляторе.
 
 ## Telegram @zaryadAKBin
-Один разрешённый источник. Подробный канон доступа: TELEGRAM_CONNECTOR.md. Сервер локального stdio MCP: telegram_connector/telegram-research-plugin/server.py; виртуальное окружение telegram_connector/.venv/Scripts/python.exe; smoke test telegram_connector/test_mcp.py, проверка авторизованной сессии telegram_connector/verify_auth.py.
+Четыре разрешённых источника; ранее один. Подробный канон доступа: TELEGRAM_CONNECTOR.md. Сервер локального stdio MCP: telegram_connector/telegram-research-plugin/server.py; виртуальное окружение telegram_connector/.venv/Scripts/python.exe; smoke test telegram_connector/test_mcp.py, проверка авторизованной сессии telegram_connector/verify_auth.py.
 Четыре только читающих метода: recent_messages(limit,before_id), search_messages(query,limit), get_message(message_id), save_research_attachment(message_id). Отправки сообщений нет. MCP тестирован через SDK на HOME-PC, но не зарегистрирован отдельным ChatGPT плагином. Для доступа применять HOME-PC MCP; перед началом проверять реальную авторизацию.
 Секреты: <LOCAL_SECRETS_FILE> (api_id/api_hash), локальная сессия: private/telegram_research.session. Не выводить значения секретов/файлы сессии в чат, не публиковать. Авторизованная сессия не требует повторного QR. При 2FA пароль вводится только локально на HOME-PC.
 Локальная историческая выборка: sources/telegram/zaryadAKBin_recent_1800.jsonl, только 1800 сообщений из приблизительно 92940 по результату API на дату 28.11.2026; выводы не распространять на всё сообщество. Сопоставлять цепочки ответов по reply_to_msg_id, авторов, время, вложения и корректировки. Сообщения, копирующие наши собственные AI-ответы, не считать независимыми подтверждениями. Ранее широкий поиск блокировался инструментальной безопасностью, не обходить.
@@ -66,3 +66,12 @@ R20-A01 additional check: tools/r20_source_quality_audit.py — count/proportion
 S1 block2: machine-readable primary text and original PDF archiving are distinct from verified figure inspection; mark screenshot cache miss. Do not treat extracted model-cell DCA as commercial battery ranking or pressure as gas composition. Reports35–36.
 
 S3: independent decoder succeeded using project-local pip --target tools/.eis-scipy --only-binary=:all: --no-deps scipy, Windows Python3.14.5 with NumPy2.5.2. Record versions; do not modify global packages or export wheel/install directory. Author code and paper establish intended units; keep archive untouched.
+
+
+## 2026-11-29 — дополнительные источники D09 от владельца
+- @UklonGroup — https://web.telegram.org/k/#@UklonGroup — приоритет A: сравнительные испытания АКБ на циклирование. Искать исходные кривые, идентификаторы экземпляров, условия циклов, КТЦ, контрольные группы, отрицательные результаты и фактический конец ресурса.
+- @zaryd10 — https://web.telegram.org/k/#@zaryd10 — приоритет B: по сообщению владельца, маркетинговая связь с Бережок-В1; независимо не проверена. Извлекать проверяемые измерения, отделять рекламу от эксперимента.
+- @beregok7 — https://web.telegram.org/k/#@beregok7 — приоритет B: аналогичная заявленная владельцем коммерческая ориентация. Исключать двойной учёт перекрёстных публикаций.
+Существующий @zaryadAKBin сохраняется. Канон D03/D07/D09 неизменен: Бережок-В1 не эталон алгоритма, но независимые качественные измерения оцениваются по существу. Новые сообщения пока не получены. Текущий коннектор поддерживает один источник; перед чтением проверить разрешённую конфигурацию, не вступать в группы и не писать сообщения, не обходить ограничения доступа. Сырые данные и сессия остаются локально. S5 приостановлен владельцем для расширения источников; 62/88, C192/H93 без изменений. Следующий этап: D09 intake, затем протоколы.
+
+Актуально 29.11.2026: v0.2.0 четыре источника, smoke test telegram_connector/test_four_sources_readonly.py PASS, целевой поиск read_cycling_intake.py и read_two_cycling_series.py PASS. source проверяется до подключения; только чтение, без отметок о прочтении. Не публиковать кэш/сессию; отчёт51.

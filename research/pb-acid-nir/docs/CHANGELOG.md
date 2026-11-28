@@ -101,3 +101,5 @@
 2026-11-29 S4 exit report48, C188–192/H93, 61/88, R01/R02-K bounded accepted; four originals archived. S5 intake. Prior published a6735a38. No equipment.
 
 2026-11-29 S5 block1: reports49–50, 62/88, C192/H93 unchanged, R20-K documentary accepted. No hardware.
+
+2026-11-29 report51 D09 intake, D10 read-only, connector v0.2.0 tested four sources; 313 unique messages, 44 discharge observations; 62/88 unchanged.

@@ -210,3 +210,5 @@ C01–C192 / H01–H93. Report48: independent DCA history comparison, spatial ac
 
 ## S5 block1
 C01–C192 / H01–H93 unchanged. Report49 explicit statement-level E/T matrix with source text and corrections, report50 D09 eight-case reconciliation, bounded D08 documentation requirements. R20-K documentary PASS; no new physical claim. R20-P remains OPEN, next consolidated protocols.
+
+S5 D09 intake report51: 44 reported discharges from two observational series, source/read-only acceptance PASS, no new primary or physical acceptance; C192/H93 retained.

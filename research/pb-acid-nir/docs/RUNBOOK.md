@@ -62,3 +62,5 @@ S4 block2: tools/s4_heat_material_audit.py reproduces published heat accounting 
 S4 exit: tools/s4_dca_accessibility_audit.py archived four originals and checked Table3/4 arithmetic and approximate Fig7 ratios. Do not treat disappearance from local AFM field as chemical conversion; do not count particles as independent specimens. S5 next.
 
 S5 block1: tools/s5_evidence_matrix.py regenerates statement index and checks all192 IDs and E/T assignments. Corrections and source limits retained. Read report50 D09 and requirements; no new raw Telegram access.
+
+D10 strict read-only: four authorized Telegram sources, no join/leave, messages/reactions/read acknowledgment or account operations. v0.2.0 test_four_sources_readonly.py PASS; report51, targeted acquisition and local s5_telegram_cycling_audit.py. Keep raw data private.
