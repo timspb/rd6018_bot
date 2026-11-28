@@ -14,8 +14,8 @@
     },
     {
       "path": "docs/01_SOURCES.md",
-      "bytes": 32735,
-      "sha256": "500afc6463f0511092109f5a35d600ec488027f04bcba2348e86c871ee59ee2c"
+      "bytes": 33369,
+      "sha256": "1630cf478b1422be63231e5285bb76dbc863c4f01106aaf5b09a1ad9026035fb"
     },
     {
       "path": "docs/02_EXPERIMENTS.md",
@@ -124,8 +124,8 @@
     },
     {
       "path": "docs/23_R20_SYNTHESIS.md",
-      "bytes": 40819,
-      "sha256": "a6d0bf749c0bd1c41fe474da818759ae178337c9641318ba0e58c8096a0a3907"
+      "bytes": 41453,
+      "sha256": "06665b228a0ae2447fd686a0687506c25d05ba0a7bc456a58c88ace3180416ee"
     },
     {
       "path": "docs/24_R20_EVIDENCE_GAP_AUDIT.md",
@@ -259,8 +259,8 @@
     },
     {
       "path": "docs/50_S5_D09_AND_DECISION_MATRIX.md",
-      "bytes": 8226,
-      "sha256": "7b2da4677981f59e819d5b1eefb35134e219b7bbb0284480c3183cc9a602c663"
+      "bytes": 8860,
+      "sha256": "89c9399d201d76f5cde7e9da96e7cc06c302e3aaae99a5eee5300671e4a236d1"
     },
     {
       "path": "docs/51_S5_TELEGRAM_CYCLING_INTAKE.md",
@@ -273,14 +273,19 @@
       "sha256": "3884f53be84c93f09fca37e9d7af12ea47d9834c40c723495f2a7105263bc355"
     },
     {
+      "path": "docs/53_S5_CYBERPAPA_BEREGOK_AUDIT.md",
+      "bytes": 7285,
+      "sha256": "dbb032e42c69e18268b691e46e250d6efc0752a190df9a563a9b88d4e3f66ec6"
+    },
+    {
       "path": "docs/AGENTS.md",
       "bytes": 4209,
       "sha256": "3c99d3667e3d700830c383ae5432f3941ba4c5e3184074c14a1f8b7a5657d5a7"
     },
     {
       "path": "docs/CHANGELOG.md",
-      "bytes": 12968,
-      "sha256": "938ca992baa0f5cbc0fd659cfe2e19d5d8927f3dfc4e55262ce283af44810544"
+      "bytes": 13602,
+      "sha256": "317ffb145a1566fa6b4b871d8e5ac2f7cb277183b2468f6f145c678796d98e55"
     },
     {
       "path": "docs/CONCLUSIONS.md",
@@ -289,8 +294,8 @@
     },
     {
       "path": "docs/CURRENT_CHECKPOINT.md",
-      "bytes": 33073,
-      "sha256": "016fcd5b8c061f1bedd52a83c77dcecc519dc02e85290325d801bc39153dd9f9"
+      "bytes": 33704,
+      "sha256": "64a78f10fd41862d3d8033f7ae43c312b0b644066fabafbc9a30478822d0e18a"
     },
     {
       "path": "docs/DECISIONS.md",
@@ -304,8 +309,8 @@
     },
     {
       "path": "docs/HANDOFF_NEW_CHAT.md",
-      "bytes": 22363,
-      "sha256": "34d0817b2130fd27492c9e8f5a716c3a2df63f3050bf597591e79882a872550c"
+      "bytes": 22994,
+      "sha256": "33dca440c37f56b48131f8ca3c08388c65a6714a384f022b76634e3cb1b51335"
     },
     {
       "path": "docs/HYPOTHESES.md",
@@ -334,13 +339,13 @@
     },
     {
       "path": "docs/ROADMAP.md",
-      "bytes": 7789,
-      "sha256": "bfa8c760ab13dd1c6f4aece8e642ec7379ef92ee53749a20238d3038c02597dd"
+      "bytes": 8423,
+      "sha256": "688175db26e23a43422edc2741588272aa6ce49d3db843ae3aecd8a39ebee906"
     },
     {
       "path": "docs/RUNBOOK.md",
-      "bytes": 14849,
-      "sha256": "69e86598f466b697913289a40cbd312942003460fe92f88f635aeaf1024e8622"
+      "bytes": 15144,
+      "sha256": "9bc3fb6711ca3d62c4ad265b6bb5a95ac90dd55baea29adbe534b5edb62d9685"
     },
     {
       "path": "docs/TELEGRAM_CONNECTOR.md",

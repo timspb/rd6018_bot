@@ -66,3 +66,5 @@ S5 block1: tools/s5_evidence_matrix.py regenerates statement index and checks al
 D10 strict read-only: four authorized Telegram sources, no join/leave, messages/reactions/read acknowledgment or account operations. v0.2.0 test_four_sources_readonly.py PASS; report51, targeted acquisition and local s5_telegram_cycling_audit.py. Keep raw data private.
 
 S5 extension: telegram_connector/read_cycling_extension.py, tools/s5_finalize_cycling_extension.py local only. Audit IDs, rates, reboot and charge-history confounders; report52. No physical intervention.
+
+S5 author/measurement triage: telegram_connector/read_author_beregok.py and read_author_attachments.py, tools/s5_author_triage.py, tools/s5_finalize_author_audit.py local only. Image read_file content_items, visual verification before chemistry admission. D10 strictly read-only. See report53.
