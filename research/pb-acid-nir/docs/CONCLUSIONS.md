@@ -159,3 +159,16 @@ C132 — On 26 selected common cases, fixed FCE+two-band+rest model improves mac
 C133 — Frozen joint+fallback model on all 31 cases reduces macro MAE 1.39013→1.10533Ah, loses one of four cells; severe-degradation fallback error exceeds 4Ah. No independent validation. R20-A10.
 C134 — BBOXX metadata 1027 selected VRLA, 491 repair and 536 censored outcomes; not population incidence, C20 or chemical labels. Raw sign convention differs from paper. R20-A10.
 C135 — OPzS 110 CSV/579448 rows, six series cells in one bank. Released data lack density, overlapping/conflicting timestamps and temperature header mismatch require source-aware alignment. R20-A10.
+
+C136 — Five aligned OPzS nominal-rate blocks end with cell2 lowest loaded voltage; capacity endpoint and mechanism not verified. R20-A11/S1.
+C137 — Four physically implausible cell3 voltage records agree across mV/V columns; redundant-format equality does not establish physical accuracy. R20-A11/S1.
+C138 — Kwiecien 2018 Table2: imposed density gradients decrease during measurement but remain nonzero until mixing; uniform SG does not prove restoration of active mass. R20-A11/S1.
+C139 — Budde-Meiwes 2012: DCA conditioning/test method yields 3–8-fold differences; initial DCA and normalized current not universal completion criteria. Full machine text, visual figures unverified. R20-A11/S1.
+
+C140 — Flooded nine-lot study normalized water loss varies 3.85-fold, associated with Te on both electrodes; no causal isolation. S1 report 35.
+C141 — AGM oxygen recombination at high negative polarization inferred in one modified cell system; pressure not direct gas composition. S1 report 35.
+C142 — ISS flooded PSoC gas onset reported before full charge; abstract only, exact rates unverified. S1 report 35.
+C143 — Positive electrode EC-AFM current onset precedes visible sulfate dissolution; 30s little change, ~2min disappearance in model experiment. No whole-plate inference. S1 report 35.
+C144 — Cyclon AGM charge duration and capacity vary with PSoC history; one cell per regime, conditioning confounding; no full-SOC or lifetime proof. S1 report 35.
+C145 — DCA geometry and electrolyte reserve matter; EFB battery and reduced-cell rank reversal in Table A1, not universal transfer. S1 report 36.
+C146 — Forced-flow negative electrode normalized flow fell 70% at gassing in one study and recovered in later rest; no universal pause or gas criterion. S1 report 36.

@@ -54,3 +54,8 @@ Extract only zero-current samples before load transition, verify rest duration a
 
 ## R20-A10 coverage and source admission
 Compare predictions on all eligible cases with fixed fallback and report missingness by specimen. No silent timestamp deduplication; preserve test ID, source and conflicts. Repair event and censoring labels are not capacity measurements. Treat series cells in one bank as dependent.
+
+## S1/A11
+Keep exact named test and minute timestamp, exclude conflicting keys; distinguish nominal-rate integrated throughput from capacity to verified cutoff after standardized preparation. Validate redundant voltage channels against physical plausibility; do not silently rescale anomalous readings. DCA and SG(z) require matched history/T/SOC; forum observations remain separately graded.
+
+S1 measurement matrix in report36: independent standardized discharge after rest, calibrated vertical SG only where safely accessible, actual CV and measured charge/current/temperature, ordinary-charge matched control, water-loss and retention checks. No experimental authorization, no universal setpoints; construction-specific design remains open.

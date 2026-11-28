@@ -1,7 +1,7 @@
 # HANDOFF_NEW_CHAT — Pb-Research
-Дата обновления: 2026-11-28.
+Дата обновления: 2026-11-29.
 NEXT_STAGE: R20
-CURRENT_REPORT: 33_R20_COVERAGE_EXTERNAL_DATA.md (parent 23_R20_SYNTHESIS.md; prior 29–32)
+CURRENT_REPORT: 36_S1_TRANSFER_AND_MIX.md (parent 23_R20_SYNTHESIS.md; RESEARCH_ACCEPTANCE.md)
 Не начинать повторно R01–R20; использовать отчёты, источники и ledgers.
 
 ## Среда и порядок
@@ -10,14 +10,14 @@ CURRENT_REPORT: 33_R20_COVERAGE_EXTERNAL_DATA.md (parent 23_R20_SYNTHESIS.md; pr
 D07/D09: независимая научная проверка, отличать full text/author copy/abstract/preview/forum anecdote, сохранять отрицательные результаты и противоречия. Не превращать отдельную статью в универсальный зарядный профиль.
 
 ## Текущий результат R20
-R20 PARTIAL; 23_R20_SYNTHESIS.md. Синтезированы C01–C135 и H01–H78, присвоены уровни доказательности E1–E4 и переносимости T1–T4. Документ содержит тематические выводы R01–R19, разрешение кажущихся противоречий, no-go boundaries, требования к метрологии и требования к диагностической логике.
-tools/r20_validate_synthesis.py PASS: 135 unique conclusion IDs, 78 unique hypothesis IDs, no gaps. r20_capacity_evidence_math.py, validate_handoff.py, r20_source_quality_audit.py also PASS. R20 — только документальная синтеза; не валидированный алгоритм, не программа зарядки и не разрешение на аппаратное внедрение.
+R20 PARTIAL; 23_R20_SYNTHESIS.md. Синтезированы C01–C139 и H01–H79, присвоены уровни доказательности E1–E4 и переносимости T1–T4. Документ содержит тематические выводы R01–R19, разрешение кажущихся противоречий, no-go boundaries, требования к метрологии и требования к диагностической логике.
+tools/r20_validate_synthesis.py PASS: 139 unique conclusion IDs, 79 unique hypothesis IDs, no gaps. r20_capacity_evidence_math.py, validate_handoff.py, r20_source_quality_audit.py also PASS. R20 — только документальная синтеза; не валидированный алгоритм, не программа зарядки и не разрешение на аппаратное внедрение.
 R19 report 22_R19_RECOVERY_DURABILITY.md. Два 40-cycle studies (Karami 2009 inverse charge, Lee 2023 high-voltage extracted 2V cells), non-monotonic 10-week four-Gel series (Ohajianya 2021, no controls), Shi/Ferone/Rahn 2012/2013 residual aging, PNNL 18–28 month benchmark. R18 erratum adds Karami §3.4 40-cycle claim; exact ≥80% endurance metric/n/EOL unspecified.
 R19 PDFs archived locally: sources/R19/SHA256SUMS.txt. Telegram scope only 1800 recent messages; no controlled longitudinal case. No full-history scrape.
 No physical experiments, intentional cell reversal, reverse charge, VRLA opening, RD6018/ESP/node104/HA/BV-600 changes. All hardware implementation requires separate owner decision and dry-run.
 
 ## Next within R20
-Prioritize the highest-impact open hypotheses and close source-quality gaps; do not turn the synthesis into a recipe. All H01–H78 remain open except H09 limited SUPPORTED in individual sources. R20 remains PARTIAL because full primary texts, independent replications and multi-month/multi-year matched data are incomplete.
+Prioritize the highest-impact open hypotheses and close source-quality gaps; do not turn the synthesis into a recipe. All H01–H79 remain open except H09 limited SUPPORTED in individual sources. R20 remains PARTIAL because full primary texts, independent replications and multi-month/multi-year matched data are incomplete.
 
 ## GitHub NIR
 Repo timspb/rd6018_bot, branch research/pb-acid-nir, only research/pb-acid-nir/ paths. R20-A02 published content commit a9300486e03ef8c9801320dd6cf9d14ffdab1497 (verified branch main ahead8/behind0, 60 files all research/pb-acid-nir/); earlier A01 commit 3774ba3 preserved. Перед новым обновлением проверить актуальный tip; automatic sync отсутствует. Local <RESEARCH_ROOT> has no .git and no auto sync. Export tools/prepare_github_nir.py; audit tools/verify_public_export.py; handoff validator tools/validate_handoff.py; synthesis validator tools/r20_validate_synthesis.py.
@@ -56,3 +56,9 @@ Report 32; script r20_rest_history_audit.py; 31 four-hour rest cases, 26 EIS com
 
 ## R20-A10 current handoff
 Read report 33. Full coverage audit complete on original four cells; no further tuning. OPzS original six ZIPs + PDF and BBOXX metadata/readme in sources/R20, hashes in SHA256SUMS.txt. No released OPzS density; duplicate timestamps and temperature label mismatch. Next source/test-specific alignment, independent discharge integration; BBOXX telemetry in staged subsets, current sign and censoring checks. A09 commit 84e8d84e573ad3eb0be63dc09baf7e09d6ba2711. No equipment changes.
+
+## S1 long sprint current handoff
+Read RESEARCH_ACCEPTANCE.md then report 34. Baseline 39/88, current 40/88; 139 conclusions, 79 hypotheses. OPzS strict alignment executed, 5 nominal-rate blocks, no verified capacity labels. R01-Q accepted from measured SG and DCA primary quantitative text. Continue S1 gas/water/corrosion, R02 microscopy, MAIN/MIX/desulfation and practical D09 evidence. Do not return to repetitive four-cell fitting. A10 GitHub d1253f88d3fb0020a0daee502484b3f3e9da62bb. No physical testing or production changes.
+
+## S1 block2 current handoff
+Read RESEARCH_ACCEPTANCE.md, 35_S1_GAS_SULFATE_MAIN.md and 36_S1_TRANSFER_AND_MIX.md. 43/88 documentary gates; C146/H81. R02/R04/R14 quantitative primary gates accepted. Next S1 full controlled MIX/stratification and model-specific criteria/protocol matrix, do not claim universal U/I. Existing forum cases compared, no new Telegram raw access. Four primary PDFs archived; screenshot unavailable, source-specific limits recorded. No hardware tests. Verify GitHub HEAD separately.

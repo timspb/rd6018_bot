@@ -31,3 +31,8 @@ Run r20_rest_history_audit.py after A08. Extract strictly pre-discharge rest win
 
 ## R20-A10
 Run r20_coverage_audit.py after A09; independent dataset acquisition r20_a10_external_acquire.py; schema r20_opzs_schema_audit.py, metadata r20_bboxx_metadata_audit.py. Keep licensed original files local; preserve source test identity and timestamps. Do not treat repair labels or derived SOC as capacity reference.
+
+## Длительные спринты (решение владельца 28.11.2026)
+RESEARCH_ACCEPTANCE.md определяет S1–S5 и 88 критериев. Продолжать связанные подзадачи до содержательного checkpoint без запроса подтверждения на каждый шаг, фиксировать отрицательные результаты и недоступные источники, не повышать gate без свидетельства. Проверять матрицу скриптом validate_research_acceptance.py. A11 run r20_opzs_test_alignment.py; no physical capacity claims.
+
+S1 block2: tools/s1_charge_evidence_math.py and tools/s1_transfer_math.py reproduce published table arithmetic only. Distinguish bulk SG from pore transport and gas from useful charge. Update acceptance gates only when criteria evidence is present.

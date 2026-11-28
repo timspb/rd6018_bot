@@ -165,3 +165,9 @@ Cumulative registry C01–C132 / H01–H77. Report 32_R20_REST_HISTORY.md: 31 fo
 
 ### R20-A10 coverage and external datasets
 Cumulative registry C01–C135 / H01–H78. Report 33_R20_COVERAGE_EXTERNAL_DATA.md. Full 31-case fallback comparison, same four cells; macro MAE 1.39013→1.10533Ah, one cell worsens. BBOXX metadata 1027; OPzS six series cells, 110 CSV, 579448 rows. External prediction not yet validated. R20 PARTIAL.
+
+### S1 / R20-A11 charge and stratification
+Cumulative registry C01–C139 / H01–H79. Report 34_S1_CHARGE_STRATIFICATION_OPZS.md; OPzS candidate discharge blocks, voltage outlier and DCA/SG quantitative sources. New RESEARCH_ACCEPTANCE.md 40/88 criteria. R20 PARTIAL; no hardware approval.
+
+## S1 block 2 — C140–C146 / H80–H81
+Reports 35–36 add measured water-loss lot variability, charge history, local sulfate/current timing, geometry-dependent DCA and pore-flow restriction during gassing. No single tail current, gas onset, density or short DCA metric identifies charge completion or retained capacity. Distinguish bulk mixing from pore transport, and flooded from VRLA. C01–C146; H01–H81. Evidence grades and transfer limits in reports; independent target-model validation remains open.

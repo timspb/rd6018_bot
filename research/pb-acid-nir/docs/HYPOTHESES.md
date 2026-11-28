@@ -103,3 +103,8 @@
 | H77 | Complementarity of rest relaxation and multiband EIS may improve cross-cell prediction with known cycle history | OPEN | R20-A09; predefine model, coverage-aware baseline, independent cohort |
 
 | H78 | Invalid measurements or missingness may signal severe degradation | OPEN | R20-A10; distinguish protocol/instrument confounders; independent prospective coverage and abstention |
+
+| H79 | Repeated lower loaded cell voltage under matched state/rate/T may identify series-cell outliers | OPEN | S1/A11; verify measurement channels and independent discharge reference |
+
+| H80 | Independent reaction/gradient indicators and reference capacity may reduce false MAIN/MIX completion | OPEN | S1 report 35; matched tests, separate chemical and functional targets |
+| H81 | Bulk SG and pore transport measurements may distinguish mixing from improved acceptance | OPEN | S1 report 36; matched SOC/T/history, independent Q |

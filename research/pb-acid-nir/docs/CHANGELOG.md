@@ -71,3 +71,7 @@
 2026-11-28 R20-A09: 32_R20_REST_HISTORY.md, r20_rest_history_audit.py, C130–C132/H77. Prelabel rest/history features, common-case joint models. A06–A08 published c253fc44e933d7baa9fe0defb518860c2ca28b52.
 
 2026-11-28 R20-A10: report 33, coverage audit, independent dataset admission, C133–C135/H78. A09 published 84e8d84e573ad3eb0be63dc09baf7e09d6ba2711.
+
+2026-11-28 S1/A11: RESEARCH_ACCEPTANCE.md (88 gates, 39 baseline, 40 current), long sprint plan; report 34, OPzS alignment, DCA/stratification evidence; C136–C139/H79. A10 published d1253f88d3fb0020a0daee502484b3f3e9da62bb.
+
+2026-11-29 S1 block2: reports35–36, C140–146/H80–81, 43/88; four PDFs locally archived, two arithmetic tools executed; no production changes.
