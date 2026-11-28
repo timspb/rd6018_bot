@@ -64,3 +64,5 @@ Canonical RD6018 repository: `timspb/rd6018_bot`, default `main`. Dedicated NIR 
 R20-A01 additional check: tools/r20_source_quality_audit.py — count/proportion inconsistency and out-of-chemistry exclusion; PASS offline, no device. When researching 'battery pulses', verify exact battery CHEMISTRY before harvesting results. New secondary source audit: 24_R20_EVIDENCE_GAP_AUDIT.md, parent synthesis: 23_R20_SYNTHESIS.md. No full primary PDF for Cleland/Mankov/Catherino; do not overstate proof.
 
 S1 block2: machine-readable primary text and original PDF archiving are distinct from verified figure inspection; mark screenshot cache miss. Do not treat extracted model-cell DCA as commercial battery ranking or pressure as gas composition. Reports35–36.
+
+S3: independent decoder succeeded using project-local pip --target tools/.eis-scipy --only-binary=:all: --no-deps scipy, Windows Python3.14.5 with NumPy2.5.2. Record versions; do not modify global packages or export wheel/install directory. Author code and paper establish intended units; keep archive untouched.

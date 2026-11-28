@@ -195,3 +195,6 @@ C01–C171 / H01–H88. Report43: CT/SEM detection limitations, independent tear
 
 ## S3 block2
 C01–C175 / H01–H89. Report44: published SOH plot-data arithmetic reproduced but not admitted as external validation; load history and method-specific capacity comparisons; IEC scope updated. R11-K documentary accepted; R11-P and R05/R06/R07/R12-K remain OPEN. No physical acceptance.
+
+## S3 block3
+C01–C179 / H01–H90. Report45: independent SciPy all-MAT decoder and author-mask reproduction PASS, intended mOhm scale established but calibration/timestamps absent. External literature capacity/resistance counterexample; R07-K bounded documentary accepted. R06-K external cohort/chronology and all associated P remain OPEN. No physical classifier or model accepted.

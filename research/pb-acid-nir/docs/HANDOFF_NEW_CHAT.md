@@ -1,7 +1,7 @@
 # HANDOFF_NEW_CHAT — Pb-Research
 Дата обновления: 2026-11-29.
 NEXT_STAGE: R20
-CURRENT_REPORT: 44_S3_CAPACITY_SOH_PROVENANCE.md (parent 23_R20_SYNTHESIS.md; RESEARCH_ACCEPTANCE.md)
+CURRENT_REPORT: 45_S3_EIS_DECODER_AND_VALIDITY.md (parent 23_R20_SYNTHESIS.md; RESEARCH_ACCEPTANCE.md)
 Не начинать повторно R01–R20; использовать отчёты, источники и ledgers.
 
 ## Среда и порядок
@@ -86,3 +86,6 @@ Read report43 and RESEARCH_ACCEPTANCE.md. C171/H88, 54/88. R04-D/R13-K bounded P
 
 ## S3 block2 current handoff
 Read report44 and RESEARCH_ACCEPTANCE.md. C175/H89, 55/88. Hassan/Nayyer Zenodo five files archived, two tables identical, no raw traces or independent measured labels; no external model fit. R11-K bounded PASS, P open. Next independent MAT decoder/units/time alignment, relaxation and independent reference cohort. Prior verified HEAD 35c6553f5370a598050c533cf01d067c99f6fe98. No hardware/production.
+
+## S3 block3 handoff
+Read report45 and RESEARCH_ACCEPTANCE.md. C179/H90, 56/88. Independent SciPy decoder and author mask verified, units intended mOhm, calibration and shared timestamp absent. SciPy project-local tools/.eis-scipy, no global install. R07-K documentary PASS; R06-K still OPEN. Next independent relaxation and measured-reference cohort; do not refit four cells. Prior verified HEAD b54465721e36f3e7f4db4c9d77daeb30d62f63be. No hardware/production.

@@ -91,3 +91,5 @@
 2026-11-29 S3 block1 report43, C167–171/H88, 54/88; R04-D/R13-K accepted bounded, Conradt erratum; three original manufacturer PDFs archived. Prior published 89e2e15e. No hardware.
 
 2026-11-29 S3 block2 report44, C172–175/H89, 55/88, R11-K documentary accepted; five Zenodo files verified and metrics reproduced. Prior published 35c6553f. No equipment.
+
+2026-11-29 S3 block3 report45, C176–179/H90, 56/88. Independent decoder and author mask PASS; R07-K documentary accepted. Prior published b5446572. No equipment.

@@ -209,3 +209,8 @@ C172 — Hassan/Nayyer 2026 published 30 plot triples reproduce 35.21% relative 
 C173 — Doerffel/Abu-Sharkh aged VRLA delivered64.3 vs67.6Ah after high-then-low versus low-only discharge; rest/load history matters, no permanent damage proof. Report44.
 C174 — Meisner/Buniak VLA constant-resistance vs constant-current time-adjusted capacity differs; no universal correction or C20 equivalence. Report44.
 C175 — IEC60095-1:2018 corrected2026-02 starter scope distinct from IEC60095-8:2026 auxiliary/backup; exact full method unverified. Report44.
+
+C176 — Independent SciPy decoder matches all 2142 original MAT files' numeric fields, 3273860 values, zero discrepancies; not instrument validation. Report45.
+C177 — Author mask independently reproduces 56721/78962 accepted interior points; article/script establish intended mOhm interpretation despite _Ohm names, calibration unverified. Report45.
+C178 — EIS files lack shared time stamps; date/checkup phase association is not exact time alignment. Report45.
+C179 — Majchrzycki2018 used stationary string capacity109→76Ah in 99d comparison, internal-resistance changes did not correlate clearly with capacity; not external C20 calibration. Report45.

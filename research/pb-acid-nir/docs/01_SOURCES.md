@@ -138,3 +138,6 @@ Hitachi Chemical Technical Report58 Hirano/Kouno/Sumiya original https://www.res
 
 ## S3 block2
 Hassan/Nayyer 2026 DOI10.5281/zenodo.21996450 five original files archived, publisher MD5 verified, local SHA256 in sources/S3; plot-only outputs, no raw U/I/T/reference procedure. Doerffel/Abu-Sharkh 2006 DOI10.1016/j.jpowsour.2005.04.030 full machine text mirror, original inaccessible; Meisner/Buniak Battcon2016 constant-resistance testing original PDF machine text, screenshot cache miss. IEC60095-1:2018 COR1:2026 and IEC60095-8:2026 official catalogue scope verified. M5BAT DOI10.18154/RWTH-2026-06637 listing only, not downloaded. See report44.
+
+## S3 block3
+Kwiecien et al.2018 DOI10.3390/app8060873 original supplement and author plotEIS.m/zhit.m/reduceDataSize.m; independent SciPy decoder and NumPy mask executed. Original article §§2.3/3.1 explicitly gives 0.15mOhm TI threshold, figures/table use mOhm; web screenshots cache miss. Author-intended units established, calibration and shared timestamps absent. Majchrzycki et al.2018 DOI10.3390/batteries4040070 full HTML §§2–3 Table1, independent stationary AGM contrast, not raw validation cohort. See report45.

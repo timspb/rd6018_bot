@@ -75,3 +75,5 @@ Report42: sign-separated Ah/Wh with zero crossing and exact linear-product integ
 Report43: independent retained-capacity reference, external load exclusion and controlled history/T, per-cell observation only if legitimate access, physical phase/contact proof in qualified lab; separate functional risk, validity and mechanism confidence. No intentional short/reversal; no P promoted.
 
 Report44: admit independent reference data only with identifiable physical specimen, actual measured capacity protocol, prelabel chronological features and temperature/rest/load/cutoff. Reproduced plot error is not validation. R11-P open for traceable instruments and complete applicable procedure.
+
+Report45: independent decoder verification, declared units and synchronized chronology are separate from physical calibration. zHit consistency is not independent proof of linearity; verify amplitude dependence, stationarity and uncertainty. R06/R07 P remain open.
