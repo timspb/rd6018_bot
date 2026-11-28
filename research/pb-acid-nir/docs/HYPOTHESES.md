@@ -79,3 +79,7 @@
 
 | H60 | Part of the apparent capacity gain in stored NEW SLA batteries after destructive treatments could also arise from matched ordinary recharging and conditioning | OPEN | R20-A01/A01; only independent existing matched controls, no zero-voltage experiment |
 | H61 | Claimed 4.5/6.7% pulse benefits in two fresh AGM batteries are sensitive to allocation/manufacturing variance and may not replicate across independent cells | OPEN | R20-A01/A02; publisher full methods and independent multi-battery experiment |
+
+| H62 | Apparent early capacity rebound in AGM can be partly produced by ordinary conditioning, wetting and charging rather than unique restorative chemistry | OPEN | R20-A02/B02; matched independent control series and microstructure |
+| H63 | Unversioned changes in charging termination, reference cutoff, and rest can mimic treatment/aging effects in resource KPIs | OPEN | R20-A02/B02 §4.6; blinded protocol audit and longitudinal replication |
+| H64 | Measurement correlation and systematic temperature/instrument drift dominate uncertainty over technical repeats in some before/after comparisons | OPEN | R20-A02; calibration, inter-day reference repeats and hierarchical uncertainty modeling |

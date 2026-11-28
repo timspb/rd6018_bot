@@ -57,3 +57,5 @@
 2026-11-28: R20-A01 new source-quality audit A01–A04, identified Cleland count 46/47 inconsistency, small-n Mankov 300-cycle prevention vs restoration, Catherino 80% sulfation myth as unmeasured claim, excluded new Nature Li-ion pulse article; C92–C96 H60–H61. R20 scientific priority matrix, offline arithmetic PASS, no hardware. Pending NIR branch sync.
 
 2026-11-28: R20-A01 published commit 3774ba35dd071156eb3f0a800262f81e80b7a229; GitHub ahead6/behind0, all paths research/pb-acid-nir. Local handoff/checkpoint metadata refreshed to published state (followup metadata sync separate).
+
+- 2026-11-28 R20-A02: Added 25_R20_LONGITUDINAL_METROLOGY.md (ZVEI 2020, PNNL Shamim 2022, Mizumoto reassessment); first original PDF archived in sources/R20 and SHA256 registered; C97–C101/H62–H64; tools/r20_capacity_evidence_math.py analytical sensitivity; no physical experiments or production modifications. Local source of truth; GitHub sync requires explicit audit/public export.
