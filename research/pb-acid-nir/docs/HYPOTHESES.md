@@ -83,3 +83,7 @@
 | H62 | Apparent early capacity rebound in AGM can be partly produced by ordinary conditioning, wetting and charging rather than unique restorative chemistry | OPEN | R20-A02/B02; matched independent control series and microstructure |
 | H63 | Unversioned changes in charging termination, reference cutoff, and rest can mimic treatment/aging effects in resource KPIs | OPEN | R20-A02/B02 §4.6; blinded protocol audit and longitudinal replication |
 | H64 | Measurement correlation and systematic temperature/instrument drift dominate uncertainty over technical repeats in some before/after comparisons | OPEN | R20-A02; calibration, inter-day reference repeats and hierarchical uncertainty modeling |
+
+| H65 | Early reversible PCL responds differently than late structural/interface degradation; compare restoration versus stabilization | OPEN | R20-A03/S02; matched independent endpoints |
+| H66 | At matched net charge, time, mean current and temperature, waveform-specific effects depend on grid/cure/defect and waveform | OPEN | R20-A03/S01/S02; replicate cells |
+| H67 | Ordinary full-charge conditioning explains part of apparent recovery in some aged intact batteries | OPEN | R20-A03/S01/S03; C20/CCA and post-withdrawal storage/EFC controls |

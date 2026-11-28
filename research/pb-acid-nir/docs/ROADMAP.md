@@ -23,5 +23,5 @@
 | R17 | Углерод и активные массы | P1 | PARTIAL | 20_R17_CARBON_ACTIVE_MASS |
 | R18 | Переполюсовка и последствия | P1 | PARTIAL | 21_R18_POLARITY_REVERSAL |
 | R19 | Устойчивость восстановления | P0 | PARTIAL | 22_R19_RECOVERY_DURABILITY |
-| R20 | Синтез алгоритмов, evidence grades и no-go границ | P0 | PARTIAL | 23_R20_SYNTHESIS + 24_R20_EVIDENCE_GAP_AUDIT + 25_R20_LONGITUDINAL_METROLOGY |
+| R20 | Синтез алгоритмов, evidence grades и no-go границ | P0 | PARTIAL | 23_R20_SYNTHESIS + 24_R20_EVIDENCE_GAP_AUDIT + 25_R20_LONGITUDINAL_METROLOGY + 26_R20_CONTROLLED_COMPARISONS |
 Параллельно: архив первоисточников; форумные эксперименты; диагностические случаи; метрология будущего стенда. CASE-001: наблюдение ограничено, диагноз не установлен. R20 не означает готовность к деплою.

@@ -11,11 +11,11 @@ def ids(text,prefix):
  return [int(x) for x in vals]
 c=ids(con,"C");h=ids(hyp,"H")
 assert len(c)==len(set(c)), "duplicate conclusion IDs"
-assert set(c)==set(range(1,102)), f"conclusion gaps: {sorted(set(range(1,102))-set(c))}"
+assert set(c)==set(range(1,107)), f"conclusion gaps: {sorted(set(range(1,107))-set(c))}"
 assert len(h)==len(set(h)), "duplicate hypothesis IDs"
-assert set(h)==set(range(1,65)), f"hypothesis gaps: {sorted(set(range(1,65))-set(h))}"
+assert set(h)==set(range(1,68)), f"hypothesis gaps: {sorted(set(range(1,68))-set(h))}"
 assert re.search(r"(?m)^\|\s*R20\s*\|[^\n]*\|\s*PARTIAL\s*\|",road)
-assert "C01–C101" in report and "H01–H64" in report
+assert "C01–C106" in report and "H01–H67" in report
 for token in ["E1","E2","E3","E4","UNKNOWN","No-go","C20","CCA","EFC","RD6018","БВ-600"]:
  assert token in report, f"missing synthesis element {token}"
 assert (R/"23_R20_SYNTHESIS.md").is_file()
