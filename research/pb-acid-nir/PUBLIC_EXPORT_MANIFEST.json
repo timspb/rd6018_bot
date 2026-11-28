@@ -14,8 +14,8 @@
     },
     {
       "path": "docs/01_SOURCES.md",
-      "bytes": 23951,
-      "sha256": "5cec3e57695606adaa64a34a64091d8e7675973b7fb6f363eec5aebb6e202ed0"
+      "bytes": 24520,
+      "sha256": "2bd2168fa14d1239df64e380923e8dc9eb1163de0dd1f3d23b549557f96747d7"
     },
     {
       "path": "docs/02_EXPERIMENTS.md",
@@ -124,8 +124,8 @@
     },
     {
       "path": "docs/23_R20_SYNTHESIS.md",
-      "bytes": 36777,
-      "sha256": "f16280e2aa769b4afefa6e047a759dd1088ed3f7279f385d4beaa6ad5dc09817"
+      "bytes": 37062,
+      "sha256": "2b804a97c2423537cefcf52fc81ee181b0f94029e7646d0f8b2964f98ba9e408"
     },
     {
       "path": "docs/24_R20_EVIDENCE_GAP_AUDIT.md",
@@ -203,24 +203,29 @@
       "sha256": "fbed77d81264eba02f684992679d4212fc50b64e6a9ba66ef68764d4d7e065b3"
     },
     {
+      "path": "docs/39_S2_PULSE_GAS_COMPARISON.md",
+      "bytes": 6972,
+      "sha256": "c6c1e6b32d43392caf59ecdc048110a10c14b127143c4056e4187422243e4a67"
+    },
+    {
       "path": "docs/AGENTS.md",
       "bytes": 4209,
       "sha256": "3c99d3667e3d700830c383ae5432f3941ba4c5e3184074c14a1f8b7a5657d5a7"
     },
     {
       "path": "docs/CHANGELOG.md",
-      "bytes": 10519,
-      "sha256": "b1c1adbd979b60ce6fce34c160c8eb1e3834ec661dd6781dea95b0abe6b12078"
+      "bytes": 10685,
+      "sha256": "d0d23f06181499e39d3d2a67148c6091a4d9ca8a7d67518428ded12edbf4fec0"
     },
     {
       "path": "docs/CONCLUSIONS.md",
-      "bytes": 32632,
-      "sha256": "c4ab14f623600ce07279d9675e4f7fdd2323b8c13a33a4517fa488647dc86d65"
+      "bytes": 33310,
+      "sha256": "263c3cae61ddae2fc671c5afda611ec50099696a1e76c4c6ca701ecd116b61d9"
     },
     {
       "path": "docs/CURRENT_CHECKPOINT.md",
-      "bytes": 26262,
-      "sha256": "ac6eca40c59271d3729c7dfe3615b9a3b4f9ccfbf375904fbd662f0928212705"
+      "bytes": 26664,
+      "sha256": "f4c45386b120e20e08123b72bb301c6f32f3d21b77ec5a7b0af677f7075bc805"
     },
     {
       "path": "docs/DECISIONS.md",
@@ -229,18 +234,18 @@
     },
     {
       "path": "docs/EXPERIMENT_PROTOCOL.md",
-      "bytes": 21415,
-      "sha256": "f290514d5efcbdd9b34dd7b4c124f9ccc3b8072960a144dbe3bf54d830d747ca"
+      "bytes": 21728,
+      "sha256": "c3cc87bbeb1c5dffd8ff04ae7b6790404c0b557b5879a8775552ebc2fcdd09ae"
     },
     {
       "path": "docs/HANDOFF_NEW_CHAT.md",
-      "bytes": 14156,
-      "sha256": "dd7d18ab470b11e0b16d222b31358d96e8237a28d70a7540b05b24b7cfa15277"
+      "bytes": 14667,
+      "sha256": "d3116f7f9dd14584a28b83275b89f932e740d1b87c10b9c06696d4d83f4d7fa7"
     },
     {
       "path": "docs/HYPOTHESES.md",
-      "bytes": 16469,
-      "sha256": "bc2399221d6e30dbc63f39a5cd3989eae6c12e9e140b11b5a815432cdd6a772b"
+      "bytes": 16664,
+      "sha256": "6ee3191ae56ec1fefc8be5d8a2e43d329ded665751a7ab9900d81028330bb6c7"
     },
     {
       "path": "docs/INTEGRATION_RD6018.md",
@@ -259,18 +264,18 @@
     },
     {
       "path": "docs/RESEARCH_ACCEPTANCE.md",
-      "bytes": 15899,
-      "sha256": "e30e717c7b33afd2b5f774f0b4f831f41ddfb9dd40ff62bee2345686d6691566"
+      "bytes": 16189,
+      "sha256": "1d52f455d8343d1a7f49a17044adbb38b417099d3bb7e2639257bcc95158bc6b"
     },
     {
       "path": "docs/ROADMAP.md",
-      "bytes": 4478,
-      "sha256": "951d39dbbb23e2e9670a72dd72dc772e9c74c88d8431123a21657ae554d5888e"
+      "bytes": 4699,
+      "sha256": "676a24bbff985fedcb67511f5a8dfa60d681f682a3f3699e72b07f031f6bfe93"
     },
     {
       "path": "docs/RUNBOOK.md",
-      "bytes": 11412,
-      "sha256": "0f065755ce43b1c9b9c5f08dbd185188762e9608e386ad578bb501b01aba226b"
+      "bytes": 11649,
+      "sha256": "7eb0da2c314c073d6e07fd34fb08c1d35384d0a62bc68b0564e3eb603d455e65"
     },
     {
       "path": "docs/TELEGRAM_CONNECTOR.md",
@@ -435,7 +440,7 @@
     {
       "path": "tools/r20_validate_synthesis.py",
       "bytes": 1368,
-      "sha256": "68e6691e5c1981e4e8696d38f2d3f9f93e0d176adbdbc4e33310aac3b720e78a"
+      "sha256": "5be623b010ffc8eca74843b48772104a9e22d83d1a982742f7fbc7cf499a08ed"
     },
     {
       "path": "tools/s1_charge_evidence_math.py",
@@ -463,9 +468,14 @@
       "sha256": "87eb279a60c11d25cf2ae776306466bd7e457d07033c1c5363cc1e775673d6ba"
     },
     {
+      "path": "tools/s2_pulse_comparison.py",
+      "bytes": 1757,
+      "sha256": "a9f6f7dc1387ab2e2f9ffab9d87aa88a16754c42fc997aad51a45d9fd090bdc2"
+    },
+    {
       "path": "tools/validate_research_acceptance.py",
       "bytes": 970,
-      "sha256": "9bd458c18e0d1b2c1c48022d26de8fd614735cedaf0cf1fe1583b27945d6fba4"
+      "sha256": "d01bd06be57bdad98af269f131509237f9905c0f2d09d56ce58c456aee42c0ba"
     }
   ],
   "omitted": []

@@ -181,3 +181,8 @@ C150 — Yuasa NP manual explicitly warns that current sensing can falsely indic
 C151 — CYCLON manual distinguishes available capacity and periodic recharge sufficient for life; charge-return guidance differs from 2024 research, exact revision/application not equated. S1 report38.
 C152 — Yu 2018 voltage-model validation excludes CV; efficiency fit inadequate above 98% SOC; cross-cell current comparisons confounded. S1 report38.
 C153 — Integral recharge efficiency and differential storage efficiency are not interchangeable; midpoint assignment approximate. S1 report38.
+
+C154 — James 2006 Table1 historical FAT-to-final capacities mixed, mean +2.1pp; no contemporary control or durability evidence. S2 report39.
+C155 — James Table3 smaller total gas does not prove less gas per returned Ah; approximate normalization reverses hydrogen direction, actual Ah and matched final SOC unverified. S2 report39.
+C156 — Minami equal average current does not ensure equal net charge with variable duration at voltage cutoff; discharge-duration improvement is not cycle-life proof. S2 report39.
+C157 — Observed 150 cycles and extrapolated 1296 cycles in e-rickshaw study are distinct endpoints; abstract only, no measured 1296-cycle life. S2 report39.

@@ -120,3 +120,6 @@ Bäcker/Meisner Battcon 2013 manufacturer-affiliated primary conference report h
 
 ## S1 block4
 Official GS Yuasa NP manual rev5/00 https://gsyuasa-es.com/Downloads/NP_Application_manual.pdf printed pp19/21 visually verified, and EnerSys CYCLON US-CYC-AM-007 04/2008 https://www.enersys.com/493c0d/globalassets/documents/product-documentation/cyclon/amer/us-cyc-am-007_0408.pdf p11 visually verified, p12 text; originals archived and hashes report38. Yu et al. 2018 DOI 10.3390/en11092305 TU Delft PDF machine text §§3.6/4.1.3/4.2, screenshot cache miss, local TLS timeout. R08/R10/R14 cross-check and distinction integral vs marginal efficiency in report38.
+
+## S2 block1
+James et al. 2006 DOI 10.1016/j.jpowsour.2005.02.018 original PDF mirror machine text Tables1–3, screenshot cache miss, local download timeout; Minami et al. 2004 DOI 10.4130/jaev.2.541 original PDF archived SHA256 3784e3a3c5f561185688f5e51af91805a7ae076b0de06584cb07c938a925a9c4, visual check unavailable. Mankov et al. 2026 official indexed abstract only; Cleland table unavailable. Baradari 2025 DOI 10.1016/j.nexres.2025.100659 abstract, 2022 fast-charge study PII S2352152X22018291 abstract, Hamdan 2025 abstract previously recorded. See report39.

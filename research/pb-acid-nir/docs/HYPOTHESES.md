@@ -112,3 +112,5 @@
 | H82 | Validated spatial gradient plus independent water and retained-capacity endpoints may distinguish useful mixing from unnecessary extra charge | OPEN | S1 report37; matched flooded specimens, model-specific controls |
 
 | H83 | Independent functional reference, valid actual CV telemetry and model-specific history may reduce false charge completion relative to tail current | OPEN | S1 report38; matched independent specimens |
+
+| H84 | Matched final functional charge/history and measured Q/Wh/gas may distinguish waveform benefit from unequal charge and ordinary conditioning | OPEN | S2 report39; independent controls |

@@ -79,3 +79,5 @@
 2026-11-29 S1 block3: report37, C147–C149/H82, 44/88; two primary PDFs archived and arithmetic checked. Previous S1 block2 published eb3b8791. No production edits.
 
 2026-11-29 S1 block4: report38, C150–153/H83, 48/88; two verified originals, synthetic audit, four bounded K accepted. S1 deliverable complete, S2 next; block3 published 4ed23d12. No production changes.
+
+2026-11-29 S2 block1 report39, C154–157/H84, 49/88, R03-K documentary accepted. Minami PDF archived, James arithmetic checked. S1 published 9fadd9f6. No hardware.

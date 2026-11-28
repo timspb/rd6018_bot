@@ -177,3 +177,6 @@ C01–C149 / H01–H82. Report37: industrial comparison and independent spatial 
 
 ## S1 block4 — completion matrix
 C01–C153 / H01–H83. Report38: charge completion, full SOC, functional capacity, recovery and resource are independent claims; gas and construction transfer boundaries explicit. R04/R08/R10/R14 K bounded documentary PASS; target-model thresholds UNKNOWN, no P advanced. S1 deliverable assembled, residual gates carried forward; S2 recovery and resource next. No physical or production acceptance.
+
+## S2 block1
+C01–C157 / H01–H84. Report39: waveform gas normalization, historical capacity comparison, unequal returned charge and distinction of observed versus modeled life. R03-K bounded documentary accepted; specific efficacy UNKNOWN and R03-P open. No new physical evidence.

@@ -1,7 +1,7 @@
 # HANDOFF_NEW_CHAT — Pb-Research
 Дата обновления: 2026-11-29.
 NEXT_STAGE: R20
-CURRENT_REPORT: 38_S1_COMPLETION_AND_RECOVERY_MATRIX.md (parent 23_R20_SYNTHESIS.md; RESEARCH_ACCEPTANCE.md)
+CURRENT_REPORT: 39_S2_PULSE_GAS_COMPARISON.md (parent 23_R20_SYNTHESIS.md; RESEARCH_ACCEPTANCE.md)
 Не начинать повторно R01–R20; использовать отчёты, источники и ledgers.
 
 ## Среда и порядок
@@ -68,3 +68,6 @@ Read report37 and RESEARCH_ACCEPTANCE.md. C149/H82, 44/88. R09-K documentary sep
 
 ## S1 exit / S2 current handoff
 Read report38 and RESEARCH_ACCEPTANCE.md. C153/H83, 48/88. S1 deliverable complete, model-specific validation and named open gates carry forward. Next S2 matched recovery/control, waveform, resource and negative cases (R03,R17,R18,R19). Cleland/Mankov gaps, seek independent contemporary primary studies. No repeating same inaccessible source indefinitely; no equipment/production changes. Prior verified GitHub HEAD 4ed23d12b5c40b231cfd7e293e6aaafd87c6fc21; verify current.
+
+## S2 block1 current handoff
+Read RESEARCH_ACCEPTANCE.md and report39. C157/H84, 49/88. R03-K documentary PASS; R03-P/R19-K/P OPEN. James totals vs nominal Ah, no causal effect or durability established; Minami archive verified. Next seek independent longitudinal controls, prevention vs recovery, compare resource endpoints and develop waveform accounting/retention protocol. Cleland/Mankov full texts remain inaccessible. Prior verified HEAD 9fadd9f6035bd134887279579fc62173ca4863d1. No equipment or production edits.
