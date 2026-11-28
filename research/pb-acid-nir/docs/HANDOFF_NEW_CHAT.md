@@ -1,7 +1,7 @@
 # HANDOFF_NEW_CHAT — Pb-Research
 Дата обновления: 2026-11-29.
 NEXT_STAGE: R20
-CURRENT_REPORT: 39_S2_PULSE_GAS_COMPARISON.md (parent 23_R20_SYNTHESIS.md; RESEARCH_ACCEPTANCE.md)
+CURRENT_REPORT: 40_S2_RETENTION_AND_RESOURCE.md (parent 23_R20_SYNTHESIS.md; RESEARCH_ACCEPTANCE.md)
 Не начинать повторно R01–R20; использовать отчёты, источники и ledgers.
 
 ## Среда и порядок
@@ -71,3 +71,6 @@ Read report38 and RESEARCH_ACCEPTANCE.md. C153/H83, 48/88. S1 deliverable comple
 
 ## S2 block1 current handoff
 Read RESEARCH_ACCEPTANCE.md and report39. C157/H84, 49/88. R03-K documentary PASS; R03-P/R19-K/P OPEN. James totals vs nominal Ah, no causal effect or durability established; Minami archive verified. Next seek independent longitudinal controls, prevention vs recovery, compare resource endpoints and develop waveform accounting/retention protocol. Cleland/Mankov full texts remain inaccessible. Prior verified HEAD 9fadd9f6035bd134887279579fc62173ca4863d1. No equipment or production edits.
+
+## S2 block2 current handoff
+Read report40 and RESEARCH_ACCEPTANCE.md. C161/H85, 50/88. R19-K bounded PASS, no durable special-treatment proof. Sandia 8529 shallow-cycle bank, stable reference capacity but shorter PSOC intervals; INL full recharge conditioning; Alipour 697 screening, denominator unknown. Next R17/R18 and R03/R19 protocols, independent matched controls; no equipment/production. Prior verified HEAD 58f5226ac0c3511fd1a14b5e3585be986ce32c26.

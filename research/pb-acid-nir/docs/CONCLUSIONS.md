@@ -186,3 +186,8 @@ C154 — James 2006 Table1 historical FAT-to-final capacities mixed, mean +2.1pp
 C155 — James Table3 smaller total gas does not prove less gas per returned Ah; approximate normalization reverses hydrogen direction, actual Ah and matched final SOC unverified. S2 report39.
 C156 — Minami equal average current does not ensure equal net charge with variable duration at voltage cutoff; discharge-duration improvement is not cycle-life proof. S2 report39.
 C157 — Observed 150 cycles and extrapolated 1296 cycles in e-rickshaw study are distinct endpoints; abstract only, no measured 1296-cycle life. S2 report39.
+
+C158 — Sandia 2009 carbon-enhanced VRLA bank retains reference capacity while PSoC intervals before recharge shorten; temperature/duty confounding and no EOL. S2 report40.
+C159 — Same bank shows different capacities after rest and repeated cycling, even after approximate author temperature correction; preparation matters. S2 report40.
+C160 — INL simulated hybrid drive-profile repetition counts recover after full recharge/capacity check in three SOC windows, not established persistent recovery. S2 report40.
+C161 — Alipour/Nasseri 2025 screen 697 warehouse VRLA; claimed 72% recovery efficiency denominator and durability unverified in accessible material. S2 report40.

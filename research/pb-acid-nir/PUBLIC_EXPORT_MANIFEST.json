@@ -14,8 +14,8 @@
     },
     {
       "path": "docs/01_SOURCES.md",
-      "bytes": 24520,
-      "sha256": "2bd2168fa14d1239df64e380923e8dc9eb1163de0dd1f3d23b549557f96747d7"
+      "bytes": 25243,
+      "sha256": "8d0a31696a4959bbf219084db2ff188b840b397e61cd256a2c6235852797aac5"
     },
     {
       "path": "docs/02_EXPERIMENTS.md",
@@ -124,8 +124,8 @@
     },
     {
       "path": "docs/23_R20_SYNTHESIS.md",
-      "bytes": 37062,
-      "sha256": "2b804a97c2423537cefcf52fc81ee181b0f94029e7646d0f8b2964f98ba9e408"
+      "bytes": 37401,
+      "sha256": "04851366ae2e43bf892e41713ab7e8822ded92f983133973644f5242803933a9"
     },
     {
       "path": "docs/24_R20_EVIDENCE_GAP_AUDIT.md",
@@ -208,24 +208,29 @@
       "sha256": "c6c1e6b32d43392caf59ecdc048110a10c14b127143c4056e4187422243e4a67"
     },
     {
+      "path": "docs/40_S2_RETENTION_AND_RESOURCE.md",
+      "bytes": 7481,
+      "sha256": "4daeb371b22e9f4b91df53722317d65f7bbbf4a923bf519e12732533de3d2f6f"
+    },
+    {
       "path": "docs/AGENTS.md",
       "bytes": 4209,
       "sha256": "3c99d3667e3d700830c383ae5432f3941ba4c5e3184074c14a1f8b7a5657d5a7"
     },
     {
       "path": "docs/CHANGELOG.md",
-      "bytes": 10685,
-      "sha256": "d0d23f06181499e39d3d2a67148c6091a4d9ca8a7d67518428ded12edbf4fec0"
+      "bytes": 10863,
+      "sha256": "bee318c471afcaac655d6649922a6c3bc9120e78c1b01e8a13825c61226c72de"
     },
     {
       "path": "docs/CONCLUSIONS.md",
-      "bytes": 33310,
-      "sha256": "263c3cae61ddae2fc671c5afda611ec50099696a1e76c4c6ca701ecd116b61d9"
+      "bytes": 33993,
+      "sha256": "9536e8e88be74da5e66abb5f737fed1bd0d095a20137b942fc177120af3c76d6"
     },
     {
       "path": "docs/CURRENT_CHECKPOINT.md",
-      "bytes": 26664,
-      "sha256": "f4c45386b120e20e08123b72bb301c6f32f3d21b77ec5a7b0af677f7075bc805"
+      "bytes": 27010,
+      "sha256": "ceec1d0f33c0e21fac8942b3d2696a9026ee508eb60dca34213085b6dbae33ee"
     },
     {
       "path": "docs/DECISIONS.md",
@@ -234,18 +239,18 @@
     },
     {
       "path": "docs/EXPERIMENT_PROTOCOL.md",
-      "bytes": 21728,
-      "sha256": "c3cc87bbeb1c5dffd8ff04ae7b6790404c0b557b5879a8775552ebc2fcdd09ae"
+      "bytes": 22092,
+      "sha256": "0784f4b38dfd23ae5dfc5e3a8c35601e26b12658b0b8a16343be16cfb8f5fc1a"
     },
     {
       "path": "docs/HANDOFF_NEW_CHAT.md",
-      "bytes": 14667,
-      "sha256": "d3116f7f9dd14584a28b83275b89f932e740d1b87c10b9c06696d4d83f4d7fa7"
+      "bytes": 15129,
+      "sha256": "315f5483eca003e13532aeb605ad182c4f2bc3880fad9541eed6f525692c0f8d"
     },
     {
       "path": "docs/HYPOTHESES.md",
-      "bytes": 16664,
-      "sha256": "6ee3191ae56ec1fefc8be5d8a2e43d329ded665751a7ab9900d81028330bb6c7"
+      "bytes": 16864,
+      "sha256": "36dc0d0e1a9b52140857e6d0f50b9cc647441259258284ab700ae308792507e1"
     },
     {
       "path": "docs/INTEGRATION_RD6018.md",
@@ -264,18 +269,18 @@
     },
     {
       "path": "docs/RESEARCH_ACCEPTANCE.md",
-      "bytes": 16189,
-      "sha256": "1d52f455d8343d1a7f49a17044adbb38b417099d3bb7e2639257bcc95158bc6b"
+      "bytes": 16500,
+      "sha256": "94147d969c0860fd2f776c773aec100da0a7d0dbfa07991fe195f5472cefc37a"
     },
     {
       "path": "docs/ROADMAP.md",
-      "bytes": 4699,
-      "sha256": "676a24bbff985fedcb67511f5a8dfa60d681f682a3f3699e72b07f031f6bfe93"
+      "bytes": 4926,
+      "sha256": "a735ffc28b54614e5ad6221b701c716743f8bf6be79b80661960cf55588f6b9b"
     },
     {
       "path": "docs/RUNBOOK.md",
-      "bytes": 11649,
-      "sha256": "7eb0da2c314c073d6e07fd34fb08c1d35384d0a62bc68b0564e3eb603d455e65"
+      "bytes": 11898,
+      "sha256": "49226c3e801e2cf2b03b575405555270d8d2d73d4d51631d073aad1567e67cd5"
     },
     {
       "path": "docs/TELEGRAM_CONNECTOR.md",
@@ -440,7 +445,7 @@
     {
       "path": "tools/r20_validate_synthesis.py",
       "bytes": 1368,
-      "sha256": "5be623b010ffc8eca74843b48772104a9e22d83d1a982742f7fbc7cf499a08ed"
+      "sha256": "54baca1992b338af1a75c4f1299b49c6c3c44310ed0d06a58148e3bbed70b9f9"
     },
     {
       "path": "tools/s1_charge_evidence_math.py",
@@ -473,9 +478,14 @@
       "sha256": "a9f6f7dc1387ab2e2f9ffab9d87aa88a16754c42fc997aad51a45d9fd090bdc2"
     },
     {
+      "path": "tools/s2_retention_audit.py",
+      "bytes": 1743,
+      "sha256": "caa85b4f472a26d36c286dae56c726be8cacfc0e22d74d3f8d2c2c4eba4c2520"
+    },
+    {
       "path": "tools/validate_research_acceptance.py",
       "bytes": 970,
-      "sha256": "d01bd06be57bdad98af269f131509237f9905c0f2d09d56ce58c456aee42c0ba"
+      "sha256": "30e9b14dbcccfa2df023f3a05d2ac88394ff526127c74322e00badab1c016c71"
     }
   ],
   "omitted": []

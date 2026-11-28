@@ -114,3 +114,5 @@
 | H83 | Independent functional reference, valid actual CV telemetry and model-specific history may reduce false charge completion relative to tail current | OPEN | S1 report38; matched independent specimens |
 
 | H84 | Matched final functional charge/history and measured Q/Wh/gas may distinguish waveform benefit from unequal charge and ordinary conditioning | OPEN | S2 report39; independent controls |
+
+| H85 | Matched multi-endpoint longitudinal tests may detect functional charge-acceptance decline despite unchanged reference capacity | OPEN | S2 report40; independent controls, fixed preparation |

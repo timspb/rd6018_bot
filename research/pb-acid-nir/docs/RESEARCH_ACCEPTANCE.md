@@ -23,7 +23,7 @@
 | R16 | Электролит/сплавы | PASS (19_R16_ELECTROLYTE_ALLOYS.md) | PASS | NBS RP1165, original archive + r16_nbs_solubility_analysis.py | OPEN | Связь solubility/speciation и транспорт с C20/ресурсом; состав/SG/T | OPEN | Модельная лабораторная программа, без вмешательства в АКБ |
 | R17 | Углерод/NAM/PAM | PASS (20_R17_CARBON_ACTIVE_MASS.md) | PASS | Первичные открытые PDF + r17_quantitative_provenance.py | OPEN | Доза/структура/профиль DCA vs HER/water loss, независимые controls | OPEN | Материалы/производство/ресурс, отдельно NAM и PAM; не retrofit |
 | R18 | Переполюсовка | PASS (21_R18_POLARITY_REVERSAL.md) | PASS | R18 primary source review, R19 Lee 2023 40-cycle series | OPEN | Разделить инверсию электрода/элемента/клемм и обратимость/ресурс | OPEN | Наблюдение имеющихся архивных событий; без намеренной инверсии |
-| R19 | Устойчивость восстановления | PASS (22_R19_RECOVERY_DURABILITY.md) | PASS | R20-A03/A04 Lam, Bopp, Hund; R19 longitudinal outcomes | OPEN | Долгосрочные matched controls, EFC/calendar/CCA/вода, не immediate Ah | OPEN | Протокол retention и заранее заданный минимальный полезный эффект |
+| R19 | Устойчивость восстановления | PASS (22_R19_RECOVERY_DURABILITY.md) | PASS | R20-A03/A04 Lam, Bopp, Hund; R19 longitudinal outcomes | PASS | R19/reports26–27/40: separate immediate, retention, functional EFC/calendar and EOL; ordinary-charge comparator; durable superiority NOT_ESTABLISHED; censored outcomes explicit | OPEN | Протокол retention и заранее заданный минимальный полезный эффект |
 | R20 | Синтез и доказательность | PASS (23_R20_SYNTHESIS.md) | PASS | A06–A10 raw data and executed grouped baseline, external admission | OPEN | Поутвержденческая матрица E/T, D09, раздельные UNKNOWN и доказанные результаты | OPEN | Консолидированная программа/рекомендации D08 только по подтвержденным выводам |
 
 ## Исходное состояние
@@ -51,3 +51,6 @@ Current PASS 48/88 (54.5%); D22 Q19 K6 P1. R04/R08/R10/R14 K bounded documentary
 
 ## S2 block 1
 Current PASS 49/88 (55.7%); D22 Q19 K7 P1. R03-K bounded documentary accepted after NASA/Lam/Cooper/James/Minami/D09 review. R03-P and R19-K/P remain OPEN. No change in denominator or physical acceptance.
+
+## S2 block 2
+Current PASS 50/88 (56.8%); D22 Q19 K8 P1. R19-K bounded documentary accepted from R19/A03/A04 and report40. Specific durable restoration UNKNOWN, R19-P OPEN; no denominator change or physical acceptance.

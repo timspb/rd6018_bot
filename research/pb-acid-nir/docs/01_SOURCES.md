@@ -123,3 +123,6 @@ Official GS Yuasa NP manual rev5/00 https://gsyuasa-es.com/Downloads/NP_Applicat
 
 ## S2 block1
 James et al. 2006 DOI 10.1016/j.jpowsour.2005.02.018 original PDF mirror machine text Tables1–3, screenshot cache miss, local download timeout; Minami et al. 2004 DOI 10.4130/jaev.2.541 original PDF archived SHA256 3784e3a3c5f561185688f5e51af91805a7ae076b0de06584cb07c938a925a9c4, visual check unavailable. Mankov et al. 2026 official indexed abstract only; Cleland table unavailable. Baradari 2025 DOI 10.1016/j.nexres.2025.100659 abstract, 2022 fast-charge study PII S2352152X22018291 abstract, Hamdan 2025 abstract previously recorded. See report39.
+
+## S2 block2
+Sandia/EESAT 2009 Large Format Carbon Enhanced VRLA Battery Test Results official original https://www.sandia.gov/files/ess/EESAT/2009_papers/Large%20Format%20Carbon%20Enhanced%20VRLA%20Battery%20Test%20Results.pdf pp2,5 visual verified, original archived/hash report40. INL/EXT-12-28003 https://avt.inl.gov/sites/default/files/pdf/hev/UltraBatteryReport.pdf §4.3.1 original machine text, visual and local archive 403. Alipour/Nasseri 2025 DOI 10.1016/j.nexres.2025.100399 abstract and indexed snippets; full text 403, denominator unknown. Thong et al. 2025 DOI 10.1016/j.est.2025.116745 and 2023 DOI 10.1016/j.est.2023.109041 abstract/snippets, overlap not established; no quantitative admission. Report40.

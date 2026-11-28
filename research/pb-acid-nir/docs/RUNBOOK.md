@@ -42,3 +42,5 @@ S1 block3: tools/s1_stratification_audit.py downloads public originals and check
 S1 block4: tools/s1_completion_uncertainty.py public source archive and synthetic arithmetic. Read report38 for limits. S2 after S1 deliverable, carry unresolved criteria forward; no hardware or deployment.
 
 S2 block1: tools/s2_pulse_comparison.py reproduces Table1/3 descriptive arithmetic and public archive. Distinguish measured gas and estimated input Ah, historical FAT and matched control, predicted life and observed EOL. Read report39.
+
+S2 block2: tools/s2_retention_audit.py archives primary reports and computes descriptive changes; report40. Distinguish scheduled cycle cap, actual failure, shallow cycle count and measured throughput EFC; recovery yield denominator must be known.

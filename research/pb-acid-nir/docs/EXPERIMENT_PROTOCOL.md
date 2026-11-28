@@ -65,3 +65,5 @@ S1 report37: compare ordinary model-approved charge and only manufacturer-author
 S1 report38: compare matched ordinary charge, independent reference capacity, actual CV and history; paired difference-in-differences covariance, predefined practical effect and interval, distinguish meaningful benefit / small difference / inconclusive. Separate safety stop from success. Draft; model-specific limits, calibration, delta_min and sample size not yet fixed, no P gate or permission.
 
 S2 report39: compare independently measured signed Ah/Wh, equivalent functional final state and temperature/time/history; report gas both absolute and normalized by measured charge and recovered capacity. Control ordinary cycling, use independent specimens; no inferred waveform settings or physical permission.
+
+S2 report40: standardize reference test frequency and preparation because checkups themselves can restore operability. Record capacity, PSoC repetitions, charge acceptance, self-discharge, temperature, water/thermal indicators, calendar and cumulative discharge Ah; distinguish actual EOL and censored data. Model-specific thresholds and sample size remain open.
