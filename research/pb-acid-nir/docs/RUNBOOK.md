@@ -68,3 +68,5 @@ D10 strict read-only: four authorized Telegram sources, no join/leave, messages/
 S5 extension: telegram_connector/read_cycling_extension.py, tools/s5_finalize_cycling_extension.py local only. Audit IDs, rates, reboot and charge-history confounders; report52. No physical intervention.
 
 S5 author/measurement triage: telegram_connector/read_author_beregok.py and read_author_attachments.py, tools/s5_author_triage.py, tools/s5_finalize_author_audit.py local only. Image read_file content_items, visual verification before chemistry admission. D10 strictly read-only. See report53.
+
+S5 extended author audit: telegram_connector/read_s54.py, read_s54_media.py, read_s54_ups.py, tools/s54_triage.py, tools/s54_finalize.py local only. Verify duplicate image hashes and same specimen; D10. Report54.
