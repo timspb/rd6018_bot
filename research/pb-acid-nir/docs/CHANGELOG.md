@@ -83,3 +83,5 @@
 2026-11-29 S2 block1 report39, C154–157/H84, 49/88, R03-K documentary accepted. Minami PDF archived, James arithmetic checked. S1 published 9fadd9f6. No hardware.
 
 2026-11-29 S2 block2 report40, C158–161/H85, 50/88, R19-K bounded documentary accepted. Sandia original archived; INL archive blocked. Block1 published 58f5226a. No hardware.
+
+2026-11-29 S2 block3 report41, C162–164/H86, 52/88, R17/R18-K documentary accepted; Hu original archived. Block2 published 27d0735f. No equipment.

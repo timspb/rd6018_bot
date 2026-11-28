@@ -67,3 +67,5 @@ S1 report38: compare matched ordinary charge, independent reference capacity, ac
 S2 report39: compare independently measured signed Ah/Wh, equivalent functional final state and temperature/time/history; report gas both absolute and normalized by measured charge and recovered capacity. Control ordinary cycling, use independent specimens; no inferred waveform settings or physical permission.
 
 S2 report40: standardize reference test frequency and preparation because checkups themselves can restore operability. Record capacity, PSoC repetitions, charge acceptance, self-discharge, temperature, water/thermal indicators, calendar and cumulative discharge Ah; distinguish actual EOL and censored data. Model-specific thresholds and sample size remain open.
+
+S2 report41: distinct estimands for equal elapsed time, equal net charge and equivalent functional endpoint; do not assume all can be matched simultaneously. Separate factory prevention and field restoration, matched standard-charge control, no deliberate reversal. P gates open for verified model-specific metrology and limits.

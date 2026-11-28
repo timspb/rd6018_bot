@@ -126,3 +126,6 @@ James et al. 2006 DOI 10.1016/j.jpowsour.2005.02.018 original PDF mirror machine
 
 ## S2 block2
 Sandia/EESAT 2009 Large Format Carbon Enhanced VRLA Battery Test Results official original https://www.sandia.gov/files/ess/EESAT/2009_papers/Large%20Format%20Carbon%20Enhanced%20VRLA%20Battery%20Test%20Results.pdf pp2,5 visual verified, original archived/hash report40. INL/EXT-12-28003 https://avt.inl.gov/sites/default/files/pdf/hev/UltraBatteryReport.pdf §4.3.1 original machine text, visual and local archive 403. Alipour/Nasseri 2025 DOI 10.1016/j.nexres.2025.100399 abstract and indexed snippets; full text 403, denominator unknown. Thong et al. 2025 DOI 10.1016/j.est.2025.116745 and 2023 DOI 10.1016/j.est.2023.109041 abstract/snippets, overlap not established; no quantitative admission. Report40.
+
+## S2 block3
+Hu et al. 2016 Int J Electrochem Sci 11:1416–1433 https://www.electrochemsci.org/papers/vol11/110201416.pdf original machine text §§2.4/3.4, locally archived SHA256 report41; screenshot timeout. Cattelan et al. 2026 DOI 10.1016/j.electacta.2026.148994 University of Padova original methods/results machine text, local HTTP403, screenshot cache miss; same research lineage R17-S11, not independent repeat. Ruetschi 2003 DOI 10.1016/S0378-7753(02)00683-3 original mirror machine text §3, local timeout, screenshot cache miss. Report41 records limitations.

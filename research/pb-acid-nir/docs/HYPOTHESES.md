@@ -116,3 +116,5 @@
 | H84 | Matched final functional charge/history and measured Q/Wh/gas may distinguish waveform benefit from unequal charge and ordinary conditioning | OPEN | S2 report39; independent controls |
 
 | H85 | Matched multi-endpoint longitudinal tests may detect functional charge-acceptance decline despite unchanged reference capacity | OPEN | S2 report40; independent controls, fixed preparation |
+
+| H86 | Joint NAM/PAM structure, gas/water and capacity endpoints may distinguish interface/transport improvements from apparent current gains | OPEN | S2 report41; independent matched factory specimens |

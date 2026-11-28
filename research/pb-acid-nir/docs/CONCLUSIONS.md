@@ -191,3 +191,7 @@ C158 — Sandia 2009 carbon-enhanced VRLA bank retains reference capacity while 
 C159 — Same bank shows different capacities after rest and repeated cycling, even after approximate author temperature correction; preparation matters. S2 report40.
 C160 — INL simulated hybrid drive-profile repetition counts recover after full recharge/capacity check in three SOC windows, not established persistent recovery. S2 report40.
 C161 — Alipour/Nasseri 2025 screen 697 warehouse VRLA; claimed 72% recovery efficiency denominator and durability unverified in accessible material. S2 report40.
+
+C162 — Hu 2016 observed material-dependent opposite HER effects and different capacity/water trajectories; positive grid corrosion at comparison failure; no universal additive benefit. S2 report41.
+C163 — Cattelan 2026 three prototype batches show >5% normalized specific C20 improvement for selected PAM materials and different post-test structure; gas-current partition model-based, no measured EOL. S2 report41.
+C164 — Ruetschi 2003 half-cell observations distinguish positive/negative limiting electrodes and complex reversal; terminal voltage cannot uniquely identify electrode state. S2 report41.

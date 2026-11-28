@@ -183,3 +183,6 @@ C01–C157 / H01–H84. Report39: waveform gas normalization, historical capacit
 
 ## S2 block2
 C01–C161 / H01–H85. Report40: retained capacity can coexist with declining PSoC operability; full-charge/checkup itself is intervention; distinguish recovery yield denominator, observation and EOL. R19-K bounded documentary accepted; durable superiority over ordinary charge NOT_ESTABLISHED; no P or physical acceptance.
+
+## S2 block3
+C01–C164 / H01–H86. Report41: material-dependent HER sign, PAM/NAM coupled reaction and corrosion behavior, electrode-resolved discharge/reversal distinctions. R17-K/R18-K bounded documentary accepted; no optimal additive, reverse-charge efficacy or physical protocol accepted. No production actions.

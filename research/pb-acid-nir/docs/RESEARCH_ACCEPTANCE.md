@@ -21,8 +21,8 @@
 | R14 | Ca/Ca/EFB/AGM/GEL | PASS (17_R14_CONSTRUCTION_CACA_EFB_AGM_GEL.md) | PASS | Report36 Bauknecht 2022 Table A1 four EFB variants and cell geometry; rank reversal | PASS | R14/R16/R17/reports36–38: alloy, electrolyte, gas exchange, NAM/PAM, duty and transfer separated; universal ranking UNKNOWN | OPEN | Отдельные профили/пределы применимости, без общей уставки |
 | R15 | Температура | PASS (18_R15_TEMPERATURE.md) | OPEN | Проверить количественные парные Q(T) и ресурсные данные, без смешения образцов | OPEN | Обратимый температурный эффект vs история старения; T_sensor vs T_internal | OPEN | Термометрия, стабилизация, допустимые диапазоны и неопределенность |
 | R16 | Электролит/сплавы | PASS (19_R16_ELECTROLYTE_ALLOYS.md) | PASS | NBS RP1165, original archive + r16_nbs_solubility_analysis.py | OPEN | Связь solubility/speciation и транспорт с C20/ресурсом; состав/SG/T | OPEN | Модельная лабораторная программа, без вмешательства в АКБ |
-| R17 | Углерод/NAM/PAM | PASS (20_R17_CARBON_ACTIVE_MASS.md) | PASS | Первичные открытые PDF + r17_quantitative_provenance.py | OPEN | Доза/структура/профиль DCA vs HER/water loss, независимые controls | OPEN | Материалы/производство/ресурс, отдельно NAM и PAM; не retrofit |
-| R18 | Переполюсовка | PASS (21_R18_POLARITY_REVERSAL.md) | PASS | R18 primary source review, R19 Lee 2023 40-cycle series | OPEN | Разделить инверсию электрода/элемента/клемм и обратимость/ресурс | OPEN | Наблюдение имеющихся архивных событий; без намеренной инверсии |
+| R17 | Углерод/NAM/PAM | PASS (20_R17_CARBON_ACTIVE_MASS.md) | PASS | Первичные открытые PDF + r17_quantitative_provenance.py | PASS | R17/reports36,40,41: carbon dose and structure, NAM/PAM, DCA/HER/water/corrosion, opposite effects; optimal material UNKNOWN | OPEN | Материалы/производство/ресурс, отдельно NAM и PAM; не retrofit |
+| R18 | Переполюсовка | PASS (21_R18_POLARITY_REVERSAL.md) | PASS | R18 primary source review, R19 Lee 2023 40-cycle series | PASS | R18/R19/report41: separate electrode potential, cell and pack reversal; accidental survivability and bundled restoration do not establish durable efficacy | OPEN | Наблюдение имеющихся архивных событий; без намеренной инверсии |
 | R19 | Устойчивость восстановления | PASS (22_R19_RECOVERY_DURABILITY.md) | PASS | R20-A03/A04 Lam, Bopp, Hund; R19 longitudinal outcomes | PASS | R19/reports26–27/40: separate immediate, retention, functional EFC/calendar and EOL; ordinary-charge comparator; durable superiority NOT_ESTABLISHED; censored outcomes explicit | OPEN | Протокол retention и заранее заданный минимальный полезный эффект |
 | R20 | Синтез и доказательность | PASS (23_R20_SYNTHESIS.md) | PASS | A06–A10 raw data and executed grouped baseline, external admission | OPEN | Поутвержденческая матрица E/T, D09, раздельные UNKNOWN и доказанные результаты | OPEN | Консолидированная программа/рекомендации D08 только по подтвержденным выводам |
 
@@ -54,3 +54,6 @@ Current PASS 49/88 (55.7%); D22 Q19 K7 P1. R03-K bounded documentary accepted af
 
 ## S2 block 2
 Current PASS 50/88 (56.8%); D22 Q19 K8 P1. R19-K bounded documentary accepted from R19/A03/A04 and report40. Specific durable restoration UNKNOWN, R19-P OPEN; no denominator change or physical acceptance.
+
+## S2 block 3
+Current PASS 52/88 (59.1%); D22 Q19 K10 P1. R17-K/R18-K bounded documentary accepted; R17-P/R18-P/R03-P/R19-P remain OPEN. S2 comparative design constraints recorded; actual sample size, calibrated metrology and model-specific limits unresolved. No change to denominator or physical acceptance.

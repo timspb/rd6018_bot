@@ -16,6 +16,6 @@ for x in rows:
  for j,k in enumerate([3,5,7],1):
   assert x[k] in ('PASS','OPEN') and x[k+1]
   counts[j]+=x[k]=='PASS'
-assert counts==[22,19,8,1],counts
-assert 'Current PASS 50/88' in t
+assert counts==[22,19,10,1],counts
+assert 'Current PASS 52/88' in t
 print('ACCEPTANCE_COUNT_PASS',sum(counts),'/',len(rows)*4,'D Q K P',counts)

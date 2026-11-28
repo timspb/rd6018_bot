@@ -23,7 +23,7 @@
 | R17 | Углерод и активные массы | P1 | PARTIAL | 20_R17_CARBON_ACTIVE_MASS |
 | R18 | Переполюсовка и последствия | P1 | PARTIAL | 21_R18_POLARITY_REVERSAL |
 | R19 | Устойчивость восстановления | P0 | PARTIAL | 22_R19_RECOVERY_DURABILITY |
-| R20 | Синтез алгоритмов, evidence grades и no-go границ | P0 | PARTIAL | 23_R20_SYNTHESIS + 24_R20_EVIDENCE_GAP_AUDIT + 25_R20_LONGITUDINAL_METROLOGY + 26_R20_CONTROLLED_COMPARISONS + 27_R20_REVERSIBLE_LOSS_LIMITS + 28_R20_PCL_IDENTIFIABILITY + 29_R20_RAW_EIS_AND_LABELS + 30_R20_ZHIT_AND_CAPACITY + 31_R20_MULTIFEATURE_BASELINES + 32_R20_REST_HISTORY + 33_R20_COVERAGE_EXTERNAL_DATA + 34_S1_CHARGE_STRATIFICATION_OPZS + 35_S1_GAS_SULFATE_MAIN + 36_S1_TRANSFER_AND_MIX + 37_S1_STRATIFICATION_COMPARISON + 38_S1_COMPLETION_AND_RECOVERY_MATRIX + 39_S2_PULSE_GAS_COMPARISON + 40_S2_RETENTION_AND_RESOURCE |
+| R20 | Синтез алгоритмов, evidence grades и no-go границ | P0 | PARTIAL | 23_R20_SYNTHESIS + 24_R20_EVIDENCE_GAP_AUDIT + 25_R20_LONGITUDINAL_METROLOGY + 26_R20_CONTROLLED_COMPARISONS + 27_R20_REVERSIBLE_LOSS_LIMITS + 28_R20_PCL_IDENTIFIABILITY + 29_R20_RAW_EIS_AND_LABELS + 30_R20_ZHIT_AND_CAPACITY + 31_R20_MULTIFEATURE_BASELINES + 32_R20_REST_HISTORY + 33_R20_COVERAGE_EXTERNAL_DATA + 34_S1_CHARGE_STRATIFICATION_OPZS + 35_S1_GAS_SULFATE_MAIN + 36_S1_TRANSFER_AND_MIX + 37_S1_STRATIFICATION_COMPARISON + 38_S1_COMPLETION_AND_RECOVERY_MATRIX + 39_S2_PULSE_GAS_COMPARISON + 40_S2_RETENTION_AND_RESOURCE + 41_S2_MATERIAL_REVERSAL_EVIDENCE |
 Параллельно: архив первоисточников; форумные эксперименты; диагностические случаи; метрология будущего стенда. CASE-001: наблюдение ограничено, диагноз не установлен. R20 не означает готовность к деплою.
 
 ## Детализация приёмки и длительные спринты
@@ -38,3 +38,5 @@ S1 deliverable completed (reports34–38); 48/88. Open gates carried forward, no
 S2 block1: 49/88, R03-K accepted. Next comparative retention/aging studies and waveform accounting protocol; prevention separate from restoration, avoid model-predicted life as measured EOL.
 
 S2 block2: 50/88; R19-K accepted. Continue R17 material/HER tradeoffs, R18 electrode/cell inversion distinction, waveform accounting and retention protocol gates; no special treatment validated.
+
+S2 block3: 52/88; R17-K/R18-K documentary accepted. Next S2 comparative waveform/retention analysis plan and metrology checks, then S3 diagnostics. No intentional reversal or factory recipe transfer.
