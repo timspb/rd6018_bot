@@ -7,7 +7,7 @@ def main():
     t=time.perf_counter()
     with k.connect() as c:
         counts=dict(c.execute('SELECT category,count(*) FROM items GROUP BY category'))
-        assert counts['claim']==192 and counts['hypothesis']==93 and counts['supplement']==27
+        assert counts['claim']==192 and counts['hypothesis']==93 and counts['supplement']==28
         tests=[('хлыст','S013','supplement'),('бережок','S008','supplement'),('сульфатация','C01','claim'),('импеданс','C16','claim')]
         for q,id,cat in tests:
             hits=k.search(c,q,15,cat); assert id in [h['id'] for h in hits],(q,id)

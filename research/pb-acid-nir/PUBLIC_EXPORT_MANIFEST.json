@@ -308,14 +308,19 @@
       "sha256": "11741b77087fb3b0c4b0eb6bbf5ed5cb4cbbb27a5573cc3315d61a9de6bcf42b"
     },
     {
+      "path": "docs/60_S5_P3_TRANSIENT_DIAGNOSTICS.md",
+      "bytes": 8430,
+      "sha256": "aa8c3e84bd02d48919858a2200ac2cbe75e04c191dddc9553605a36f8cc8c251"
+    },
+    {
       "path": "docs/AGENTS.md",
       "bytes": 4623,
       "sha256": "f2f1981a37a9d563f573f46bfe9dd33c80bb2358b104e88bace8ef2a7059475a"
     },
     {
       "path": "docs/CHANGELOG.md",
-      "bytes": 17540,
-      "sha256": "bc27d1c22a01aaf60160a5ff2120ca680fa634567dcd01178c0e37192fee11e6"
+      "bytes": 17958,
+      "sha256": "a4ddfa5724d2804d922afac3181a574a551e7ef3b64317ebf42eb5ce2a96b3de"
     },
     {
       "path": "docs/CONCLUSIONS.md",
@@ -324,8 +329,8 @@
     },
     {
       "path": "docs/CURRENT_CHECKPOINT.md",
-      "bytes": 37756,
-      "sha256": "bf9b0a56ec7a046f1ab81ff7285934c76e0fbabc89d9997a959547b81242cb37"
+      "bytes": 38179,
+      "sha256": "2b280308feb18f9c900a4a185fc6998c705193bc97d96d65ed68f8694b065161"
     },
     {
       "path": "docs/DECISIONS.md",
@@ -334,13 +339,13 @@
     },
     {
       "path": "docs/EXPERIMENT_PROTOCOL.md",
-      "bytes": 25208,
-      "sha256": "5081e00d9a70c842d3b225d5baaadddbc9c51d3041926279c17090cb0e997abd"
+      "bytes": 25626,
+      "sha256": "09b4c515aff03a7ee4823e38f6be2e1b32dbb3c59fd711f36e46b34f1a9d3adb"
     },
     {
       "path": "docs/HANDOFF_NEW_CHAT.md",
-      "bytes": 27046,
-      "sha256": "99361d469cff327c93412c0558bf3662223403262d8de6c579803b51e6bac0c7"
+      "bytes": 27469,
+      "sha256": "97ca51eeddebccd152ecd15613996d8476997729a620eebfa9f8b4dd71769696"
     },
     {
       "path": "docs/HYPOTHESES.md",
@@ -354,13 +359,13 @@
     },
     {
       "path": "docs/KNOWLEDGE_START.md",
-      "bytes": 6742,
-      "sha256": "9a4410692c1b6aac7ecd5ffecf54662dfa8c6cba76b8284c9794a0053ecaac3a"
+      "bytes": 7217,
+      "sha256": "123034f6e64b9f9287a71e3e5d69aac4b87a9fe1df27bd07f7507f990a0e197d"
     },
     {
       "path": "docs/KNOWLEDGE_SUPPLEMENT.md",
-      "bytes": 8632,
-      "sha256": "4b79db4512fad95a4768ba9519b38c03a07a1355d5d08803224298723d7b9bae"
+      "bytes": 9040,
+      "sha256": "aa55f09b5c6b2a2b9ccac7824c008619b81e7131e80727203ff2e5f43a4beb22"
     },
     {
       "path": "docs/OPERATOR_METHODS.md",
@@ -379,13 +384,13 @@
     },
     {
       "path": "docs/ROADMAP.md",
-      "bytes": 12361,
-      "sha256": "47a4ead4adbbb8d064661338dcccad55229a6a02db7cf3666a6e78fd04635566"
+      "bytes": 12779,
+      "sha256": "786dc563ca9a28c992a470da4dce5f48d8e7353d6ddfedb7f18b8941014df8a7"
     },
     {
       "path": "docs/RUNBOOK.md",
-      "bytes": 16296,
-      "sha256": "e626f5c932492a39239f0f39e6cc9ed21b476c2bbc52297fd2cb89bb51943cf4"
+      "bytes": 16505,
+      "sha256": "e4f8428b1fe2ad0f91bfe90123387d0202c445f39b41012b6d27a5dea2c1f04c"
     },
     {
       "path": "docs/TELEGRAM_CONNECTOR.md",
@@ -405,7 +410,7 @@
     {
       "path": "tools/knowledge_index_test.py",
       "bytes": 1959,
-      "sha256": "e8f9f7e51687cb05e0d9ed1c51187e46819d9dd949cb475ce50437794e81c6a6"
+      "sha256": "740d1cd938fc8634020c17e9c5e32e9670ae50c1442653f0a7e4c21ed0ee86d6"
     },
     {
       "path": "tools/r11_capacity_analysis.py",
@@ -666,6 +671,11 @@
       "path": "tools/s5_mohsin_error_audit.py",
       "bytes": 1222,
       "sha256": "515d37bc132f6f70bf79549963b461ebebc1fa091ea43a246eacb16d579b863b"
+    },
+    {
+      "path": "tools/s5_p3_transients.py",
+      "bytes": 7941,
+      "sha256": "25c445fceb7c03e54a288b0de1eb49b9432d92ad1dbbd87828677a80b23b5192"
     },
     {
       "path": "tools/s5_reference_protocol.py",

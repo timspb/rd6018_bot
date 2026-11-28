@@ -1,9 +1,9 @@
 # Pb-Research — единая точка входа
-Актуально: 29.11.2026. Канон 00_CANON.md и решения D07/D08/D09/D10 обязательны. Научная база ≠ готовый алгоритм зарядки. Чек-лист RESEARCH_ACCEPTANCE.md: D22/22, Q20/22, K19/22, P1/22; теория 61/66, весь НИР 62/88. Пять теоретических пробелов: R04-D-Q, R09-Q, R05-K, R06-K, R12-K. Протоколы P1/P2 проект report56; P3 и далее не закрыты.
+Актуально: 29.11.2026. Канон 00_CANON.md и решения D07/D08/D09/D10 обязательны. Научная база ≠ готовый алгоритм зарядки. Чек-лист RESEARCH_ACCEPTANCE.md: D22/22, Q20/22, K19/22, P1/22; теория 61/66, весь НИР 62/88. Пять теоретических пробелов: R04-D-Q, R09-Q, R05-K, R06-K, R12-K. Протоколы P1/P2 проект report56; P3: проект и 16 синтетических проверок report60; P4/P5 далее.
 ## Быстрый доступ
 Markdown — первичный версионируемый источник. SQLite FTS5 — производный индекс, не источник истины. Индекс строится только из корневых md (или docs/ в экспортном репозитории), без private/, sources/telegram, session, PDF и исходных логов.
 - Научный вывод Cxxx: 49_S5_STATEMENT_EVIDENCE_MATRIX.md (192 записей, E/T и ограничения).
-- Дополнительная запись Sxxx: KNOWLEDGE_SUPPLEMENT.md (27 записей reports51–59, не независимые новые C).
+- Дополнительная запись Sxxx: KNOWLEDGE_SUPPLEMENT.md (28 записей reports51–60, не независимые новые C).
 - Гипотеза Hxxx: HYPOTHESES.md (93 записи; проверять индивидуальный статус).
 - Источники: 01_SOURCES.md и исходные ссылки в отчётах. Ссылки из индекса являются текстовыми указателями, а не автоматически верифицированными первоисточниками.
 - Методология: EXPERIMENT_PROTOCOL.md, report56; рекомендации отдельно INTEGRATION_RD6018.md, без разрешения на внедрение.
@@ -27,3 +27,5 @@ Report57: independent VRLA field cohort Siekierski2026; Mohsin2022 Table III err
 Report58: M5BAT full article and data dictionary inspected (4 PDF pages visually); one 300/299-cell OCSM string, active vs reserve DCIR/throughput contrast, archive version and sensor/label limitations. Direct PDF acquisition returned non-PDF, raw parquet not acquired. BulyK47/Ali wrong chemistry; Hassan/Nayyer repeated C172 excluded as duplicate. S023–S025 indexed. Five theory gates remain OPEN,61/66, total62/88. Next Zeng/Mamadou full primary sources or independently labeled laboratory dataset; no repeated known-data downloads. No device work.
 
 Report59: Tomantschger1984 primary full PDF text, bulk/pore circulation distinction and temperature-dependent reversal of energy effect; figures not visually confirmed. Zeng/Mamadou previews rechecked, full evidence unavailable. Current documentary search pass bounded-complete; five empirical gates remain OPEN,61/66 theory,total62/88. S026–S027 indexed. Next P3/P4/P5 protocol consolidation; reopen targeted evidence gaps on genuinely new sources only. No device or physical tests.
+
+Report60: P3 transient feature protocol, CDF and finite-window relaxation with current/T/coverage and uncertainty guards, 16 synthetic checks PASS. Independent battery-level Q reference, mechanism labels, holdout, abstention and external EIS metrology distinguished. No actual diagnostic validation, C192/H93, S028; theory61/66, total62/88. Next P4 matched charging strategies then P5 retention. No hardware changes.

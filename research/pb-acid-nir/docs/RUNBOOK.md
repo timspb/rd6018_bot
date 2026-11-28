@@ -76,3 +76,5 @@ S5 CDF and interface: telegram_connector/read_s55.py, read_s55_media.py, tools/s
 S5 P1/P2: report56 and tools/s5_reference_protocol.py offline only; test reference conditions and uncertainty guard bands, never claim trace check equals calibrated standard or permission. Future BV-600 CDF in discharge diagnostics.
 
 Library optimization: KNOWLEDGE_START.md is the compact current entry; KNOWLEDGE_SUPPLEMENT.md contains S001–S018 scoped records from reports51–56 (not additional C claims). tools/knowledge_index.py builds a derived SQLite FTS5 index from Markdown, read-only search/get/stats, source lines/limits, stale-index detection. Local regression 16 queries passed. Theoretical 61/66, total62/88; five theoretical gaps remain; P3 paused during consolidation. Raw Telegram and private sources excluded. No device changes.
+
+P3 offline research: tools/s5_p3_transients.py; protocol report60. Do not treat synthetic data or CDF as proof of SOC, capacity or cause. Actual current, time, calibration and independent reference required.
