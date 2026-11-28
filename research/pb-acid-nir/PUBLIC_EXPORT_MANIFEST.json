@@ -14,8 +14,8 @@
     },
     {
       "path": "docs/01_SOURCES.md",
-      "bytes": 35748,
-      "sha256": "2c3d29856a9d4d9a49945f4ac64c681e118d1632be4877d70958190a5190d686"
+      "bytes": 36303,
+      "sha256": "820904c868c99131c8062279ecf651ec1256add216cb3ec9ee6d8a6539ab5c83"
     },
     {
       "path": "docs/02_EXPERIMENTS.md",
@@ -298,14 +298,19 @@
       "sha256": "5f02b1c03612a5385ce722e84180e946a05c64f7bdc3c458882fc8b6e4cbbea1"
     },
     {
+      "path": "docs/58_S5_DATASET_ADMISSION_M5BAT.md",
+      "bytes": 4598,
+      "sha256": "b986cd03d6ac2b387450d5bec64eb001174de268e44cde8d2204d0ad16bf0cca"
+    },
+    {
       "path": "docs/AGENTS.md",
       "bytes": 4623,
       "sha256": "f2f1981a37a9d563f573f46bfe9dd33c80bb2358b104e88bace8ef2a7059475a"
     },
     {
       "path": "docs/CHANGELOG.md",
-      "bytes": 16498,
-      "sha256": "18bec2e8cc1e7416c703daf4f2f358fd34b9dc5bad2238b8ad9c1df90d325b39"
+      "bytes": 17053,
+      "sha256": "bc2a3c2ea82c0e963c8224a2b270ae9064414f371ed7f118a48a7fcc1038e521"
     },
     {
       "path": "docs/CONCLUSIONS.md",
@@ -314,8 +319,8 @@
     },
     {
       "path": "docs/CURRENT_CHECKPOINT.md",
-      "bytes": 36711,
-      "sha256": "1f732c552993788fe6df44fc72c12247b1fb8dd8422623f9584616f55bf171f5"
+      "bytes": 37273,
+      "sha256": "6c148d37420a589d29cf15ba3cca008feeb9147947b5e49cf173b458a45c0cdc"
     },
     {
       "path": "docs/DECISIONS.md",
@@ -329,8 +334,8 @@
     },
     {
       "path": "docs/HANDOFF_NEW_CHAT.md",
-      "bytes": 26001,
-      "sha256": "4d682bec1ba5c490abe49d2ec12251f2c47d187f4d702f231ffd9da40c9181e4"
+      "bytes": 26563,
+      "sha256": "8626a2827a378a44602dfa877e2736476f95c93ff19fb007a341a7beecceeed1"
     },
     {
       "path": "docs/HYPOTHESES.md",
@@ -344,13 +349,13 @@
     },
     {
       "path": "docs/KNOWLEDGE_START.md",
-      "bytes": 5698,
-      "sha256": "f7983eacf08a2b135bc3100dfe5b173e78e24035e7ec5983bb94dab217947ae6"
+      "bytes": 6255,
+      "sha256": "7f674a2e0b985810a84cd927cf1ac4f9e6b03d4d5b14bab01e3a8cf8b3cf9136"
     },
     {
       "path": "docs/KNOWLEDGE_SUPPLEMENT.md",
-      "bytes": 6708,
-      "sha256": "89a7999290be228ca60ff9824e582843e4c48415892fc3304de591f6c47c41a8"
+      "bytes": 7720,
+      "sha256": "a26f47b229fee91e21ea7811c2ff7340130484ac608da763cd120764d8c5032f"
     },
     {
       "path": "docs/OPERATOR_METHODS.md",
@@ -369,8 +374,8 @@
     },
     {
       "path": "docs/ROADMAP.md",
-      "bytes": 11319,
-      "sha256": "48ebf00571aed5c395eb40857970c6e748ad2ac8aa50b394ce0663d73e611cc4"
+      "bytes": 11874,
+      "sha256": "67391b59213542fdf1a0de224dc0f71afb9fab7b20520415bbd1b67be447c004"
     },
     {
       "path": "docs/RUNBOOK.md",
@@ -395,7 +400,7 @@
     {
       "path": "tools/knowledge_index_test.py",
       "bytes": 1959,
-      "sha256": "54426625b59efd29409697a434a7915dda79a824d02e567248741a8a11c7deb0"
+      "sha256": "c17c9a964fb1fb3792cb3402cbf51c72804d2507ca93836320409525bf1648fa"
     },
     {
       "path": "tools/r11_capacity_analysis.py",
