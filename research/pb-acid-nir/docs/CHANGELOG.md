@@ -75,3 +75,5 @@
 2026-11-28 S1/A11: RESEARCH_ACCEPTANCE.md (88 gates, 39 baseline, 40 current), long sprint plan; report 34, OPzS alignment, DCA/stratification evidence; C136–C139/H79. A10 published d1253f88d3fb0020a0daee502484b3f3e9da62bb.
 
 2026-11-29 S1 block2: reports35–36, C140–146/H80–81, 43/88; four PDFs locally archived, two arithmetic tools executed; no production changes.
+
+2026-11-29 S1 block3: report37, C147–C149/H82, 44/88; two primary PDFs archived and arithmetic checked. Previous S1 block2 published eb3b8791. No production edits.

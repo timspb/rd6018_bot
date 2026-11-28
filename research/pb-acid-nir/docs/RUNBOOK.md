@@ -36,3 +36,5 @@ Run r20_coverage_audit.py after A09; independent dataset acquisition r20_a10_ext
 RESEARCH_ACCEPTANCE.md определяет S1–S5 и 88 критериев. Продолжать связанные подзадачи до содержательного checkpoint без запроса подтверждения на каждый шаг, фиксировать отрицательные результаты и недоступные источники, не повышать gate без свидетельства. Проверять матрицу скриптом validate_research_acceptance.py. A11 run r20_opzs_test_alignment.py; no physical capacity claims.
 
 S1 block2: tools/s1_charge_evidence_math.py and tools/s1_transfer_math.py reproduce published table arithmetic only. Distinguish bulk SG from pore transport and gas from useful charge. Update acceptance gates only when criteria evidence is present.
+
+S1 block3: tools/s1_stratification_audit.py downloads public originals and checks table arithmetic; report37. R09-K documentary distinction accepted, full protocol and water measurements still open. Preserve explicit separation of measured and inferred quantities.

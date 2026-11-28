@@ -171,3 +171,6 @@ Cumulative registry C01–C139 / H01–H79. Report 34_S1_CHARGE_STRATIFICATION_O
 
 ## S1 block 2 — C140–C146 / H80–H81
 Reports 35–36 add measured water-loss lot variability, charge history, local sulfate/current timing, geometry-dependent DCA and pore-flow restriction during gassing. No single tail current, gas onset, density or short DCA metric identifies charge completion or retained capacity. Distinguish bulk mixing from pore transport, and flooded from VRLA. C01–C146; H01–H81. Evidence grades and transfer limits in reports; independent target-model validation remains open.
+
+## S1 block3
+C01–C149 / H01–H82. Report37: industrial comparison and independent spatial measurement of starter battery; distinguish bulk homogenization, equalization across cells and functional recharge. R09-K documentary distinction accepted, specific treatment remains UNKNOWN and direct water/full protocol open. No physical validation.

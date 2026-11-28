@@ -13,7 +13,7 @@
 | R06 | Импеданс | PASS (09_R06_IMPEDANCE.md) | PASS | R20-A06/A07: 2104 original spectra, zHit preliminary, units open | OPEN | Независимый декодер, авторская маска/единицы, внешний cohort; Rdc vs EIS | OPEN | Валидность, повторяемость, matched SOC/T, критерий отказа от оценки |
 | R07 | Дифференциальная диагностика | PASS (10_R07_DIFFERENTIAL.md) | PASS | R13 Conradt full text; R20-A05/A10 independent constraints | OPEN | Матрица альтернативных механизмов и независимых меток, UNKNOWN/MIXED | OPEN | Held-out батареи, sensitivity/specificity/coverage и цена ошибки |
 | R08 | MAIN | PASS (11_R08_MAIN.md) | PASS | Sandia Stevens/Corey Fig1/2, Ah in/out; проверенная арифметика | OPEN | Сравнить tail current, charge factor, фактический CV и полную контрольную емкость по типам | OPEN | Модель-специфичный критерий завершения, ложные окончания, контроль Q/T |
-| R09 | MIX | PASS (12_R09_MIX_CRITERIA.md) | OPEN | Mamadou C&D полный протокол/данные; прямой SG(z) и водный баланс | OPEN | Разделить дестратификацию, выравнивание и дозаряд; форумные заявления D09 | OPEN | Условный протокол только в пределах спецификаций; независимые SG(z), Q, T/вода |
+| R09 | MIX | PASS (12_R09_MIX_CRITERIA.md) | OPEN | Mamadou C&D полный протокол/данные; прямой SG(z) и водный баланс | PASS | Reports R09,34–37: separate bulk gradient, inter-cell equalization, functional charge; D09 claims not independently replicated; specific MIX UNKNOWN | OPEN | Условный протокол только в пределах спецификаций; независимые SG(z), Q, T/вода |
 | R10 | Десульфатация | PASS (13_R10_DESULFATION.md) | PASS | R20-A03/A04 Lam/Bopp/Hund original figures and outcomes | OPEN | Matched standard-charge, неопределенность deltaQ, исключение повреждений | OPEN | Порог минимального значимого эффекта до опыта, повторный Q и retention |
 | R11 | C20/Пейкерт | PASS (14_R11_CAPACITY_PEUKERT.md) | PASS | IEC 60095-1:2018 protocol; A07 raw residual Q (не C20) | OPEN | Актуальная редакция по назначению, matched rate/T/cutoff и uncertainty | OPEN | Метрология/traceable интеграл, повторяемость, отдельные C10/C20/CCA |
 | R12 | SOC/SOH | PASS (15_R12_SOC_SOH.md) | PASS | A06–A10 grouped residual Q, direct Urest counterexample | OPEN | Внешняя выборка независимых fully charged C20; baseline/coverage | OPEN | Замороженный прогноз, интервалы, held-out physical batteries |
@@ -42,3 +42,6 @@ Current PASS 40/88 (45.5%), D22 Q16 K1 P1. R01-Q advanced on two quantitative pr
 
 ## S1 block 2
 Current PASS 43/88 (48.9%); D22 Q19 K1 P1. R02-Q/R04-Q/R14-Q admitted from reports35–36. R09-Q and all remaining K/P stay OPEN; critical matrix is draft, not model-specific validation.
+
+## S1 block 3
+Current PASS 44/88 (50.0%); D22 Q19 K2 P1. R09-K documentary distinction accepted after cross-check of R09 and reports34–37; R09-Q/P remain OPEN, physical validation separate. Earlier progress rows historical.

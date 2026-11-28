@@ -108,3 +108,5 @@
 
 | H80 | Independent reaction/gradient indicators and reference capacity may reduce false MAIN/MIX completion | OPEN | S1 report 35; matched tests, separate chemical and functional targets |
 | H81 | Bulk SG and pore transport measurements may distinguish mixing from improved acceptance | OPEN | S1 report 36; matched SOC/T/history, independent Q |
+
+| H82 | Validated spatial gradient plus independent water and retained-capacity endpoints may distinguish useful mixing from unnecessary extra charge | OPEN | S1 report37; matched flooded specimens, model-specific controls |

@@ -1,7 +1,7 @@
 # HANDOFF_NEW_CHAT — Pb-Research
 Дата обновления: 2026-11-29.
 NEXT_STAGE: R20
-CURRENT_REPORT: 36_S1_TRANSFER_AND_MIX.md (parent 23_R20_SYNTHESIS.md; RESEARCH_ACCEPTANCE.md)
+CURRENT_REPORT: 37_S1_STRATIFICATION_COMPARISON.md (parent 23_R20_SYNTHESIS.md; RESEARCH_ACCEPTANCE.md)
 Не начинать повторно R01–R20; использовать отчёты, источники и ledgers.
 
 ## Среда и порядок
@@ -62,3 +62,6 @@ Read RESEARCH_ACCEPTANCE.md then report 34. Baseline 39/88, current 40/88; 139 c
 
 ## S1 block2 current handoff
 Read RESEARCH_ACCEPTANCE.md, 35_S1_GAS_SULFATE_MAIN.md and 36_S1_TRANSFER_AND_MIX.md. 43/88 documentary gates; C146/H81. R02/R04/R14 quantitative primary gates accepted. Next S1 full controlled MIX/stratification and model-specific criteria/protocol matrix, do not claim universal U/I. Existing forum cases compared, no new Telegram raw access. Four primary PDFs archived; screenshot unavailable, source-specific limits recorded. No hardware tests. Verify GitHub HEAD separately.
+
+## S1 block3 current handoff
+Read report37 and RESEARCH_ACCEPTANCE.md. C149/H82, 44/88. R09-K documentary separation PASS; R09-Q/P still OPEN. New primary PDFs in sources/S1. No independently verified optimal MIX or upper/lower universal threshold. Next finish model-specific matrix, independent metrology/control protocols, remaining S1 critical reviews before S2. No production/hardware. Previous verified HEAD eb3b87917d2ea8733876cee9e04a4bab5e3d2d85; confirm current HEAD.

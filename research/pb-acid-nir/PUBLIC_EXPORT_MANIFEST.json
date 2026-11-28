@@ -14,8 +14,8 @@
     },
     {
       "path": "docs/01_SOURCES.md",
-      "bytes": 22773,
-      "sha256": "460eaeaed488869983b077253e3fa7cb68078db33cc8a5f803d21e1e0957f33d"
+      "bytes": 23372,
+      "sha256": "f9c494d8b5b443836006d46e727911f4bdc5f912d7d1d5037f7894ccc254a586"
     },
     {
       "path": "docs/02_EXPERIMENTS.md",
@@ -124,8 +124,8 @@
     },
     {
       "path": "docs/23_R20_SYNTHESIS.md",
-      "bytes": 35995,
-      "sha256": "7b215b0c1dfe5f35f4a0d5a68f41f2ba74c51431a70d749ef5045e9d8d901596"
+      "bytes": 36341,
+      "sha256": "f19c753145299364864a7fb4f2173e7eb06e80ac42063b58490d4310cc161029"
     },
     {
       "path": "docs/24_R20_EVIDENCE_GAP_AUDIT.md",
@@ -193,24 +193,29 @@
       "sha256": "e4315a079c5b042362cce6fade9af59716836913752c23ab2f3bb24f5faaf6da"
     },
     {
+      "path": "docs/37_S1_STRATIFICATION_COMPARISON.md",
+      "bytes": 8978,
+      "sha256": "50ec1f95192f8569405e810575b375141599663d4996db0ec6fbeb35b906f405"
+    },
+    {
       "path": "docs/AGENTS.md",
       "bytes": 4209,
       "sha256": "3c99d3667e3d700830c383ae5432f3941ba4c5e3184074c14a1f8b7a5657d5a7"
     },
     {
       "path": "docs/CHANGELOG.md",
-      "bytes": 10146,
-      "sha256": "cf21afcb351e8fb170b0f08d819d9ee61976dc1d05ecbd1f5fb0332696e69bbd"
+      "bytes": 10313,
+      "sha256": "c237bb83a8a8f6e8afa65698512511a617e94c155e4cbb9fc7f5aa46801da5b5"
     },
     {
       "path": "docs/CONCLUSIONS.md",
-      "bytes": 31457,
-      "sha256": "322e4883425def556a909be95a4580514a4f97197d53441a6e32a254791edc2a"
+      "bytes": 31961,
+      "sha256": "c65f3a567debf151aae9d237671b89e052f57489d4f48b9ccebe262d012413e0"
     },
     {
       "path": "docs/CURRENT_CHECKPOINT.md",
-      "bytes": 25378,
-      "sha256": "1f37a1c1269108f8cec0f0442936eff6a44ead504829877a5fa69625a3396dc3"
+      "bytes": 25894,
+      "sha256": "d5777f8fa6e047720f5d8413eea1faab23703029683e6a32d20e8142d936b131"
     },
     {
       "path": "docs/DECISIONS.md",
@@ -219,18 +224,18 @@
     },
     {
       "path": "docs/EXPERIMENT_PROTOCOL.md",
-      "bytes": 20585,
-      "sha256": "ff362686b29cad36be86a9196be2287e244072a6085957aef44754cdbedcce40"
+      "bytes": 21016,
+      "sha256": "92c2845bc386dfbb023a3fa374e9773766bfc6ca4a9f6f69ba5718550bbf2fae"
     },
     {
       "path": "docs/HANDOFF_NEW_CHAT.md",
-      "bytes": 13156,
-      "sha256": "398362a49369be3e2573a8c7d54217d4508970e77aab805640cfd8993dbe54bd"
+      "bytes": 13643,
+      "sha256": "127eedf4b3c170efff8afee41dd7af721b9ecf897cb75e4709bfa7abec97d3d3"
     },
     {
       "path": "docs/HYPOTHESES.md",
-      "bytes": 16033,
-      "sha256": "4df4f3d864afba0ca4374043f063fc428f8162bfc628d2ddc4c71eec2e7ccb49"
+      "bytes": 16259,
+      "sha256": "e73a755bb4728a7a67bc0326006d41ad6ee1b10cad068918c49ed9f7d8594ac4"
     },
     {
       "path": "docs/INTEGRATION_RD6018.md",
@@ -249,18 +254,18 @@
     },
     {
       "path": "docs/RESEARCH_ACCEPTANCE.md",
-      "bytes": 15128,
-      "sha256": "64455b456b452f2392b3eb316f3843d32419ac459f9e5d3dd32a935d21cfc163"
+      "bytes": 15371,
+      "sha256": "b41f627d26e62089c81feec00543418e81c354f941ce8ad5191496d3df098a41"
     },
     {
       "path": "docs/ROADMAP.md",
-      "bytes": 4009,
-      "sha256": "3cb35badf84bdbfe27299e390d84892e2ae110248a72ef2ae4efb6c58122c634"
+      "bytes": 4202,
+      "sha256": "9ba8a6b9de34bf0184d7f806fd3d66bd22b6db870f914f943a4114e6b50a37f5"
     },
     {
       "path": "docs/RUNBOOK.md",
-      "bytes": 10938,
-      "sha256": "4bf756ee2b00e0a1843c446e79ae7d599db8dcbbb7f6e5e14c43e847c32b083e"
+      "bytes": 11204,
+      "sha256": "0446c5f761a8dbcd58b39e7def7f1a47520bf2436bae4e5c884ec4ed98d8bcba"
     },
     {
       "path": "docs/TELEGRAM_CONNECTOR.md",
@@ -425,7 +430,7 @@
     {
       "path": "tools/r20_validate_synthesis.py",
       "bytes": 1368,
-      "sha256": "2fdbd5d4868fa25d895d65f631cd7c215decc73763111e19f5d711bf5d5c429e"
+      "sha256": "8b45f07863d91a0e75ef94531416b3318635084428ad3d00c23638e81a74971e"
     },
     {
       "path": "tools/s1_charge_evidence_math.py",
@@ -438,6 +443,11 @@
       "sha256": "521eaef99dcf8d919eabf547f80c986ab814bd6a419dc53daacbeac190baff9c"
     },
     {
+      "path": "tools/s1_stratification_audit.py",
+      "bytes": 1323,
+      "sha256": "f5698b651347b664b7d1cfb726aa9a1ecb2cfea358738ced5383e03aad1e0c17"
+    },
+    {
       "path": "tools/s1_transfer_math.py",
       "bytes": 479,
       "sha256": "87eb279a60c11d25cf2ae776306466bd7e457d07033c1c5363cc1e775673d6ba"
@@ -445,7 +455,7 @@
     {
       "path": "tools/validate_research_acceptance.py",
       "bytes": 970,
-      "sha256": "832e8549f34ceb4ffed8026df2cbfe2a178a7109ab36f94c720b3326d7000c05"
+      "sha256": "97a47cd2f50519267ec949d5a37e59a9ec1d4d87ef77ae3f52dcb2683507c43e"
     }
   ],
   "omitted": []

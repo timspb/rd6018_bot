@@ -172,3 +172,7 @@ C143 — Positive electrode EC-AFM current onset precedes visible sulfate dissol
 C144 — Cyclon AGM charge duration and capacity vary with PSoC history; one cell per regime, conditioning confounding; no full-SOC or lifetime proof. S1 report 35.
 C145 — DCA geometry and electrolyte reserve matter; EFB battery and reduced-cell rank reversal in Table A1, not universal transfer. S1 report 36.
 C146 — Forced-flow negative electrode normalized flow fell 70% at gassing in one study and recovered in later rest; no universal pause or gas criterion. S1 report 36.
+
+C147 — Industrial flooded mixing comparison at matched CF106% reduces gradient; waveform/order confounded, water figure not verified direct measurement. S1 report37.
+C148 — One 60Ah starter battery had mean vertical density difference .079g/cm3 after three cycles and four-hour rest; upper sensor independently checked, lower not. S1 report37.
+C149 — Multi-height optical sensing shows different density dynamics by height; one upper reading cannot establish complete homogenization. S1 report37.
