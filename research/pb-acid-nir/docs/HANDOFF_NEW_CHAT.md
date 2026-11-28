@@ -1,4 +1,5 @@
 # HANDOFF_NEW_CHAT — Pb-Research
+CURRENT_LIBRARY: KNOWLEDGE_START.md — authoritative compact navigation; historical notes below, not current counts.
 Дата обновления: 2026-11-29.
 NEXT_STAGE: R20
 CURRENT_REPORT: 56_S5_REFERENCE_CAPACITY_PROTOCOL.md (parent 23_R20_SYNTHESIS.md; RESEARCH_ACCEPTANCE.md)
@@ -10,8 +11,8 @@ CURRENT_REPORT: 56_S5_REFERENCE_CAPACITY_PROTOCOL.md (parent 23_R20_SYNTHESIS.md
 D07/D09: независимая научная проверка, отличать full text/author copy/abstract/preview/forum anecdote, сохранять отрицательные результаты и противоречия. Не превращать отдельную статью в универсальный зарядный профиль.
 
 ## Текущий результат R20
-R20 PARTIAL; 23_R20_SYNTHESIS.md. Синтезированы C01–C139 и H01–H79, присвоены уровни доказательности E1–E4 и переносимости T1–T4. Документ содержит тематические выводы R01–R19, разрешение кажущихся противоречий, no-go boundaries, требования к метрологии и требования к диагностической логике.
-tools/r20_validate_synthesis.py PASS: 139 unique conclusion IDs, 79 unique hypothesis IDs, no gaps. r20_capacity_evidence_math.py, validate_handoff.py, r20_source_quality_audit.py also PASS. R20 — только документальная синтеза; не валидированный алгоритм, не программа зарядки и не разрешение на аппаратное внедрение.
+R20 PARTIAL; 23_R20_SYNTHESIS.md. Синтезированы C01–C192 и H01–H93, присвоены уровни доказательности E1–E4 и переносимости T1–T4. Документ содержит тематические выводы R01–R19, разрешение кажущихся противоречий, no-go boundaries, требования к метрологии и требования к диагностической логике.
+tools/r20_validate_synthesis.py PASS: 192 unique conclusion IDs, 93 unique hypothesis IDs, no gaps. r20_capacity_evidence_math.py, validate_handoff.py, r20_source_quality_audit.py also PASS. R20 — только документальная синтеза; не валидированный алгоритм, не программа зарядки и не разрешение на аппаратное внедрение.
 R19 report 22_R19_RECOVERY_DURABILITY.md. Два 40-cycle studies (Karami 2009 inverse charge, Lee 2023 high-voltage extracted 2V cells), non-monotonic 10-week four-Gel series (Ohajianya 2021, no controls), Shi/Ferone/Rahn 2012/2013 residual aging, PNNL 18–28 month benchmark. R18 erratum adds Karami §3.4 40-cycle claim; exact ≥80% endurance metric/n/EOL unspecified.
 R19 PDFs archived locally: sources/R19/SHA256SUMS.txt. Telegram scope only 1800 recent messages; no controlled longitudinal case. No full-history scrape.
 No physical experiments, intentional cell reversal, reverse charge, VRLA opening, RD6018/ESP/node104/HA/BV-600 changes. All hardware implementation requires separate owner decision and dry-run.
@@ -120,3 +121,5 @@ S5 report54: 1000 earlier same-author posts (nonoverlap), Beregok 397/393 unique
 S5 report55: 2500 nonoverlap author posts total, 80/198 targeted CDF/interface source-ID pairs, four images inspected. Dimitrov/Pavlov 2001 Table1 alloy-dependent fast-charge outcomes including PbSb negative result; CaSn sequential recovery confounded by earlier cell replacement; table1/3 discrepancies recorded. Positive vs negative charge-current asymmetry; Rys 2021 and 2002/2006 CDF work: no universal capacity/SOC inference. Tyumen cycles38/39 net vs gross Ah corrections. Draft experimental discriminators, no deployment. E4 forum; C192/H93, 62/88. Next consolidate protocols and counter semantics.
 
 S5 report56: reference-capacity and metrology P1/P2 design, GOST R53165-2020 §§8/9.1 current/T/rest/cutoff and instrument tolerances; Delta FT12-105M original data sheet page2 visually checked and version conflicts noted. Offline s5_reference_protocol.py validates trace completeness, exact Ah/Wh, cutoff, uncertainty covariance and interval decisions on synthetic data only. CDF classified as discharge feature for future BV-600, not MAIN/MIX termination. R11-P remains OPEN pending review, 62/88; C192/H93 unchanged. Next P3 relaxation/CDF diagnostic protocol then P4/P5 comparison and retention. No physical tests or RD changes.
+
+Library optimization: KNOWLEDGE_START.md is the compact current entry; KNOWLEDGE_SUPPLEMENT.md contains S001–S018 scoped records from reports51–56 (not additional C claims). tools/knowledge_index.py builds a derived SQLite FTS5 index from Markdown, read-only search/get/stats, source lines/limits, stale-index detection. Local regression 16 queries passed. Theoretical 61/66, total62/88; five theoretical gaps remain; P3 paused during consolidation. Raw Telegram and private sources excluded. No device changes.

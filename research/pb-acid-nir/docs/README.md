@@ -3,7 +3,7 @@
 Рабочий корень HOME-PC: <RESEARCH_ROOT>.
 
 ## Текущий статус
-R20 PARTIAL: 23_R20_SYNTHESIS.md — синтез C01–C96 и H01–H61, evidence grades E1–E4, переносимость T1–T4, диагностические требования и no-go границы. Это документальная синтеза, не валидированный алгоритм и не разрешение на физический опыт. Сверять HANDOFF_NEW_CHAT.md и ROADMAP.md.
+R20 PARTIAL: 23_R20_SYNTHESIS.md — синтез C01–C192 и H01–H93, evidence grades E1–E4, переносимость T1–T4, диагностические требования и no-go границы. Это документальная синтеза, не валидированный алгоритм и не разрешение на физический опыт. Сверять HANDOFF_NEW_CHAT.md и ROADMAP.md.
 
 ## Структура
 - AGENTS.md, 00_CANON.md, RUNBOOK.md — обязательный канон и порядок работы.
@@ -19,3 +19,6 @@ R20 PARTIAL: 23_R20_SYNTHESIS.md — синтез C01–C96 и H01–H61, eviden
 На 28.11.2026 локальный <RESEARCH_ROOT> не содержит .git и не синхронизируется автоматически. Публичные материалы экспортируются через tools/prepare_github_nir.py, проверяются tools/verify_public_export.py и публикуются только в research/pb-acid-nir ветки timspb/rd6018_bot. PDF originals, Telegram raw/cache/media, secrets/session и локальные case data в публичный экспорт не включаются.
 
 Дополнение R20-A01: 24_R20_EVIDENCE_GAP_AUDIT.md — аудит источников, устранение путаницы между восстановлением и профилактикой, исключение Li-ion статей из Pb-acid и приоритеты научной валидации; tools/r20_source_quality_audit.py offline PASS.
+
+## Быстрый доступ
+Начинать с KNOWLEDGE_START.md; исторические отчёты не перечитывать без необходимости. Library optimization: KNOWLEDGE_START.md is the compact current entry; KNOWLEDGE_SUPPLEMENT.md contains S001–S018 scoped records from reports51–56 (not additional C claims). tools/knowledge_index.py builds a derived SQLite FTS5 index from Markdown, read-only search/get/stats, source lines/limits, stale-index detection. Local regression 16 queries passed. Theoretical 61/66, total62/88; five theoretical gaps remain; P3 paused during consolidation. Raw Telegram and private sources excluded. No device changes.
